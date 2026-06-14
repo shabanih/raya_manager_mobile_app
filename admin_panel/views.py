@@ -6252,6 +6252,7 @@ class CommentListView(LoginRequiredMixin, ListView):
     context_object_name = 'comments'
     paginate_by = 50
 
+
 @login_required(login_url=settings.LOGIN_URL_ADMIN)
 def approved_comment(request, pk):
     comment = get_object_or_404(CommentSite, id=pk)

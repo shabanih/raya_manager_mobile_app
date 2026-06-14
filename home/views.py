@@ -1,3 +1,5 @@
+from datetime import timedelta
+
 from django.contrib import messages
 from django.contrib.auth import authenticate, login
 from django.core.paginator import Paginator
@@ -5,13 +7,16 @@ from django.db.models import ProtectedError
 from django.http import HttpResponse
 from django.shortcuts import redirect, render, get_object_or_404
 from django.urls import reverse, reverse_lazy
+from django.utils import timezone
 from django.views.generic import CreateView, UpdateView
 
+from admin_panel.forms import UserRegistrationForm, MyHouseForm
 from admin_panel.helper import get_house_by_subdomain
+from admin_panel.models import Subscription
 from home.forms import FreeRequestForm, ContactUsForm, ArticleForm, CommentSiteForm
 from home.models import SliderText, FreeRequest, ContactUs, Articles, CommentSite
 from user_app.forms import LoginForm
-from user_app.models import Unit, MyHouse
+from user_app.models import Unit, MyHouse, HouseLicense
 
 
 def house_required(view_func):
@@ -24,7 +29,6 @@ def house_required(view_func):
 
 
 def index(request):
-
     if request.house:
         return redirect('house_login_subdomain')
 
@@ -67,6 +71,11 @@ def add_comment(request):
 
 def house_login(request):
     house = request.house
+    enamad = HouseLicense.objects.filter(
+        house=house,
+        license_type='enamad',
+        is_active=True
+    ).first()
 
     if not house:
         return render(request, '404_house.html', status=404)
@@ -122,8 +131,88 @@ def house_login(request):
 
     return render(request, 'login_subdomain.html', {
         'form': form,
-        'house': house
+        'house': house,
+        'enamad': enamad
     })
+
+
+def register_house_by_user(request):
+    user_form = UserRegistrationForm(request.POST)
+
+    house_form = MyHouseForm(request.POST)
+
+    if user_form.is_valid() and house_form.is_valid():
+
+        # ساخت مدیر
+        user_obj = user_form.save(commit=False)
+
+        password = user_form.cleaned_data.get('password')
+
+        if password:
+            user_obj.set_password(password)
+
+        user_obj.is_middle_admin = True
+        user_obj.manager = request.user
+
+        user_obj.is_active = user_form.cleaned_data.get(
+            'is_active'
+        )
+
+        user_obj.is_resident = user_form.cleaned_data.get(
+            'is_resident'
+        )
+
+        user_obj.is_trial = user_form.cleaned_data.get(
+            'is_trial'
+        )
+
+        user_obj.save()
+
+        # روش‌های شارژ
+        charge_methods = user_form.cleaned_data.get(
+            'charge_methods'
+        )
+
+        if charge_methods:
+            user_obj.charge_methods.set(charge_methods)
+
+        # ساخت ساختمان
+        house = house_form.save(commit=False)
+
+        # اتصال مدیر ساختمان
+        house.user = user_obj
+
+        house.save()
+
+        # اتصال ساختمان به مدیر
+        user_obj.house = house
+        user_obj.save()
+
+        # اشتراک تست
+        if user_obj.is_trial:
+            Subscription.objects.create(
+                user=user_obj,
+                units_count=5,
+                final_amount=0,
+                is_trial=True,
+                house=house,
+                start_date=timezone.now(),
+                end_date=timezone.now() + timedelta(days=19)
+            )
+
+        messages.success(
+            request,
+            'مدیر ساختمان و ساختمان با موفقیت ثبت شدند.'
+        )
+
+        return redirect('house_list')
+
+
+    context = {
+        'user_form': user_form,
+        'house_form': house_form,
+    }
+    return render(request, 'register_house_by_user.html', context)
 
 
 # def index(request):

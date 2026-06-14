@@ -185,6 +185,12 @@ class HouseLicense(models.Model):
     def __str__(self):
         return f"{self.house.name}"
 
+    def get_enamad(self):
+        return self.licenses.filter(
+            license_type='enamad',
+            is_active=True
+        ).first()
+
 
 class HousePaymentGateway(models.Model):
     class GatewayType(models.TextChoices):
