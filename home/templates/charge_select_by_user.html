@@ -1,0 +1,97 @@
+{% load poll_extras %}
+{% load static %}
+<html lang="fa">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title> مدیریت مجتمع رایا شارژ</title>
+    <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css"/>
+    <link rel="stylesheet" href="/static/css/all.css">
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/bootstrap-rtl.min.css">
+    <link rel="stylesheet" href="/static/css/core.css">
+     <link rel="shortcut icon" href="{% static 'home/images/favicon1.png' %}">
+
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/Bootstrap.min.js"></script>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/popper.min.js"></script>
+    <script src="/static/js/sweetalert2@11.js"></script>
+    <script src="/static/js/jquery-3.5.1.slim.min.js"></script>
+
+
+</head>
+<body>
+
+<div class="container-fluid">
+    <div class="row text-center">
+        <div class="col p-0">
+            <div id="grad1"></div>
+            <img src="{% static 'home/images/img/logo2.png' %}" class="logo-style" alt="">
+        </div>
+    </div>
+</div>
+
+<div class="container text-end mt-1">
+      <div class="row align-items-start" >
+        <div class="col-12 ">
+            <hr/>
+            <p class="title-charge-warning">توجه: قبل از ثبت اطلاعات ساختمان لطفا روش های محاسبه شارژ را مطالعه نمایید.</p>
+            <div class="col-12 justify-content-center" >
+                
+                     <p class="charge-text py-2"><span class="chargeCircleText">1</span> <strong class="charge-title">شارژ واحدی: </strong>
+  این نوع شارژ بر اساس تعداد واحدها محاسبه می‌شود و همه واحدها به میزان برابر، شارژ را به صورت ماهانه پرداخت می‌کنند.                     </p>
+                <p class="charge-text py-2"><span class="chargeCircleText">2</span><strong class="charge-title">شارژ متراژی: </strong>
+ در این نوع پرداخت شارژ، همه واحدها با توجه به میزان متراژی که دارند، شارژ خود را به صورت ماهانه پرداخت می‌کنند.                     </p>
+                <p class="charge-text py-2"><span class="chargeCircleText">3</span><strong class="charge-title">شارژ نفری: </strong>
+این روش محاسبه بیشتر مربوط به مجتمع هایی است که سیستم آب مشترک دارند. در واقع عمده هزینه مربوط به آب است. در شارژ نفری که مختص مجتمع های مسکونی است، معیار محاسبه ساکنین هستند یعنی هر واحد نسبت به تعداد افراد ساکن در آن، باید شارژ بپردازند                     </p>
+                <p class="charge-text py-2"><span class="chargeCircleText">4</span><strong class="charge-title">شارژ واحدی - متراژی: </strong>
+در این نوع محاسبه از شارژ ساختمان، ملاک عمل جمع دو روش واحدی و متراژی برای تعیین شارژ است. شارژ ماهانه شامل یک شارژ ثابت به اضافه شارژ متغیر متراژی است. متراژ هر واحد، میزان تغییر در شارژ ماهانه آن واحد را تعیین می‌کند. بطوریکه ابتدا بر اساس متر واحد، شارژ متراژی آن محاسبه و سپس شارژ ثابت به آن افزوده می شود. این روش برای مجتمع هایی مناسب است که واحدها دارای متراژ متفاوت و سیستم گرمایش و سرمایشی مرکزی هستند.                     </p>
+                <p class="charge-text py-2"><span class="chargeCircleText">5</span><strong class="charge-title">شارژ واحدی - نفری: </strong>
+مجتمع های مسکونی که دارای واحدهای با متراژ یکسان و سیستم آب آنها مشترک است، از این روش برای محاسبه شارژ استفاده می‌کنند. در این روش، واحدها دارای یک شارژ ثابت هستند و شارژ متغیری که بر اساس تعداد ساکنین هر واحد مشخص می‌شود، به آن اضافه می‌شود.                     </p>
+                
+                     <p class="charge-text py-2"><span class="chargeCircleText">6</span><strong class="charge-title">شارژ نفری - متراژی: </strong>
+                          روش شارژ نفری متراژی، برای مجتمع‌ هایی که واحدهایشان متراژ مختلفی دارند و از سیستم گرمایش و سرمایش مرکزی نیز استفاده می‌کنند، بسیار مناسب است. در این روش، میزان شارژ هر واحد براساس تعداد افراد و متراژ واحد در جدول شارژ ساختمان محاسبه می ‌شود. نحوه محاسبه شارژ نفری متراژی به این صورت است که میزان شارژی که برای متراژ تعیین می ‌شود، باید نسبت بیست به هشتاد (20٪ از 80٪) با میزان شارژ نفری متناسب باشد.
+                     </p>
+                      <p class="charge-text py-2"><span class="chargeCircleText">7</span><strong class="charge-title">شارژ واحدی - نفری - متراژی: </strong>
+در این روش، از ترکیب شارژ واحدی و ثابت یک واحد به همراه شارژ نفری و شارژ متراژی برای محاسبه استفاده می‌شود.                     </p>
+                     <p class="charge-text py-2"><span class="chargeCircleText">8</span><strong class="charge-title">شارژ بر اساس هزینه ثابت و متغیر: </strong>
+                         در روش محاسبه شارژ بر اساس هزینه ثابت و متغیر، واحدها شارژی ثابت پرداخت می ‌کنند و شارژ متغیری که بر اساس تعداد ساکنین هر واحد مشخص می‌شود، به آن اضافه می ‌شود و واحدها باید آن را به صورت ماهانه پرداخت کنند. شارژ نفری با اضافه شدن افراد خانواده بیشتر می ‌شود اما شارژ ثابت بر اساس هزینه‌ های ثابت هر ساله تعیین می ‌گردد. این روش از تعادل میان شارژ نفری و شارژ ثابت برای تقسیم هزینه ‌های مشترک در مجتمع‌های مسکونی با واحدهای مشابه بهره می‌برد.
+                     </p>
+{#                <p class="charge-text py-2"><span class="chargeCircleText">9</span><strong class="charge-title">شارژ واحدی: </strong>#}
+{#یکی از روشهای مناسب برای تعیین حق شارژ ، روش محاسبه بر حسب هزینه‌هاست. در این روش معمولا هزینه‌های آب به صورت نفری، هزینه گاز متراژی و هزینه‌های برق به صورت واحدی یا ثابت محاسبه می‌شوند. به این مدل از محاسبه که شارژ ساختمان بر اساس هزینه‌های انجام شده بین واحدها تقسیم می‌شود، شارژ با روش برآورد هزینه ها نیز می‌گویند.                     </p>#}
+            </div>
+        </div>
+    <div class="row">
+        <div class="col-12 text-center">
+            <a href="{% url 'register_house_by_user' %}" class="btn-next">
+                ثبت اطلاعات ساختمان
+                <i class="fa fa-arrow-left me-3"></i>
+            </a>
+        </div>
+    </div>
+      </div>
+</div>
+
+<div class="container mt-4">
+    <div class="row">
+        <div class="col-12 text-center">
+
+            <hr class="my-3">
+
+            <p class="small text-muted mb-4">
+                <i class="fa fa-copyright px-1"></i>
+                تمام حقوق مادی و معنوی این سامانه متعلق به
+                <strong>رایا توسعه هوشمند داریا</strong>
+                می‌باشد.
+            </p>
+
+        </div>
+    </div>
+</div>
+
+</body>
+</html>

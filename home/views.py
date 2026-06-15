@@ -10,7 +10,7 @@ from django.urls import reverse, reverse_lazy
 from django.utils import timezone
 from django.views.generic import CreateView, UpdateView
 
-from admin_panel.forms import UserRegistrationForm, MyHouseForm
+from admin_panel.forms import UserRegistrationForm, MyHouseForm, UserRegistrationByUserForm
 from admin_panel.helper import get_house_by_subdomain
 from admin_panel.models import Subscription
 from home.forms import FreeRequestForm, ContactUsForm, ArticleForm, CommentSiteForm
@@ -136,83 +136,80 @@ def house_login(request):
     })
 
 
+def charge_select(request):
+    return render(request, 'charge_select_by_user.html')
+
+
 def register_house_by_user(request):
-    user_form = UserRegistrationForm(request.POST)
+    user_form = UserRegistrationByUserForm(request.POST or None)
+    house_form = MyHouseForm(request.POST or None)
 
-    house_form = MyHouseForm(request.POST)
+    if request.method == "POST":
 
-    if user_form.is_valid() and house_form.is_valid():
+        if user_form.is_valid() and house_form.is_valid():
 
-        # ساخت مدیر
-        user_obj = user_form.save(commit=False)
+            # ساخت کاربر
+            user_obj = user_form.save(commit=False)
 
-        password = user_form.cleaned_data.get('password')
+            # ❌ هنوز تایید نشده → دسترسی پنل ندارد
+            user_obj.is_middle_admin = True
 
-        if password:
-            user_obj.set_password(password)
+            # ❗ مهم: برای جلوگیری از ورود
+            user_obj.is_active = False
 
-        user_obj.is_middle_admin = True
-        user_obj.manager = request.user
+            user_obj.is_resident = user_form.cleaned_data.get('is_resident')
+            user_obj.mobile = user_form.cleaned_data.get('mobile')
+            user_obj.manager = request.user
+            user_obj.username = user_obj.mobile
 
-        user_obj.is_active = user_form.cleaned_data.get(
-            'is_active'
-        )
+            charge_methods = user_form.cleaned_data.get('charge_methods')
+            if charge_methods:
+                user_obj.charge_methods.set(charge_methods)
 
-        user_obj.is_resident = user_form.cleaned_data.get(
-            'is_resident'
-        )
+            user_obj.save()
 
-        user_obj.is_trial = user_form.cleaned_data.get(
-            'is_trial'
-        )
+            # ساخت ساختمان
+            house = house_form.save(commit=False)
 
-        user_obj.save()
+            house.user = user_obj
+            house.save()
 
-        # روش‌های شارژ
-        charge_methods = user_form.cleaned_data.get(
-            'charge_methods'
-        )
+            user_obj.house = house
+            user_obj.save()
 
-        if charge_methods:
-            user_obj.charge_methods.set(charge_methods)
+            # اشتراک تست (در صورت فعال بودن)
+            if user_obj.is_trial:
+                Subscription.objects.create(
+                    user=user_obj,
+                    house=user_obj.house,
+                    units_count=5,
+                    total_amount=0,
+                    discount_amount=0,
+                    final_amount=0,
+                    is_trial=True,
+                    start_date=timezone.now(),
+                    end_date=timezone.now() + timedelta(days=19),
+                    is_paid=True,
+                    status='active'
+                )
 
-        # ساخت ساختمان
-        house = house_form.save(commit=False)
-
-        # اتصال مدیر ساختمان
-        house.user = user_obj
-
-        house.save()
-
-        # اتصال ساختمان به مدیر
-        user_obj.house = house
-        user_obj.save()
-
-        # اشتراک تست
-        if user_obj.is_trial:
-            Subscription.objects.create(
-                user=user_obj,
-                units_count=5,
-                final_amount=0,
-                is_trial=True,
-                house=house,
-                start_date=timezone.now(),
-                end_date=timezone.now() + timedelta(days=19)
+            messages.success(
+                request,
+                "ثبت‌نام با موفقیت انجام شد. طی چند ساعت آینده پنل کاربری شما ایجاد و با شما تماس خواهیم گرفت"
             )
 
-        messages.success(
-            request,
-            'مدیر ساختمان و ساختمان با موفقیت ثبت شدند.'
-        )
-
-        return redirect('house_list')
-
-
-    context = {
-        'user_form': user_form,
-        'house_form': house_form,
-    }
-    return render(request, 'register_house_by_user.html', context)
+            # ⛔ مهم: لاگین ممنوع
+            return redirect('home')
+    print(user_form.errors)
+    print(house_form.errors)
+    return render(
+        request,
+        'register_house_by_user.html',
+        {
+            'user_form': user_form,
+            'house_form': house_form,
+        }
+    )
 
 
 # def index(request):

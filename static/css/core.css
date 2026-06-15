@@ -137,7 +137,7 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .btn-login {
-      display: inline-block;
+  display: inline-block;
   padding: 10px 25px;
   background-color: #00ACC1;
   border: 1px solid #00ACC1;
@@ -327,3 +327,84 @@ h1, h2, h3, h4, h5, h6 {
     font-weight: 600;
 }
 
+.chargeCircleText{
+          background: rgb(12, 6, 6);
+  border-radius: 3em;
+  -moz-border-radius: 3em;
+  -webkit-border-radius: 3em;
+  color: rgb(239, 237, 234);
+  height: 2.1em;
+  width: 2.1em;
+  display: inline-block;
+  font-size: 15px;
+  line-height: 1.9em;
+  text-align: center;
+
+}
+
+.charge-title{
+    color: #efedea;
+    font-weight: 900;
+    font-family: VazirBold, sans-serif;
+    background-color: #1b2658;
+    border-radius: 5px;
+    padding: 5px;
+    margin: 10px;
+}
+
+.charge-text{
+   max-height: 300px;
+	text-align: justify;
+}
+
+.btn-next {
+  display: inline-block;
+  padding: 8px 20px;
+  background-color: #00ACC1;
+  border: 1px solid #00ACC1;
+  color: #ffffff;
+  border-radius: 25px;
+  -webkit-transition: all 0.3s;
+  transition: all 0.3s;
+  text-transform: uppercase;
+  margin-top: 20px;
+  font-weight: 600;
+  width: 20%;
+
+}
+.btn-next:hover {
+    background-color: #0097a7;
+    color: #ffffff;
+}
+.title-charge-warning{
+    background-color: #e9f639;
+    color: #202548F9;
+    padding: 20px;
+    border-radius: 5px;
+    font-weight: 900;
+    box-shadow: #1b2658 2px 2px;
+}
+
+.charge-grid ul {
+    display: grid !important;
+    grid-template-columns: repeat(2, 1fr); /* 2 ستون */
+    gap: 12px;
+    padding: 0;
+    margin: 0;
+    list-style: none;
+}
+
+.charge-grid li {
+    display: flex;
+    align-items: center;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 10px;
+    transition: 0.3s;
+    background: #fff;
+}
+
+.charge-grid li:hover {
+    border-color: #00ACC1;
+    background: #f0fbfc;
+}

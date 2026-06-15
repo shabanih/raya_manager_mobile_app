@@ -1990,3 +1990,16 @@ form input[type="submit"]:focus {
     color: #808080 !important;
 }
 /*========================================*/
+.chargeCircleText{
+          background: rgb(12, 6, 6);
+  border-radius: 3em;
+  -moz-border-radius: 3em;
+  -webkit-border-radius: 3em;
+  color: rgb(239, 237, 234);
+  height: 1.8em;
+  width: 1.8em;
+  display: inline-block;
+  font-size: 11px;
+  line-height: 1.9em;
+  text-align: center;
+}

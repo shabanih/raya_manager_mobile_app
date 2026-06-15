@@ -35,10 +35,10 @@
     </div>
 </div>
 
-<div class="container mt-4">
+<div class="container mt-1">
 
     <div class="row justify-content-center">
-        <div class="col-12 col-md-8 col-lg-6">
+        <div class="col-12 col-md-10 col-lg-10">
 
             {% if messages %}
                 <div class="mt-3 m-2">
@@ -60,12 +60,12 @@
 
             <div class="card shadow border-0 p-4">
 
-                <form method="post" novalidate>
+              <form method="post" action="{% url 'register_house_by_user' %}" novalidate>
                     {% csrf_token %}
 
                     <div class="row">
 
-                        <div class="col-12 col-md-6">
+                        <div class="col-12 col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">نام و نام خانوادگی</label>
                                 {{ user_form.full_name }}
@@ -75,7 +75,7 @@
                             </div>
                         </div>
 
-                        <div class="col-12 col-md-6">
+                        <div class="col-12 col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">موبایل</label>
                                 {{ user_form.mobile }}
@@ -84,12 +84,7 @@
                                 {% endif %}
                             </div>
                         </div>
-
-                    </div>
-
-                    <div class="row">
-
-                        <div class="col-12 col-md-6">
+                             <div class="col-12 col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">نام ساختمان</label>
                                 {{ house_form.name }}
@@ -98,49 +93,20 @@
                                 {% endif %}
                             </div>
                         </div>
-
-                        <div class="col-12 col-md-6">
-                            <div class="mb-3">
-                                <label class="form-label">تلفن ساختمان</label>
-                                {{ house_form.phone }}
-                            </div>
-                        </div>
-
-                    </div>
-
-                    <div class="row">
-
-                        <div class="col-12 col-md-6">
+                       <div class="col-12 col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">نوع کاربری</label>
                                 {{ house_form.user_type }}
                             </div>
                         </div>
-
-                        <div class="col-12 col-md-6">
+                         <div class="col-12 col-md-3">
                             <div class="mb-3">
                                 <label class="form-label">شهر</label>
                                 {{ house_form.city }}
                             </div>
                         </div>
-
-                    </div>
-
-                    <div class="row">
-
-                        <div class="col-12">
-                            <div class="mb-3">
-                                <label class="form-label">آدرس</label>
-                                {{ house_form.address }}
-                            </div>
-                        </div>
-
-                    </div>
-
-                    <div class="row">
-
-                        <div class="col-12">
-                            <div class="form-label mt-2">
+                        <div class="col-12 col-md-3">
+                            <div class="form-label">
                                  <label class="form-label">
                                     آیا ساکن ساختمان هستید؟
                                 </label>
@@ -148,15 +114,41 @@
                                
                             </div>
                         </div>
+                          <div class="col-12 col-md-6">
+                            <div class="mb-3">
+                                <label class="form-label">آدرس</label>
+                                {{ house_form.address }}
+                            </div>
+                        </div>
+            <div class="col-12">
+    <div class="mb-3">
 
-                    </div>
+        <label class="form-label fw-bold">
+            <i class="fas fa-gem"></i>
+            روش محاسبه شارژ
+        </label>
 
-                    <div class="text-center mt-4">
-                        <button type="submit" class="btn btn-primary px-5 py-2 rounded-pill">
-                            <i class="fas fa-save me-1"></i>
-                            ثبت اطلاعات
-                        </button>
+        <div class="charge-grid card-body bg-light">
+            {{ user_form.charge_methods }}
+        </div>
+
+        {% if user_form.charge_methods.errors %}
+            <small class="text-danger">
+                {{ user_form.charge_methods.errors.0 }}
+            </small>
+        {% endif %}
+
+    </div>
+</div>
                     </div>
+          
+              
+               <div class="text-center">
+    <button type="submit" class="btn-login px-4 border-0">
+        <i class="fas fa-save me-1"></i>
+        ثبت و ادامه
+    </button>
+</div>
 
                 </form>
 
@@ -172,7 +164,7 @@
 
             <hr class="my-3">
 
-            <p class="small text-muted mb-0">
+            <p class="small text-muted mb-4">
                 <i class="fa fa-copyright px-1"></i>
                 تمام حقوق مادی و معنوی این سامانه متعلق به
                 <strong>رایا توسعه هوشمند داریا</strong>

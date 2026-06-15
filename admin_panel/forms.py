@@ -236,8 +236,8 @@ class UserRegistrationForm(forms.ModelForm):
                              widget=forms.TextInput(attrs=attr),
                              label='شماره تلفن ')
     full_name = forms.CharField(error_messages=error_message, required=True,
-                                widget=forms.TextInput(attrs=attr3), label='نام ')
-    username = forms.CharField(error_messages=error_message, required=True,
+                                widget=forms.TextInput(attrs=attr), label='نام ')
+    username = forms.CharField(error_messages=error_message, required=False,
                                widget=forms.TextInput(attrs=attr3), label='نام کاربری ')
 
     password = forms.CharField(
@@ -264,6 +264,7 @@ class UserRegistrationForm(forms.ModelForm):
             ('1', 'بله'),
             ('0', 'خیر'),
         ),
+        required=False,
         coerce=lambda x: x == '1',
         widget=forms.Select(attrs=attr),
         label='فعال باشد؟'
@@ -274,6 +275,7 @@ class UserRegistrationForm(forms.ModelForm):
             ('1', 'بله'),
             ('0', 'خیر'),
         ),
+        required=False,
         coerce=lambda x: x == '1',
         widget=forms.Select(attrs=attr),
         label='ساکن ساختمان میباشد؟',
@@ -285,6 +287,7 @@ class UserRegistrationForm(forms.ModelForm):
             ('1', 'بله'),
             ('0', 'خیر'),
         ),
+        required=False,
         coerce=lambda x: x == '1',
         widget=forms.Select(attrs=attr),
         label='اشتراک رایگان؟',
@@ -294,7 +297,123 @@ class UserRegistrationForm(forms.ModelForm):
     class Meta:
         model = User
         fields = ['full_name', 'username', 'mobile', 'password', 'is_active', 'charge_methods', 'is_resident',
-                  'is_trial', 'is_active']
+                  'is_trial']
+
+    def clean_mobile(self):
+        mobile = self.cleaned_data.get('mobile')
+        if User.objects.filter(mobile=mobile).exclude(pk=self.instance.pk).exists():
+            raise ValidationError("شماره موبایل قبلاً ثبت شده است.")
+        return mobile
+
+    # def clean_username(self):
+    #     username = self.cleaned_data.get('username')
+    #     if User.objects.filter(username=username).exclude(pk=self.instance.pk).exists():
+    #         raise ValidationError("نام کاربری قبلاً ثبت شده است.")
+    #     return username
+
+    def clean_password2(self):
+        password = self.cleaned_data.get("password")
+        confirm_password = self.cleaned_data.get("password")
+
+        if password and confirm_password and password != confirm_password:
+            raise ValidationError("رمزهای عبور با هم مطابقت ندارند!")
+
+        return confirm_password
+
+    # def clean_is_active(self):
+    #     return self.cleaned_data.get('is_active', False)
+
+    def save(self, commit=True):
+        user = super().save(commit=False)
+        password = self.cleaned_data.get('password')
+        if password:
+            user.set_password(password)
+        else:
+            user.password = self.instance.password
+
+        if commit:
+            user.save()
+
+        return user
+
+
+class UserRegistrationByUserForm(forms.ModelForm):
+
+    mobile = forms.CharField(error_messages=error_message,
+                             required=True,
+                             max_length=11,
+                             min_length=11,
+                             widget=forms.TextInput(attrs=attr),
+                             label='شماره تلفن ')
+    full_name = forms.CharField(error_messages=error_message, required=True,
+                                widget=forms.TextInput(attrs=attr), label='نام ')
+    username = forms.CharField(error_messages=error_message, required=False,
+                               widget=forms.TextInput(attrs=attr3), label='نام کاربری ')
+
+    password = forms.CharField(
+        required=False,
+        label='رمز عبور',
+        widget=forms.PasswordInput(attrs=attr),
+        help_text='رمز عبور باید شامل اعداد و حروف باشد'
+    )
+    confirm_password = forms.CharField(
+        required=False,
+        label='تایید رمز عبور',
+        widget=forms.PasswordInput(attrs=attr),
+        help_text='رمز عبور باید شامل اعداد و حروف باشد'
+    )
+    # charge_methods = forms.ModelMultipleChoiceField(
+    #     queryset=ChargeMethod.objects.all(),
+    #     required=False,
+    #     widget=forms.CheckboxSelectMultiple,
+    #     label='روش‌های شارژ قابل دسترسی'
+    # )
+    charge_methods = forms.ModelChoiceField(
+        queryset=ChargeMethod.objects.all(),
+        widget=forms.RadioSelect,
+        required=True,
+        label='روش محاسبه شارژ'
+    )
+
+    is_active = forms.TypedChoiceField(
+        choices=(
+            ('1', 'بله'),
+            ('0', 'خیر'),
+        ),
+        required=False,
+        coerce=lambda x: x == '1',
+        widget=forms.Select(attrs=attr),
+        label='فعال باشد؟'
+    )
+
+    is_resident = forms.TypedChoiceField(
+        choices=(
+            ('1', 'بله'),
+            ('0', 'خیر'),
+        ),
+        required=False,
+        coerce=lambda x: x == '1',
+        widget=forms.Select(attrs=attr),
+        label='ساکن ساختمان میباشد؟',
+        initial='0'
+    )
+
+    is_trial = forms.TypedChoiceField(
+        choices=(
+            ('1', 'بله'),
+            ('0', 'خیر'),
+        ),
+        required=False,
+        coerce=lambda x: x == '1',
+        widget=forms.Select(attrs=attr),
+        label='اشتراک رایگان؟',
+        initial='0'
+    )
+
+    class Meta:
+        model = User
+        fields = ['full_name', 'username', 'mobile', 'password', 'is_active', 'charge_methods', 'is_resident',
+                  'is_trial']
 
     def clean_mobile(self):
         mobile = self.cleaned_data.get('mobile')
@@ -443,27 +562,27 @@ USER_TYPE_CHOICES = [
 class MyHouseForm(forms.ModelForm):
     name = forms.CharField(error_messages=error_message, required=True, widget=forms.TextInput(attrs=attr),
                            label='نام ساختمان')
-    phone = forms.CharField(error_messages=error_message, required=True, widget=forms.TextInput(attrs=attr),
+    phone = forms.CharField(error_messages=error_message, required=False, widget=forms.TextInput(attrs=attr),
                             label='تلفن', max_length=11)
     # boss_mobile = forms.CharField(error_messages=error_message, max_length=11, required=True,
     #                               widget=forms.TextInput(attrs=attr),
     #                               label='موبایل مدیر')
-    subdomain = forms.CharField(error_messages=error_message, required=True, widget=forms.TextInput(attrs=attr),
+    subdomain = forms.CharField(error_messages=error_message, required=False, widget=forms.TextInput(attrs=attr),
                                 label='نام لاتین')
     user_type = forms.ChoiceField(error_messages=error_message, choices=USER_TYPE_CHOICES, required=True,
-                                  widget=forms.Select(attrs=attr3),
+                                  widget=forms.Select(attrs=attr),
                                   label='نوع کاربری')
-    floor_counts = forms.IntegerField(error_messages=error_message, required=True,
+    floor_counts = forms.IntegerField(error_messages=error_message, required=False,
                                       widget=forms.NumberInput(attrs=attr),
                                       label='تعداد طبقات')
-    unit_counts = forms.IntegerField(error_messages=error_message, required=True,
+    unit_counts = forms.IntegerField(error_messages=error_message, required=False,
                                      widget=forms.NumberInput(attrs=attr),
                                      label='تعداد واحدها')
 
     city = forms.ChoiceField(error_messages=error_message, choices=CITY_CHOICES, required=True,
-                             widget=forms.Select(attrs=attr3),
+                             widget=forms.Select(attrs=attr),
                              label='شهر')
-    address = forms.CharField(error_messages=error_message, required=True,
+    address = forms.CharField(error_messages=error_message, required=False,
                               widget=forms.TextInput(attrs=attr),
                               label='آدرس')
     is_active = forms.TypedChoiceField(
@@ -471,6 +590,7 @@ class MyHouseForm(forms.ModelForm):
             (1, 'بله'),
             (0, 'خیر')
         ),
+        required=False,
         coerce=lambda x: x == '1',
         widget=forms.Select(attrs=attr),
         label='فعال باشد؟'
