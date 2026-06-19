@@ -9,7 +9,7 @@
             <div class="row">
                <div class="col-md-12">
                   <div class="full mt-3">
-                     <h4>Contact us | ارتباط با ما</h4>
+                     <h1>Contact us | ارتباط با ما</h1>
                   </div>
                </div>
             </div>
@@ -42,7 +42,7 @@
             <div class="info-item d-flex flex-column justify-content-center align-items-center step-card" data-aos="fade-up" data-aos-delay="200">
               <i class="bi bi-geo-alt"></i>
               <h3 class="mb-3">آدرس</h3>
-              <p>تهران، مجتمع رزمال پلاک 98</p>
+              <p id="address">{{ "تهران، مجتمع رزمال پلاک 98"|to_persian_number }}</p>
             </div>
           </div><!-- End Info Item -->
 
@@ -50,7 +50,7 @@
             <div class="info-item d-flex flex-column justify-content-center align-items-center step-card" data-aos="fade-up" data-aos-delay="300">
               <i class="bi bi-telephone"></i>
               <h3 class="mb-3">شماره تماس</h3>
-              <p >44783265 - 021 </p>
+              <p>{{ "0996636395"|to_persian_number }}</p>
             </div>
           </div><!-- End Info Item -->
 
@@ -66,7 +66,7 @@
 
         <div class="row gy-4 mt-1">
           <div class="col-lg-6 text-center" data-aos="fade-up" data-aos-delay="300">
-              <img src="/static/home/images/img/vecteezy_vibrant-classic-woman-with-headphones-taking-online-course_57572658.png" width="350" alt="">
+              <img src="/static/home/images/img/vecteezy_vibrant-classic-woman-with-headphones-taking-online-course_57572658.png" width="350" alt="مدیریت ساختمان رایا شارژ">
           </div><!-- End Google Maps -->
 
           <div class="col-lg-6">
@@ -117,17 +117,7 @@
     });
 </script>
 
-{#    <script>#}
-{#    {% if messages %}#}
-{#        {% for message in messages %}#}
-{#            Swal.fire({#}
-{#                icon: "{% if message.tags == 'success' %}success{% else %}error{% endif %}",#}
-{#                title: "{% if message.tags == 'success' %}موفقیت‌آمیز{% else %}خطا{% endif %}",#}
-{#                text: "{{ message }}",#}
-{#                confirmButtonText: 'باشه',#}
-{#                confirmButtonColor: '#3085d6'#}
-{#            });#}
-{#        {% endfor %}#}
-{#    {% endif %}#}
-{#</script>#}
+
+
+    
 {% endblock %}

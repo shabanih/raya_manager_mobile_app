@@ -625,25 +625,30 @@ a:focus {
   margin-bottom: 10px;
 }
 
-.arrival_section .box {
-  padding: 120px 45px;
-  position: relative;
-}
+/*.arrival_section .box {*/
+/*  padding: 120px 45px;*/
+/*  position: relative;*/
+/*}*/
 
-.arrival_section .arrival_bg_box {
+.arrival_bg_img {
     position: absolute;
-    top: 0;
-    left: 0;
+    top: -25px;
+    left: 250px;
     width: 50%;   /* فقط نصف عرض */
-    height: 100%;
+    height: 75%;
     z-index: 1;   /* زیر متن */
 }
 
-.arrival_section .box {
-    padding: 120px 45px;
-    position: relative;
-    z-index: 2;   /* متن بیاد روی عکس */
+@media (max-width: 992px) {
+    .arrival_bg_img {
+  display: none;
+    }
 }
+/*.arrival_section .box {*/
+/*    padding: 120px 45px;*/
+/*    position: relative;*/
+/*    z-index: 2;   !* متن بیاد روی عکس *!*/
+/*}*/
 
 /*.arrival_section .arrival_bg_box img {*/
 /*    width: 100%;*/
@@ -871,11 +876,9 @@ a:focus {
   -webkit-transform: translateY(-50%);
           transform: translateY(-50%);
   opacity: 1;
-  width: auto;
   margin: 0 5px;
   width: 50px;
   height: 50px;
-  opacity: 1;
   color: #ffffff;
   background-color: #00ACC1;
   border-radius: 100%;
@@ -1070,12 +1073,27 @@ li.nav-item ul li a:hover, li.nav-item ul li a:focus {
     color: #fff;
     padding-top: 22px;
     padding-bottom: 16px;
+    /*height: 300px;*/
 }
-
+.inner_page_head h1 {
+font-size: 20px;
+    font-weight: 800;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
 .inner_page_head h3 {
     font-size: 42px;
     font-weight: 800;
 }
+.img-header{
+    width: 400px;
+    height: 450px;
+    position: absolute;
+    top: -20px;
+    left: 100px;
+}
+
 
 /** footer **/
 

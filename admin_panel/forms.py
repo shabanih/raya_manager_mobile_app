@@ -259,39 +259,34 @@ class UserRegistrationForm(forms.ModelForm):
         label='روش‌های شارژ قابل دسترسی'
     )
 
-    is_active = forms.TypedChoiceField(
-        choices=(
-            ('1', 'بله'),
-            ('0', 'خیر'),
-        ),
+    is_active = forms.BooleanField(
         required=False,
-        coerce=lambda x: x == '1',
-        widget=forms.Select(attrs=attr),
-        label='فعال باشد؟'
+        label='فعال باشد؟',
+        widget=forms.Select(choices=[
+            (True, 'بله'),
+            (False, 'خیر'),
+        ], attrs=attr)
     )
 
-    is_resident = forms.TypedChoiceField(
-        choices=(
-            ('1', 'بله'),
-            ('0', 'خیر'),
-        ),
-        required=False,
-        coerce=lambda x: x == '1',
+    is_resident = forms.ChoiceField(
+        choices=[
+            ('True', 'بله'),
+            ('False', 'خیر'),
+        ],
         widget=forms.Select(attrs=attr),
+        required=False,
         label='ساکن ساختمان میباشد؟',
-        initial='0'
+
     )
 
-    is_trial = forms.TypedChoiceField(
-        choices=(
-            ('1', 'بله'),
-            ('0', 'خیر'),
-        ),
-        required=False,
-        coerce=lambda x: x == '1',
+    is_trial = forms.ChoiceField(
+        choices=[
+            ('True', 'دارد'),
+            ('False', 'ندارد'),
+        ],
         widget=forms.Select(attrs=attr),
-        label='اشتراک رایگان؟',
-        initial='0'
+        required=False,
+        label='اشتراک رایگان؟'
     )
 
     class Meta:
@@ -395,7 +390,7 @@ class UserRegistrationByUserForm(forms.ModelForm):
         coerce=lambda x: x == '1',
         widget=forms.Select(attrs=attr),
         label='ساکن ساختمان میباشد؟',
-        initial='0'
+
     )
 
     is_trial = forms.TypedChoiceField(
@@ -407,7 +402,7 @@ class UserRegistrationByUserForm(forms.ModelForm):
         coerce=lambda x: x == '1',
         widget=forms.Select(attrs=attr),
         label='اشتراک رایگان؟',
-        initial='0'
+
     )
 
     class Meta:
@@ -427,9 +422,9 @@ class UserRegistrationByUserForm(forms.ModelForm):
     #         raise ValidationError("نام کاربری قبلاً ثبت شده است.")
     #     return username
 
-    def clean_password2(self):
+    def clean_confirm_password(self):
         password = self.cleaned_data.get("password")
-        confirm_password = self.cleaned_data.get("password")
+        confirm_password = self.cleaned_data.get("confirm_password")
 
         if password and confirm_password and password != confirm_password:
             raise ValidationError("رمزهای عبور با هم مطابقت ندارند!")
@@ -585,28 +580,15 @@ class MyHouseForm(forms.ModelForm):
     address = forms.CharField(error_messages=error_message, required=False,
                               widget=forms.TextInput(attrs=attr),
                               label='آدرس')
-    is_active = forms.TypedChoiceField(
-        choices=(
-            (1, 'بله'),
-            (0, 'خیر')
-        ),
+    is_active = forms.BooleanField(
         required=False,
-        coerce=lambda x: x == '1',
-        widget=forms.Select(attrs=attr),
-        label='فعال باشد؟'
+        label='فعال باشد؟',
+        widget=forms.Select(choices=[
+            (True, 'بله'),
+            (False, 'خیر'),
+        ], attrs=attr)
     )
 
-    # enamad_code = forms.CharField(
-    #     required=False,
-    #     widget=forms.Textarea(
-    #         attrs={
-    #             'class': 'form-control',
-    #             'rows': 5,
-    #             'dir': 'ltr'
-    #         }
-    #     ),
-    #     label='کد اینماد'
-    # )
 
     class Meta:
         model = MyHouse

@@ -6202,6 +6202,7 @@ class CouponListView(CreateView):
     # copen_count = Coupon.objects.count()
 
     def form_valid(self, form):
+        form.instance.user = self.request.user
         messages.success(self.request, 'کوپن با موفقیت ثبت گردید.')
         return super(CouponListView, self).form_valid(form)
 

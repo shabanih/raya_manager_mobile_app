@@ -1566,7 +1566,7 @@ class Subscription(models.Model):
 
 
 class CouponUsage(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
+    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
     coupon = models.ForeignKey(Coupon, on_delete=models.CASCADE)
     used_at = models.DateTimeField(auto_now_add=True)
 

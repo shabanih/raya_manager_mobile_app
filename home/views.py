@@ -12,11 +12,11 @@ from django.views.generic import CreateView, UpdateView
 
 from admin_panel.forms import UserRegistrationForm, MyHouseForm, UserRegistrationByUserForm
 from admin_panel.helper import get_house_by_subdomain
-from admin_panel.models import Subscription
+from admin_panel.models import Subscription, SubscriptionPlan, Coupon, CouponUsage
 from home.forms import FreeRequestForm, ContactUsForm, ArticleForm, CommentSiteForm
 from home.models import SliderText, FreeRequest, ContactUs, Articles, CommentSite
 from user_app.forms import LoginForm
-from user_app.models import Unit, MyHouse, HouseLicense
+from user_app.models import Unit, MyHouse, HouseLicense, User
 
 
 def house_required(view_func):
@@ -159,19 +159,21 @@ def register_house_by_user(request):
 
             user_obj.is_resident = user_form.cleaned_data.get('is_resident')
             user_obj.mobile = user_form.cleaned_data.get('mobile')
-            user_obj.manager = request.user
+
             user_obj.username = user_obj.mobile
 
-            charge_methods = user_form.cleaned_data.get('charge_methods')
-            if charge_methods:
-                user_obj.charge_methods.set(charge_methods)
-
             user_obj.save()
+
+            selected_method = user_form.cleaned_data.get('charge_methods')
+
+            if selected_method:
+                user_obj.charge_methods.add(selected_method)
 
             # ساخت ساختمان
             house = house_form.save(commit=False)
 
             house.user = user_obj
+            house.is_active = False
             house.save()
 
             user_obj.house = house
@@ -199,7 +201,10 @@ def register_house_by_user(request):
             )
 
             # ⛔ مهم: لاگین ممنوع
-            return redirect('home')
+            return redirect(
+                'buy_subscription_by_user',
+                user_id=user_obj.id
+            )
     print(user_form.errors)
     print(house_form.errors)
     return render(
@@ -208,158 +213,117 @@ def register_house_by_user(request):
         {
             'user_form': user_form,
             'house_form': house_form,
+
         }
     )
 
 
-# def index(request):
-#     articles = Articles.objects.filter(is_active=True).order_by('-created_at')[:3]
-#     sliders = SliderText.objects.all().order_by('-id')
-#
-#     if request.house:
-#         return redirect('house_login_subdomain')
-#
-#     form = FreeRequestForm()
-#     if request.method == 'POST':
-#         form = FreeRequestForm(request.POST)
-#         if form.is_valid():
-#             form.save()
-#             messages.success(request, 'درخواست شما با موفقیت ثبت گردید. پس از بررسی با شما تماس خواهیم گرفت')
-#             return redirect('home')
-#         else:
-#             messages.error(request, 'oxg')
-#             return redirect('home')
-#
-#     return render(request, 'home.html', {
-#         'form': form,
-#         'articles': articles,
-#         'sliders': sliders
-#     })
-#
-#
-# def house_home(request):
-#     house = get_house_by_subdomain(getattr(request, 'subdomain', None))
-#
-#     # house = request.house
-#
-#     # اگر ساب‌دامین معتبر نبود
-#     if not house:
-#         return render(request, '404_house.html', status=404)
-#
-#     # اگر قبلا لاگین کرده
-#     if request.user.is_authenticated:
-#
-#         # مدیر همین ساختمان
-#         if house.user == request.user:
-#             return redirect('middle_admin_dashboard')
-#
-#         # ساکن همین ساختمان
-#         if house.residents.filter(id=request.user.id).exists():
-#             return redirect('user_panel')
-#
-#         messages.error(
-#             request,
-#             'شما به این ساختمان دسترسی ندارید.'
-#         )
-#
-#     form = LoginForm(request.POST or None)
-#
-#     if request.method == 'POST' and form.is_valid():
-#
-#         mobile = form.cleaned_data['mobile']
-#         password = form.cleaned_data['password']
-#
-#         user = authenticate(
-#             request,
-#             username=mobile,
-#             password=password
-#         )
-#
-#         if not user:
-#             messages.error(
-#                 request,
-#                 'شماره موبایل یا رمز عبور صحیح نیست.'
-#             )
-#
-#         elif not user.is_active:
-#             messages.error(
-#                 request,
-#                 'حساب کاربری شما غیرفعال است.'
-#             )
-#
-#         elif user.is_superuser:
-#             messages.error(
-#                 request,
-#                 'از پنل مدیریت وارد شوید.'
-#             )
-#
-#         else:
-#
-#             # مدیر ساختمان
-#             is_house_owner = house.user_id == user.id
-#
-#             # ساکن ساختمان
-#             is_resident = house.residents.filter(
-#                 id=user.id
-#             ).exists()
-#
-#             if not (is_house_owner or is_resident):
-#                 messages.error(
-#                     request,
-#                     'شما عضو این ساختمان نیستید.'
-#                 )
-#
-#             else:
-#
-#                 login(request, user)
-#
-#                 # مدیر ساختمان
-#                 if is_house_owner:
-#                     return redirect(
-#                         'middle_admin_dashboard'
-#                     )
-#
-#                 # ساکنین
-#                 return redirect(
-#                     'user_panel'
-#                 )
-#
-#     context = {
-#         'form': form,
-#         'house': house,
-#     }
-#
-#     return render(
-#         request,
-#         'building_page.html',
-#         context
-#     )
-#
-#
-# def house_login(request):
-#     house = get_house_by_subdomain(getattr(request, 'subdomain', None))
-#
-#     if not house:
-#         return render(request, "404_house.html")
-#
-#     if request.method == "POST":
-#         username = request.POST.get("username")
-#         password = request.POST.get("password")
-#
-#         user = authenticate(request, username=username, password=password)
-#
-#         if user and user in house.residents.all():
-#             login(request, user)
-#             return redirect("dashboard")
-#
-#         return render(request, "middle_login.html", {
-#             "house": house,
-#             "error": "اطلاعات اشتباه است"
-#         })
-#
-#     return render(request, "middle_login.html", {
-#         "house": house
-#     })
+def buy_subscription_by_user(request, user_id):
+    user = get_object_or_404(User, id=user_id)
+
+    house = user.house
+
+    plans = SubscriptionPlan.objects.filter(
+        is_active=True
+    ).order_by('duration')
+
+    unit_count = Unit.objects.filter(
+        user=user,
+        is_active=True
+    ).count()
+
+    if request.method == "POST":
+
+        plan_id = request.POST.get('plan')
+
+        plan = get_object_or_404(
+            SubscriptionPlan,
+            id=plan_id,
+            is_active=True
+        )
+
+        units = int(request.POST.get('units_count'))
+
+        total_amount = units * plan.price_per_unit
+
+        coupon_code = request.POST.get("coupon")
+
+        discount_amount = 0
+        coupon = None
+
+        if coupon_code:
+            try:
+                coupon = Coupon.objects.get(code__iexact=coupon_code)
+
+                # بررسی استفاده قبلی
+                already_used = CouponUsage.objects.filter(
+                    user=request.user,
+                    coupon=coupon
+                ).exists()
+
+                if already_used:
+                    messages.error(
+                        request,
+                        "شما قبلاً از این کد تخفیف استفاده کرده‌اید."
+                    )
+                    return redirect("buy_subscription_by_user")
+
+                if not coupon.is_valid():
+                    messages.error(
+                        request,
+                        "کد تخفیف منقضی یا غیرفعال است."
+                    )
+                    return redirect("buy_subscription_by_user")
+
+                if coupon.discount > total_amount:
+                    messages.error(
+                        request,
+                        "مبلغ کد تخفیف بیشتر از مبلغ کل سفارش است و قابل استفاده نیست."
+                    )
+                    return redirect("buy_subscription_by_user")
+
+                discount_amount = coupon.discount
+
+            except Coupon.DoesNotExist:
+                messages.error(
+                    request,
+                    "کد تخفیف نامعتبر است."
+                )
+                return redirect("buy_subscription_by_user")
+
+        final_amount = total_amount - discount_amount
+
+        Subscription.objects.create(
+            user=user,
+            house=house,
+            coupon=coupon,
+            units_count=units,
+            plan=plan,
+            total_amount=total_amount,
+            final_amount=final_amount,
+            is_paid=True,
+            status='active',
+            start_date=timezone.now(),
+            end_date=timezone.now() + timedelta(days=plan.duration)
+        )
+
+        messages.success(
+            request,
+            'اشتراک شما ثبت شد و پس از تایید ادمین فعال خواهد شد.'
+        )
+
+        return redirect("home")
+
+    return render(
+        request,
+        'user_add_subscription.html',
+        {
+            'plans': plans,
+            'unit_count': unit_count,
+            'selected_user': user,
+            'user_id': user.id
+        }
+    )
 
 
 def site_header_component(request):

@@ -62,9 +62,9 @@
                                         <th>درگاه پرداخت </th>
                                        
                                         <th>زیردامنه</th>
-                                        <th> کاربری</th>
-                                        <th>شهر</th>
-{#                                        <th>آدرس</th>#}
+{#                                        <th> کاربری</th>#}
+{#                                        <th>شهر</th>#}
+                                        <th>اشتراک</th>
                                         <th>فعال/غیرفعال</th>
                                         <th>دستورات</th>
                                     </tr>
@@ -97,15 +97,22 @@
     {% endfor %}
 </td>
                                             <td>{{house.subdomain }}</td>
-                                            <td>{{house.user_type }}</td>
-                                            <td>{{house.city }}</td>
-{#                                            <td>{{house.address }}</td>#}
+{#                                            <td>{{house.user_type }}</td>#}
+{#                                            <td>{{house.city }}</td>#}
+       <td>
+                                               {% if house.user.is_trial == True %}
+                                                <button class="badge badge-success p-1">رایگان</button>
+                                                   {% else %}
+                                                   <button class="badge badge-danger p-1">{{ house.subscription_set.last.plan }}</button>
+
+                                               {% endif %}
+                                            </td>
 
                                               <td>
                                                {% if house.is_active == True %}
-                                                <button class="btn btn-primary bg-gradient-success p-1">فعال</button>
+                                                <button class="badge badge-success p-1">فعال</button>
                                                    {% else %}
-                                                   <button class="btn btn-gradient-danger p-1">غیر فعال</button>
+                                                   <button class="badge badge-danger p-1">غیر فعال</button>
 
                                                {% endif %}
                                             </td>
@@ -155,10 +162,22 @@
                             </div>
                           <hr/>
                            <div class="modal-body text-end">
+                           <div class="row ">
+                               <div class="col d-flex">
+                                   <p><strong>نام ساختمان:</strong> {{ house.name|to_persian_number }}</p>
 
-    <p><strong>نام ساختمان:</strong> {{ house.name|to_persian_number }}</p>
+                                    <p class="me-5"><strong>نام مدیر:</strong> {{ house.user.full_name|to_persian_number }}</p>
+                                   </div>
+                           </div>
+                    <div class="row ">
+                               <div class="col d-flex">
+                                  <p><strong>کاربری:</strong> {{ house.user_type|to_persian_number }}</p>
+                                   <p class="me-5"><strong>شهر:</strong> {{ house.city|to_persian_number }}</p>
+                                   <p class="me-5"><strong>اشتراک:</strong> {{ house.subscription_set.last.plan }}</p>
+                                   </div>
+                           </div>
 
-    <p><strong>نام مدیر:</strong> {{ house.user.full_name|to_persian_number }}</p>
+  
 
     <p><strong>آدرس:</strong> {{ house.address }}</p>
 

@@ -1,4 +1,4 @@
-
+{% load poll_extras %}
 <!-- footer start -->
 <footer>
   <div class="container py-1">
@@ -14,7 +14,7 @@
             <a href="#"><img width="150" src="/static/img/BehPardakht-faraboom.png" alt="#" class="mb-0" /></a>
 
             <p><strong>Email:</strong> yourmain@gmail.com</p>
-              <p><strong>تلفن:</strong> 0996 63 63 905</p>
+              <p id="phone"><strong>تلفن:</strong> {{ "0996636395"|to_persian_number }}</p>
           </div>
 
           <!-- دسترسی سریع -->

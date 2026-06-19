@@ -14,5 +14,10 @@ urlpatterns = [
     path('introduction/', views.introduction_view, name='introduction'),
     path('add-comment/', views.add_comment, name='add_comment'),
     path('user-charge-select/', views.charge_select, name='charge_select'),
-    path('register-house/', views.register_house_by_user, name='register_house_by_user'),
+    path('register-house-by-user/', views.register_house_by_user, name='register_house_by_user'),
+    path(
+        'buy-subscription-by-user/<int:user_id>/',
+        views.buy_subscription_by_user,
+        name='buy_subscription_by_user'
+    )
 ]

@@ -9,14 +9,47 @@
       <!-- Mobile Metas -->
       <meta name="viewport" content="width=device-width, initial-scale=1, shrink-to-fit=no" />
       <!-- Site Metas -->
-      <meta name="keywords" content="" />
-      <meta name="description" content="" />
-      <meta name="author" content="" />
+   <meta name="description" content="{% block meta_description %}رایا شارژ یک سامانه هوشمند برای مدیریت ساختمان، محاسبه شارژ، پرداخت آنلاین، گزارش‌گیری و ارتباط با ساکنین است.{% endblock %}">
+<meta name="keywords" content="مدیریت ساختمان, شارژ ساختمان, سامانه شارژ, پرداخت شارژ آنلاین, مدیریت مجتمع, رایا شارژ">
+<meta name="author" content="Raya Charge">
+   
+    <meta property="og:title" content="رایا شارژ | مدیریت هوشمند ساختمان">
+<meta property="og:description" content="سامانه هوشمند مدیریت ساختمان، پرداخت شارژ و ارتباط با ساکنین">
+<meta property="og:image" content="{% static 'home/images/img/logo.png' %}">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="fa_IR">
+   
+   <meta name="twitter:card" content="summary_large_image">
+<meta name="twitter:title" content="رایا شارژ">
+<meta name="twitter:description" content="مدیریت هوشمند ساختمان و پرداخت آنلاین شارژ">
+   
       <link rel="shortcut icon" href="/static/home/images/favicon1.png" type="">
-{#      <title>سامانه مدیریت مجتمع خانه من</title>  #}
-       <title>{% block title %}{% endblock %}</title>
+<title>{% block title %}رایا شارژ | سامانه مدیریت ساختمان و مجتمع مسکونی{% endblock %}</title>
+{#       <title>{% block title %}{% endblock %}</title>#}
     {% include 'renter_partials/header_references.html' %}
-       
+ <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "SoftwareApplication",
+  "name": "رایا شارژ",
+  "applicationCategory": "BusinessApplication",
+  "operatingSystem": "Web",
+  "description": "سامانه هوشمند مدیریت ساختمان و شارژ مجتمع‌های مسکونی",
+  "offers": {
+    "@type": "Offer",
+    "price": "0",
+    "priceCurrency": "IRR"
+  }
+}
+</script> 
+   <script type="application/ld+json">
+{
+  "@context": "https://schema.org",
+  "@type": "AboutPage",
+  "name": "درباره رایا شارژ",
+  "description": "معرفی سامانه مدیریت هوشمند ساختمان رایا شارژ"
+}
+</script>
    </head>
    <body>
    {% render_partial 'home.views.site_header_component' %}
@@ -55,4 +88,6 @@
       setTimeout(() => alert.remove(), 500); // بعد از fade حذف می‌کنه
     });
   }, 3000); // 3000 میلی‌ثانیه = 3 ثانیه
+  
+  
 </script>

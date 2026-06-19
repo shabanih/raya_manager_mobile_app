@@ -1,0 +1,150 @@
+{% load static %}
+{% load poll_extras %}
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport"
+          content="width=device-width, user-scalable=no, initial-scale=1.0, maximum-scale=1.0, minimum-scale=1.0">
+    <meta http-equiv="X-UA-Compatible" content="ie=edge">
+    <title>خرید اشتراک</title>
+     <link rel="stylesheet" href="https://use.fontawesome.com/releases/v5.15.4/css/all.css"/>
+    <link rel="stylesheet" href="/static/css/all.css">
+    <link rel="stylesheet" href="/static/css/bootstrap.min.css">
+    <link rel="stylesheet" href="/static/css/bootstrap-icons.css">
+    <link rel="stylesheet" href="/static/css/bootstrap-rtl.min.css">
+    <link rel="stylesheet" href="/static/css/login_style.css">
+    <link rel="stylesheet" href="/static/css/core.css">
+    <link rel="stylesheet" href="/static/admin_panel/css/custom_style.css">
+    
+</head>
+<body>
+<hr/>
+
+<div class="container py-3">
+<div class="col-12 mb-2">
+<form method="post" action="{% url 'request_subscription_pay_by_user' user_id %}">
+{% csrf_token %}
+<h3 class="fw-bold py-2">خرید اشتراک</h3>
+
+<!-- تعداد واحد -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <label class="form-label">تعداد واحد ساختمان</label>
+             <input type="number"
+               name="units_count"
+               id="units"
+               class="form-control form-control-lg"
+               placeholder="مثلاً 10"
+               value="{{ unit_count }}"
+               min="{{ unit_count }}"
+               required>
+         <div id="units_error" class="text-danger mt-1" style="display:none;"></div>
+
+    </div>
+</div>
+
+
+
+<!-- پلن‌ها -->
+<div class="row">
+
+{% for plan in plans %}
+<div class="col-md-4 mb-4">
+
+<label class="w-100 plan-wrapper">
+
+<input type="radio"
+       name="plan"
+       value="{{ plan.id }}"
+       data-price="{{ plan.price_per_unit }}"
+       hidden
+       required>
+
+<div class="card h-100 shadow-sm plan-card">
+
+    <div class="card-body text-center">
+
+        <h5 class="card-title">
+            {{ plan.get_duration_display|to_persian_number  }}
+        </h5>
+
+        <p class="text-muted">هزینه هر واحد:</p>
+
+        <h5 class="text-danger">
+            {{ plan.price_per_unit|three_digit_currency }} تومان
+        </h5>
+
+        <hr>
+
+        <p>مبلغ این پلن:</p>
+
+        <h5 class="text-success" id="total_{{ plan.id }}">
+            0 تومان
+        </h5>
+
+    </div>
+</div>
+
+</label>
+</div>
+{% endfor %}
+
+</div>
+<!-- کد تخفیف -->
+<div class="card shadow-sm mb-4">
+    <div class="card-body">
+        <label class="form-label">کد تخفیف</label>
+
+        <input type="text"
+               name="code"
+               class="form-control form-control-lg"
+               placeholder="مثلاً SUMMER20">
+
+        <div id="coupon_message" class="mt-2"></div>
+    </div>
+</div>
+<!-- مبلغ نهایی -->
+<div class="card mt-3">
+    <div class="card-body text-center">
+
+        <h5>تخفیف:</h5>
+        <span id="discount_amount">۰ تومان</span>
+
+        <hr>
+
+        <h4>
+            مبلغ نهایی:
+            <span id="final_price" class="text-success">۰</span>
+            تومان
+        </h4>
+        <button type="submit"
+                class="btn btn-primary btn-lg mt-3 px-5">
+            ادامه و پرداخت
+        </button>
+
+    </div>
+</div>
+
+</form>
+</div>
+</div>
+
+
+<!-- ✅ JS -->
+
+{#<script src="https://ajax.googleapis.com/ajax/libs/jquery/3.7.1/jquery.min.js"></script>#}
+    <script src="/static/js/jquery.min.js"></script>
+    <script src="/static/js/Bootstrap.min.js"></script>
+    <script src="/static/js/bootstrap.bundle.min.js"></script>
+    <script src="/static/js/popper.min.js"></script>
+    <script src="/static/js/sweetalert2@11.js"></script>
+    <script src="/static/js/jquery-3.5.1.slim.min.js"></script>
+    <script src="/static/js/custom.js"></script>
+
+<script>
+const couponUrl = "{% url 'check_coupon' %}";
+</script>
+
+
+</body>
+</html>

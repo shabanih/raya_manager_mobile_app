@@ -12,9 +12,9 @@ from django.http import HttpRequest, HttpResponse
 from django.shortcuts import render, redirect, get_object_or_404
 from django.utils import timezone
 
-from admin_panel.models import SmsCredit, AdminFund, SubscriptionPlan, Subscription
+from admin_panel.models import SmsCredit, AdminFund, SubscriptionPlan, Subscription, Coupon, CouponUsage
 from payment_app.views import ZP_API_STARTPAY, ZP_API_REQUEST
-from user_app.models import Bank, MyHouse
+from user_app.models import Bank, MyHouse, User
 
 MERCHANT = "3d6d6a26-c139-49ac-9d8d-b03a8cdf0fdd"
 
@@ -31,6 +31,7 @@ description = "Raya"  # Required
 
 CallbackURLSMS = 'http://127.0.0.1:8001/admin-payment/verify-sms-pay/'
 CallbackURLSub = 'http://127.0.0.1:8001/admin-payment/verify-subscription-pay/'
+CallbackURLSubUser = 'http://127.0.0.1:8001/admin-payment/verify-subscription-by-user/'
 
 
 @login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
@@ -231,6 +232,7 @@ def request_subscription_pay(request):
         return redirect('buy_subscription')
 
     plan_id = request.POST.get('plan')
+
     units_count = request.POST.get('units_count')
     coupon_code = request.POST.get('code', '').strip()
 
@@ -474,3 +476,174 @@ def verify_subscription_pay(request):
         return render(request, 'admin_payment_done.html', {
             'error': f"خطا در تایید پرداخت: {e}"
         })
+
+
+# ========================================================
+
+def request_subscription_pay_by_user(request, user_id):
+
+    user = get_object_or_404(User, id=user_id)
+    house = user.house
+
+    if request.method != "POST":
+        return redirect("buy_subscription_by_user", user_id=user.id)
+
+    plan_id = request.POST.get("plan")
+    units_count = request.POST.get("units_count")
+    coupon_code = request.POST.get("code", "").strip()
+
+    if not plan_id or not units_count:
+        messages.error(request, "اطلاعات ناقص است")
+        return redirect("buy_subscription_by_user", user_id=user.id)
+
+    try:
+        units_count = int(units_count)
+    except:
+        messages.error(request, "تعداد واحد نامعتبر است")
+        return redirect("buy_subscription_by_user", user_id=user.id)
+
+    plan = get_object_or_404(SubscriptionPlan, id=plan_id, is_active=True)
+
+    total_amount = units_count * plan.price_per_unit
+
+    coupon = None
+    discount_amount = 0
+
+    if coupon_code:
+        coupon = Coupon.objects.filter(code__iexact=coupon_code).first()
+
+        if not coupon or not coupon.is_valid():
+            messages.error(request, "کد تخفیف نامعتبر است")
+            return redirect("buy_subscription_by_user", user_id=user.id)
+
+        discount_amount = min(coupon.discount, total_amount)
+
+    final_amount = total_amount - discount_amount
+
+    # 🔥 مهم: ذخیره در session همراه user_id
+    request.session["subscription_payment"] = {
+        "user_id": user.id,
+        "plan_id": plan.id,
+        "units_count": units_count,
+        "total_amount": total_amount,
+        "discount_amount": discount_amount,
+        "final_amount": final_amount,
+        "coupon_id": coupon.id if coupon else None,
+    }
+
+    req_data = {
+        "merchant_id": MERCHANT,
+        "amount": int(final_amount * 10),
+        "callback_url": CallbackURLSubUser,  # جدا از ادمین
+        "description": "خرید اشتراک کاربر",
+    }
+
+    try:
+        result = requests.post(
+            ZP_API_REQUEST,
+            data=json.dumps(req_data),
+            headers={"content-type": "application/json"}
+        ).json()
+
+        if result.get("data", {}).get("authority"):
+            return redirect(
+                ZP_API_STARTPAY.format(authority=result["data"]["authority"])
+            )
+
+        return HttpResponse("خطا در اتصال به درگاه")
+
+    except Exception as e:
+        return HttpResponse(str(e), status=500)
+
+
+def verify_subscription_pay_by_user(request):
+
+    authority = request.GET.get("Authority")
+    status = request.GET.get("Status")
+
+    payment_data = request.session.get("subscription_payment")
+
+    if status != "OK":
+        messages.error(request, "پرداخت ناموفق یا لغو شد")
+        return redirect("home")
+
+    if not payment_data:
+        return render(request, "payment_done.html", {
+            "error": "اطلاعات پرداخت پیدا نشد"
+        })
+
+    user = get_object_or_404(User, id=payment_data["user_id"])
+    plan = get_object_or_404(SubscriptionPlan, id=payment_data["plan_id"])
+    house = user.house
+
+    final_amount = payment_data["final_amount"]
+
+    req_data = {
+        "merchant_id": MERCHANT,
+        "amount": int(final_amount * 10),
+        "authority": authority,
+    }
+
+    result = requests.post(
+        ZP_API_VERIFY,
+        data=json.dumps(req_data),
+        headers={"content-type": "application/json"}
+    ).json()
+
+    data = result.get("data", {})
+
+    if data.get("code") == 100:
+
+        ref_id = data.get("ref_id")
+        now = timezone.now()
+
+        subscription = Subscription.objects.create(
+            user=user,
+            house=house,
+            plan=plan,
+            units_count=payment_data["units_count"],
+            total_amount=payment_data["total_amount"],
+            discount_amount=payment_data["discount_amount"],
+            final_amount=final_amount,
+            is_paid=True,
+            status="active",
+            transaction_id=ref_id,
+            payment_date=now,
+            start_date=now,
+            end_date=now + relativedelta(
+                months=plan.duration
+            )
+        )
+        content_type = ContentType.objects.get_for_model(
+            Subscription
+        )
+
+        AdminFund.objects.create(
+            user=user,
+            content_type=content_type,
+            object_id=subscription.id,
+
+            amount=final_amount,
+
+            payment_gateway='پرداخت اینترنتی2',
+            payment_date=now,
+            transaction_no=ref_id,
+
+            payment_description=f"خرید اشتراک توسط کاربر {plan}",
+            house=house,
+            is_paid=True
+        )
+
+        if payment_data.get("coupon_id"):
+            coupon = Coupon.objects.filter(id=payment_data["coupon_id"]).first()
+            if coupon:
+                CouponUsage.objects.get_or_create(user=user, coupon=coupon)
+
+        request.session.pop("subscription_payment", None)
+
+        messages.success(request, "اشتراک شما ثبت شد. پس از تایید، کارشناسان شارژیار با شما تماس خواهند گرفت")
+        return redirect("home")
+
+    return render(request, "payment_done.html", {
+        "error": data.get("message", "خطا در پرداخت")
+    })

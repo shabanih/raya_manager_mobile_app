@@ -1,6 +1,7 @@
 // to get current year
 
 console.log('ok')
+
 function getYear() {
     var currentDate = new Date();
     var currentYear = currentDate.getFullYear();
@@ -37,7 +38,6 @@ $(".client_owl-carousel").owlCarousel({
 });
 
 
-
 /** google_map js **/
 function myMap() {
     var mapProp = {
@@ -46,3 +46,4 @@ function myMap() {
     };
     var map = new google.maps.Map(document.getElementById("googleMap"), mapProp);
 }
+
