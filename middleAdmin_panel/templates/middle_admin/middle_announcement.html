@@ -44,63 +44,130 @@
     </div>
 
     <!-- جدول اطلاعیه‌ها -->
-    <div class="row mt-2">
-        <div class="table-responsive">
-            <table class="table table-bordered">
-                <thead class="text-center">
-                    <tr>
-                        <th>#</th>
-                        <th>موضوع اطلاعیه</th>
-                        <th>تاریخ ایجاد اطلاعیه</th>
-                        <th>فعال/غیرفعال</th>
-                        <th>دستورات</th>
-                    </tr>
-                </thead>
+<div class="row mt-2">
+    <div class="table-responsive">
+        <table class="table table-bordered">
 
-                {% if announcements %}
-                    {% for announcement in announcements %}
-                        <tbody class="text-center">
-                            <tr>
-                                <td>{{ forloop.counter|to_persian_number  }}</td>
-                                <td class="p-0">
-                                   {{ announcement.title|safe|to_persian_number  }}
-                                </td>
-                                <td>{{ announcement.created_at|show_jalali_date_only }}</td>
-                                <td>
-                                         {% if announcement.is_active == True %}
-                                                <button class="btn btn-primary bg-gradient-success p-1">فعال</button>
-                                                   {% else %}
-                                                   <button class="btn btn-gradient-danger p-1">غیر فعال</button>
+            <thead class="text-center">
+                <tr>
+                    <th>#</th>
+                    <th>موضوع اطلاعیه</th>
+                    <th>تاریخ ایجاد اطلاعیه</th>
+                    <th>اسناد</th>
+                    <th>فعال/غیرفعال</th>
+                    <th>دستورات</th>
+                </tr>
+            </thead>
 
-                                               {% endif %}
-                                </td>
-                                <td class="col-lg-1 col-xl-1">
-                                    <a href="{% url 'edit_middle_announcement' announcement.id %}" class="btn btn-primary p-1">
-                                        <i class="mdi mdi-lead-pencil" aria-hidden="true"></i>
-                                    </a>
-{#                                    <a href="{% url 'delete_middle_announcement' announcement.pk %}" #}
-{#                                       class="btn btn-danger p-1"#}
-{#                                       onclick="return confirm('آیا نسبت به حذف این آیتم اطمینان دارید؟')">#}
-{#                                        <i class="mdi mdi-delete" aria-hidden="true"></i>#}
-{#                                    </a>#}
-                                            <a href="{% url 'delete_middle_announcement' announcement.pk %}" class="btn btn-gradient-danger p-1"
-                                       onclick="return confirmDeleteWithSweetAlert(event)">
-                                              <i class="mdi mdi-delete" aria-hidden="true"></i>
-                                            </a>
-                                </td>
-                            </tr>
-                        </tbody>
-                    {% endfor %}
-                {% else %}
-                    <tbody>
+            {% if announcements %}
+
+                {% for announcement in announcements %}
+
+                    <tbody class="text-center">
                         <tr>
-                            <td colspan="5" class="text-center">هیچ پیامی برای نمایش وجود ندارد.</td>
+
+                            <td>
+                                {{ forloop.counter|to_persian_number }}
+                            </td>
+
+                            <td class="p-0">
+                                {{ announcement.title|safe|to_persian_number }}
+                            </td>
+
+                            <td>
+                                {{ announcement.created_at|show_jalali_date_only }}
+                            </td>
+
+                            <!-- اسناد -->
+                            <td>
+    {% if announcement.documents.exists %}
+
+        {% for document in announcement.documents.all %}
+
+            <div class="mb-1">
+                <a href="{{ document.document.url }}"
+                   download
+                   class="text-decoration-none">
+
+                    <i class="mdi mdi-file-download-outline"></i>
+
+                    {{ document.document.name|cut:"images/announcement/" }}
+
+                </a>
+            </div>
+
+        {% endfor %}
+
+    {% else %}
+
+        <span class="text-muted">
+            بدون سند
+        </span>
+
+    {% endif %}
+</td>
+
+                            <!-- وضعیت -->
+                            <td>
+
+                                {% if announcement.is_active == True %}
+
+                                    <button class="btn btn-primary bg-gradient-success p-1">
+                                        فعال
+                                    </button>
+
+                                {% else %}
+
+                                    <button class="btn btn-gradient-danger p-1">
+                                        غیر فعال
+                                    </button>
+
+                                {% endif %}
+
+                            </td>
+
+                            <!-- دستورات -->
+                            <td class="col-lg-1 col-xl-1">
+
+                                <a href="{% url 'edit_middle_announcement' announcement.id %}"
+                                   class="btn btn-primary p-1">
+
+                                    <i class="mdi mdi-lead-pencil"
+                                       aria-hidden="true"></i>
+
+                                </a>
+
+                                <a href="{% url 'delete_middle_announcement' announcement.pk %}"
+                                   class="btn btn-gradient-danger p-1"
+                                   onclick="return confirmDeleteWithSweetAlert(event)">
+
+                                    <i class="mdi mdi-delete"
+                                       aria-hidden="true"></i>
+
+                                </a>
+
+                            </td>
+
                         </tr>
                     </tbody>
-                {% endif %}
-            </table>
-        </div>
+
+                {% endfor %}
+
+            {% else %}
+
+                <tbody>
+                    <tr>
+                        <td colspan="6" class="text-center">
+                            هیچ پیامی برای نمایش وجود ندارد.
+                        </td>
+                    </tr>
+                </tbody>
+
+            {% endif %}
+
+        </table>
     </div>
+</div>
 
     <!-- Pagination -->
     <div class="col-12">

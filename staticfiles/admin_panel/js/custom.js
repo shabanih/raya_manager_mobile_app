@@ -52,74 +52,77 @@ function openQuery() {
 
 
 function searchTable() {
-  var input = document.getElementById("searchInput");
-  var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-  var table = document.getElementById("expenseTable");
-  var rows = table.getElementsByTagName("tr");
+    var input = document.getElementById("searchInput");
+    var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+    var table = document.getElementById("expenseTable");
+    var rows = table.getElementsByTagName("tr");
 
-  for (var i = 1; i < rows.length; i++) {
-    var row = rows[i];
-    var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-    row.style.display = text.includes(filter) ? "" : "none";
-  }
+    for (var i = 1; i < rows.length; i++) {
+        var row = rows[i];
+        var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+        row.style.display = text.includes(filter) ? "" : "none";
+    }
 }
 
 // ==================================
 
 
 function searchTableIncome() {
-  var input = document.getElementById("searchInput");
-  var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-  var table = document.getElementById("incomeTable");
-  var rows = table.getElementsByTagName("tr");
+    var input = document.getElementById("searchInput");
+    var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+    var table = document.getElementById("incomeTable");
+    var rows = table.getElementsByTagName("tr");
 
-  for (var i = 1; i < rows.length; i++) {
-    var row = rows[i];
-    var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-    row.style.display = text.includes(filter) ? "" : "none";
-  }
+    for (var i = 1; i < rows.length; i++) {
+        var row = rows[i];
+        var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+        row.style.display = text.includes(filter) ? "" : "none";
+    }
 }
 
 function searchTableExpense() {
-  var input = document.getElementById("searchInput");
-  var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-  var table = document.getElementById("expenseTable");
-  var rows = table.getElementsByTagName("tr");
+    var input = document.getElementById("searchInput");
+    var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+    var table = document.getElementById("expenseTable");
+    var rows = table.getElementsByTagName("tr");
 
-  for (var i = 1; i < rows.length; i++) {
-    var row = rows[i];
-    var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-    row.style.display = text.includes(filter) ? "" : "none";
-  }
+    for (var i = 1; i < rows.length; i++) {
+        var row = rows[i];
+        var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+        row.style.display = text.includes(filter) ? "" : "none";
+    }
 }
+
 // ==============================================
 function searchTableUnit() {
-  var input = document.getElementById("searchInput");
-  var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-  var table = document.getElementById("unitTable");
-  var rows = table.getElementsByTagName("tr");
+    var input = document.getElementById("searchInput");
+    var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+    var table = document.getElementById("unitTable");
+    var rows = table.getElementsByTagName("tr");
 
-  for (var i = 1; i < rows.length; i++) {
-    var row = rows[i];
-    var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-    row.style.display = text.includes(filter) ? "" : "none";
-  }
+    for (var i = 1; i < rows.length; i++) {
+        var row = rows[i];
+        var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+        row.style.display = text.includes(filter) ? "" : "none";
+    }
 }
+
 // ===========================================================
-    function searchTable() {
-  var input = document.getElementById("searchInput");
-  var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-  var table = document.getElementById("expenseTable");
-  var rows = table.getElementsByTagName("tr");
+function searchTable() {
+    var input = document.getElementById("searchInput");
+    var filter = input.value.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+    var table = document.getElementById("expenseTable");
+    var rows = table.getElementsByTagName("tr");
 
-  for (var i = 1; i < rows.length; i++) {
-    var row = rows[i];
-    var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
-    row.style.display = text.includes(filter) ? "" : "none";
-  }
+    for (var i = 1; i < rows.length; i++) {
+        var row = rows[i];
+        var text = row.innerText.toLowerCase().replace(/,/g, '').replace(/\s/g, '');
+        row.style.display = text.includes(filter) ? "" : "none";
+    }
 }
+
 // ===================================================
-    function searchChargeTable() {
+function searchChargeTable() {
     const input = document.getElementById('searchInput');
     const filter = input.value.toLowerCase();
     const cards = document.querySelectorAll('.fixChargeTable');
@@ -135,5 +138,12 @@ function searchTableUnit() {
         }
     });
 }
+
 // ======================================
+
+
+
+
+
+
 

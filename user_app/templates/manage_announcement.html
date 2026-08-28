@@ -49,6 +49,7 @@
       <thead>
       <tr>
           <th>عنوان</th>
+          <th>اسناد</th>
           <th>تاریخ ثبت</th>
       </tr>
       </thead>
@@ -60,6 +61,35 @@
               {{ announcement.title|safe|to_persian_number }}
                   
           </td>
+          
+          
+            <td>
+    {% if announcement.documents.exists %}
+
+        {% for document in announcement.documents.all %}
+
+            <div class="mb-1">
+                <a href="{{ document.document.url }}"
+                   download
+                   class="text-decoration-none">
+
+                    <i class="mdi mdi-file-download-outline"></i>
+
+                    {{ document.document.name|cut:"images/announcement/" }}
+
+                </a>
+            </div>
+
+        {% endfor %}
+
+    {% else %}
+
+        <span class="text-muted">
+            بدون سند
+        </span>
+
+    {% endif %}
+</td>
           <td class="col-2">{{ announcement.created_at|show_jalali_date_only }}</td>
       </tr>
       </tbody>

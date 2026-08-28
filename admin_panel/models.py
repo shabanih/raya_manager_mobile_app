@@ -1,5 +1,6 @@
 import json
 import math
+import secrets
 from collections import defaultdict
 from decimal import Decimal
 
@@ -32,6 +33,18 @@ class Announcement(models.Model):
     def __str__(self):
         return self.title
 
+    def get_image_urls_json(self):
+        # Use the correct attribute to access the file URL in the related `ExpenseDocument` model
+        image_urls = [doc.document.url for doc in self.documents.all() if doc.document]
+        print(image_urls)
+        return mark_safe(json.dumps(image_urls))
+
+
+class AnnouncementDocument(models.Model):
+    announcement = models.ForeignKey(Announcement, on_delete=models.CASCADE, related_name='documents')
+    document = models.FileField(upload_to='images/announcement/')
+    uploaded_at = models.DateTimeField(auto_now_add=True)
+
 
 class ImpersonationLog(models.Model):
     admin = models.ForeignKey(User, on_delete=models.CASCADE, related_name="impersonated_by_me")
@@ -44,6 +57,7 @@ class ImpersonationLog(models.Model):
 
     def __str__(self):
         return f"{self.admin} → {self.target_user}"
+
 
 
 class MessageToUser(models.Model):
@@ -66,22 +80,58 @@ class MessageToUser(models.Model):
     def __str__(self):
         return self.title or str(self.id)
 
-
 class MessageReadStatus(models.Model):
     message = models.ForeignKey(
         MessageToUser,
         on_delete=models.CASCADE,
         related_name='read_statuses'
     )
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE)
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.CASCADE
+    )
+
+    recipient = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='message_read_statuses'
+    )
+
     is_read = models.BooleanField(default=False)
-    read_at = models.DateTimeField(null=True, blank=True)
+
+    read_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
 
     class Meta:
-        unique_together = ('message', 'unit')
+        unique_together = (
+            'message',
+            'recipient',
+        )
 
     def __str__(self):
-        return f"{self.unit} - {self.message.title} - {'خوانده شده' if self.is_read else 'خوانده نشده'}"
+        return (
+            f"{self.recipient} - "
+            f"{self.message.title} - "
+            f"{'خوانده شده' if self.is_read else 'خوانده نشده'}"
+        )
+# class MessageReadStatus(models.Model):
+#     message = models.ForeignKey(
+#         MessageToUser,
+#         on_delete=models.CASCADE,
+#         related_name='read_statuses'
+#     )
+#     unit = models.ForeignKey(Unit, on_delete=models.CASCADE)
+#     is_read = models.BooleanField(default=False)
+#     read_at = models.DateTimeField(null=True, blank=True)
+#
+#     class Meta:
+#         unique_together = ('message', 'unit')
+#
+#     def __str__(self):
+#         return f"{self.unit} - {self.message.title} - {'خوانده شده' if self.is_read else 'خوانده نشده'}"
 
 
 # ------------------- Admin Message To MiddleAdmin --------------------------
@@ -555,6 +605,16 @@ class SewageInstallment(models.Model):
     prepayment_per_unit = models.PositiveIntegerField()
     due_date = models.DateField(null=True, blank=True)
     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
+    payment_pending = models.BooleanField(
+        default=False,
+        verbose_name='در انتظار تایید پرداخت'
+    )
+
+    payment_submitted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='تاریخ ثبت درخواست پرداخت'
+    )
     transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
     payment_date = models.DateField(
         null=True,
@@ -573,6 +633,41 @@ class SewageInstallment(models.Model):
 
     def __str__(self):
         return f"قسط شماره {self.installment_number} از {self.sewage_manage.name}"
+# class SewageInstallment(models.Model):
+#     sewage_manage = models.ForeignKey('SewageManage', on_delete=models.CASCADE, related_name='sewage_installments')
+#     bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
+#     house = models.ForeignKey(
+#         MyHouse,
+#         on_delete=models.SET_NULL,
+#         null=True,
+#         blank=True,
+#         related_name='house_installment_sewage',
+#         verbose_name='ساختمان مرتبط'
+#     )
+#     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
+#     installment_number = models.PositiveIntegerField()
+#     amount = models.PositiveIntegerField()
+#     prepayment_per_unit = models.PositiveIntegerField()
+#     due_date = models.DateField(null=True, blank=True)
+#     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
+#     transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
+#     payment_date = models.DateField(
+#         null=True,
+#         blank=True,
+#         verbose_name="تاریخ پرداخت"
+#     )
+#     payment_gateway = models.CharField(max_length=100, null=True, blank=True)
+#     send_notification = models.BooleanField(default=False)
+#
+#     # تاریخ ارسال نوتیفیکیشن
+#     send_notification_date = models.DateField(
+#         null=True,
+#         blank=True,
+#         verbose_name="تاریخ ارسال اعلان"
+#     )
+#
+#     def __str__(self):
+#         return f"قسط شماره {self.installment_number} از {self.sewage_manage.name}"
 
 
 # =========================== civil Modals =============================
@@ -649,6 +744,16 @@ class CivilInstallment(models.Model):
     prepayment_per_unit = models.PositiveIntegerField()
     due_date = models.DateField(null=True, blank=True)
     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
+    payment_pending = models.BooleanField(
+        default=False,
+        verbose_name='در انتظار تایید پرداخت'
+    )
+
+    payment_submitted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='تاریخ ثبت درخواست پرداخت'
+    )
     transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
     payment_date = models.DateField(
         null=True,
@@ -667,6 +772,41 @@ class CivilInstallment(models.Model):
 
     def __str__(self):
         return f"قسط شماره {self.installment_number} از {self.civil_manage.name}"
+# class CivilInstallment(models.Model):
+#     civil_manage = models.ForeignKey('CivilManage', on_delete=models.CASCADE, related_name='installments')
+#     bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
+#     house = models.ForeignKey(
+#         MyHouse,
+#         on_delete=models.SET_NULL,
+#         null=True,
+#         blank=True,
+#         related_name='house_installment',
+#         verbose_name='ساختمان مرتبط'
+#     )
+#     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
+#     installment_number = models.PositiveIntegerField()
+#     amount = models.PositiveIntegerField()
+#     prepayment_per_unit = models.PositiveIntegerField()
+#     due_date = models.DateField(null=True, blank=True)
+#     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
+#     transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
+#     payment_date = models.DateField(
+#         null=True,
+#         blank=True,
+#         verbose_name="تاریخ پرداخت"
+#     )
+#     payment_gateway = models.CharField(max_length=100, null=True, blank=True)
+#     send_notification = models.BooleanField(default=False)
+#
+#     # تاریخ ارسال نوتیفیکیشن
+#     send_notification_date = models.DateField(
+#         null=True,
+#         blank=True,
+#         verbose_name="تاریخ ارسال اعلان"
+#     )
+#
+#     def __str__(self):
+#         return f"قسط شماره {self.installment_number} از {self.civil_manage.name}"
 
 
 # =========================== Charge Modals =============================
@@ -816,6 +956,11 @@ class UnifiedCharge(models.Model):
         on_delete=models.CASCADE,
         related_name="unified_charges"
     )
+    # payment_token = models.CharField(
+    #     max_length=16,
+    #     unique=True,
+    #     editable=False
+    # )
 
     unit = models.ForeignKey(
         Unit,
@@ -896,6 +1041,16 @@ class UnifiedCharge(models.Model):
 
     # وضعیت پرداخت
     is_paid = models.BooleanField(default=False)
+    payment_pending = models.BooleanField(
+        default=False,
+        verbose_name='در انتظار تایید پرداخت'
+    )
+
+    payment_submitted_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='تاریخ ثبت درخواست پرداخت'
+    )
 
     # 🟦 Generic Relation به مدل اصلی محاسبه
     content_type = models.ForeignKey(
@@ -924,7 +1079,14 @@ class UnifiedCharge(models.Model):
     def save(self, *args, **kwargs):
         if self.unit:
             self.house = self.unit.myhouse
+
+        # if not self.payment_token:
+        #     self.payment_token = secrets.token_urlsafe(12)
+
         super().save(*args, **kwargs)
+
+    # def generate_payment_token():
+    #     return secrets.token_urlsafe(12)
 
     @property
     def app_label(self):

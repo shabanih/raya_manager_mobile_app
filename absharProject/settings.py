@@ -9,7 +9,7 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-
+from datetime import timedelta
 from pathlib import Path
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
@@ -25,6 +25,13 @@ SECRET_KEY = 'django-insecure-_o*sce-7v=squt58jj0$l=ezgw^!ek$_%8c2##qd^o&7n@4v0h
 DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
+# CSRF_TRUSTED_ORIGINS = [
+#     'https://rayacharge.ir',
+#     'https://www.rayacharge.ir',
+# ]
+# SECURE_SSL_REDIRECT = True
+# SESSION_COOKIE_SECURE = True
+# CSRF_COOKIE_SECURE = True
 
 # Application definition
 
@@ -47,13 +54,20 @@ INSTALLED_APPS = [
     'admin_payment_app',
     'home',
     'polls_app',
+    'mobileApp',
 
     # 'jalali_date',
 
     'polls',
     'payment_app',
     'reports',
-    #
+
+    # mobile app
+    'rest_framework',
+    'rest_framework.authtoken',
+    'corsheaders',
+    'django_filters',
+    'drf_yasg',
     # # other_app
     'django_render_partial',
     'sweetify',
@@ -86,14 +100,79 @@ INSTALLED_APPS = [
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+
+    'corsheaders.middleware.CorsMiddleware',
+
     'django.contrib.sessions.middleware.SessionMiddleware',
+
     'django.middleware.common.CommonMiddleware',
+
     'django.middleware.csrf.CsrfViewMiddleware',
+
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+
     'django.contrib.messages.middleware.MessageMiddleware',
+
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+
     'home.middleware.SubdomainMiddleware',
 ]
+
+# تنظیمات REST Framework
+REST_FRAMEWORK = {
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',
+        'rest_framework.authentication.SessionAuthentication',
+    ],
+
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',
+    ],
+
+    'DEFAULT_PAGINATION_CLASS': 'rest_framework.pagination.PageNumberPagination',
+
+    'PAGE_SIZE': 20,
+
+    'DEFAULT_FILTER_BACKENDS': [
+        'django_filters.rest_framework.DjangoFilterBackend',
+        'rest_framework.filters.SearchFilter',
+        'rest_framework.filters.OrderingFilter',
+    ],
+
+    'DEFAULT_RENDERER_CLASSES': [
+        'rest_framework.renderers.JSONRenderer',
+        'rest_framework.renderers.BrowsableAPIRenderer',
+    ],
+}
+SIMPLE_JWT = {
+    'ACCESS_TOKEN_LIFETIME': timedelta(minutes=60),
+    'REFRESH_TOKEN_LIFETIME': timedelta(days=7),
+
+    'ROTATE_REFRESH_TOKENS': False,
+    'BLACKLIST_AFTER_ROTATION': False,
+
+    'UPDATE_LAST_LOGIN': False,
+
+    'ALGORITHM': 'HS256',
+    'SIGNING_KEY': SECRET_KEY,
+
+    'AUTH_HEADER_TYPES': ('Bearer',),
+
+    'USER_ID_FIELD': 'id',
+    'USER_ID_CLAIM': 'user_id',
+}
+
+# CORS تنظیمات
+CORS_ALLOW_ALL_ORIGINS = True  # فقط برای توسعه
+CORS_ALLOW_CREDENTIALS = True
+
+# یا
+CORS_ALLOWED_ORIGINS = [
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+    "http://192.168.1.100:3000",  # آی‌پی دستگاه موبایل
+]
+
 AUTH_USER_MODEL = 'user_app.User'
 
 ROOT_URLCONF = 'absharProject.urls'
@@ -107,7 +186,7 @@ TEMPLATES = [
         'DIRS': [BASE_DIR / 'templates'],
         'APP_DIRS': True,
         'OPTIONS': {
-       
+
             'context_processors': [
                 'django.template.context_processors.request',
                 'django.contrib.auth.context_processors.auth',
@@ -274,3 +353,10 @@ LOGGING = {
         },
     },
 }
+
+ZP_API_REQUEST = "https://api.zarinpal.com/pg/v4/payment/request.json"
+
+ZP_API_STARTPAY = "https://www.zarinpal.com/pg/StartPay/"
+
+CallbackURLCharge = "http://localhost:8000/payment/pay/verify/"
+

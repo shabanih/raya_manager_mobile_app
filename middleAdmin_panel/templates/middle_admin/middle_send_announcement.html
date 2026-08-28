@@ -3,112 +3,293 @@
 {% load poll_extras %}
 
 {% block page_title %}
-مدیریت اطلاعیه ها
+ثبت و ارسال اطلاعیه ها
 {% endblock page_title %}
 
+
 {% block main_content %}
+
 <div class="container mt-3">
 
-    <form action="" method="post" novalidate>
+
+    <!-- ================================================= -->
+    <!-- فرم اصلی ثبت / ویرایش اطلاعیه -->
+    <!-- ================================================= -->
+
+    <form action=""
+          method="post"
+          enctype="multipart/form-data"
+          novalidate>
+
         {% csrf_token %}
+
         <div class="row">
+
+
+            <!-- عنوان اطلاعیه -->
             <div class="col-12">
+
                 {{ form.title.label_tag }}
+
                 {{ form.title }}
+
                 {{ form.title.errors }}
-            </div>
-{#            <div class="col-4">#}
-{#                {{ form.slug.label_tag }}#}
-{#                {{ form.slug }}#}
-{#                {{ form.slug.errors }}#}
-{#            </div>#}
-            <div class="col-4 py-2">
-                {{ form.is_active.label_tag }}
-                {{ form.is_active }}
-                {{ form.is_active.errors }}
-            </div>
-            <div class="col-4 py-2">
-                {{ form.show_in_marquee.label_tag }}
-                {{ form.show_in_marquee }}
-                {{ form.show_in_marquee.errors }}
+
             </div>
 
-                  {% if form.instance.id %}
-        	<div class=" col-4 pt-4 text-start">
-                 <button type="submit" class="btn btn-gradient-success">ذخیره اطلاعیه</button>
-              </div>
-             {% else %}
-             <div class="col-4 pt-4 text-start">
-                 <button type="submit" class="btn btn-gradient-success">ثبت اطلاعیه</button>
-              </div>
-        {% endif %}
+
+            <!-- ================================================= -->
+            <!-- آپلود اسناد جدید -->
+            <!-- ================================================= -->
+
+            <div class="col-12 py-3">
+
+                <label for="announcement_documents"
+                       class="form-label">
+
+                    تصاویر و اسناد اطلاعیه
+
+                </label>
+
+
+                <input type="file"
+                       id="announcement_documents"
+                       name="documents"
+                       class="form-control"
+                       multiple
+                       accept="image/*,.pdf,.doc,.docx,.xls,.xlsx">
+
+
+                <small class="text-muted">
+
+                    می‌توانید چند تصویر یا سند را همزمان انتخاب کنید.
+
+                </small>
+
+            </div>
+
+
+            <!-- ================================================= -->
+            <!-- وضعیت اطلاعیه -->
+            <!-- ================================================= -->
+
+            <div class="col-4 py-2">
+
+                {{ form.is_active.label_tag }}
+
+                {{ form.is_active }}
+
+                {{ form.is_active.errors }}
+
+            </div>
+
+
+            <!-- نمایش در مارکویی -->
+            <div class="col-4 py-2">
+
+                {{ form.show_in_marquee.label_tag }}
+
+                {{ form.show_in_marquee }}
+
+                {{ form.show_in_marquee.errors }}
+
+            </div>
+
+
+            <!-- ================================================= -->
+            <!-- دکمه ثبت / ویرایش -->
+            <!-- ================================================= -->
+
+            <div class="col-4 pt-4 text-start">
+
+                {% if form.instance.id %}
+
+                    <button type="submit"
+                            class="btn btn-gradient-success">
+
+                        ذخیره اطلاعیه
+
+                    </button>
+
+                {% else %}
+
+                    <button type="submit"
+                            class="btn btn-gradient-success">
+
+                        ثبت اطلاعیه
+
+                    </button>
+
+                {% endif %}
+
+            </div>
+
 
         </div>
 
-
     </form>
 
-{#    <div class="container p-3">#}
-{#        <div class="row mt-2">#}
-{#            <div class="table-responsive">#}
-{#                <table class="table table-bordered">#}
-{#                    <thead class="text-center">#}
-{#                        <tr>#}
-{#                            <th>#</th>#}
-{#                            <th>ایجاد کننده</th>#}
-{#                            <th>موضوع اطلاعیه</th>#}
-{#                            <th>تاریخ ایجاد</th>#}
-{#                            <th>فعال/غیرفعال</th>#}
-{#                            <th>دستورات</th>#}
-{#                        </tr>#}
-{#                    </thead>#}
-{#                    {% if announcements %}#}
-{#                        {% for announcement in announcements %}#}
-{#                        <tbody class="text-center">#}
-{#                            <tr>#}
-{#                                <td>{{ forloop.counter }}</td>#}
-{#                                <td>{{user.full_name }}</td>#}
-{#                                <td>{{ announcement.title|safe }}</td>#}
-{##}
-{#                                <td>{{ announcement.created_at|show_jalali}}</td>#}
-{#                                  <td>#}
-{#                                   {% if announcement.is_active == True %}#}
-{#                                    <button class="btn btn-primary bg-success p-2">فعال</button>#}
-{#                                       {% else %}#}
-{#                                       <button class="btn btn-danger p-2">غیر فعال</button>#}
-{#                                   {% endif %}#}
-{#                                </td>#}
-{##}
-{#                               <td class="col-lg-1 col-xl-1">#}
-{#                                   <a href="{% url 'edit_middle_announcement' announcement.id %}" class="btn btn-primary p-1">#}
-{#                              <i class="mdi mdi-lead-pencil" aria-hidden="true"></i></a>#}
-{#                                  <a href="{% url 'delete_middle_announcement' announcement.pk %}"#}
-{#                                     class="btn btn-danger p-1" onclick="return confirm('آیا نسبت به حذف این آیتم اطمینان دارید؟')">#}
-{#                                      <i class="mdi mdi-delete" aria-hidden="true"></i></a>#}
-{##}
-{#                            </td>#}
-{##}
-{#                            </tr>#}
-{#                        </tbody>#}
-{#                        {% endfor %}#}
-{#                    {% else %}#}
-{#                        <tbody>#}
-{#                            <tr>#}
-{#                                <td colspan="7" class="text-center">هیچ پیامی برای نمایش وجود ندارد.</td>#}
-{#                            </tr>#}
-{#                        </tbody>#}
-{#                    {% endif %}#}
-{#                </table>#}
-{#            </div>#}
-{#        </div>#}
-{#    </div>#}
+
+    <!-- ================================================= -->
+    <!-- اسناد موجود -->
+    <!-- این بخش خارج از فرم اصلی است -->
+    <!-- ================================================= -->
+
+    {% if form.instance.id %}
+
+        <div class="mt-4">
+
+            <label class="form-label fw-bold">
+
+                اسناد موجود
+
+            </label>
+
+
+            {% if announcement_documents %}
+
+
+                <div class="table-responsive">
+
+                    <table class="table table-bordered table-sm">
+
+
+                        <thead class="text-center">
+
+                            <tr>
+
+                                <th>
+                                    #
+                                </th>
+
+                                <th>
+                                    نام فایل
+                                </th>
+
+                                <th>
+                                    تاریخ بارگذاری
+                                </th>
+
+                                <th>
+                                    حذف
+                                </th>
+
+                            </tr>
+
+                        </thead>
+
+
+                        <tbody class="text-center">
+
+
+                            {% for document in announcement_documents %}
+
+                                <tr>
+
+
+                                    <!-- شماره -->
+                                    <td>
+
+                                        {{ forloop.counter }}
+
+                                    </td>
+
+
+                                    <!-- نام فایل -->
+                                    <td class="text-start">
+
+
+                                        {% if document.document %}
+
+                                            <a href="{{ document.document.url }}"
+                                               target="_blank"
+                                               class="text-decoration-none">
+
+                                                <i class="mdi mdi-file-outline"></i>
+
+                                                {{ document.document.name|cut:"images/announcement/" }}
+
+                                            </a>
+
+                                        {% else %}
+
+                                            <span class="text-muted">
+
+                                                فایل موجود نیست
+
+                                            </span>
+
+                                        {% endif %}
+
+
+                                    </td>
+
+
+                                    <!-- تاریخ -->
+                                    <td>
+
+                                        {{ document.uploaded_at|show_jalali_date_only }}
+
+                                    </td>
+
+
+                                    <!-- حذف -->
+                                    <td>
+
+
+                                        <form method="post"
+                                              action="{% url 'delete_announcement_document' document.pk %}"
+                                              style="display:inline;">
+
+                                            {% csrf_token %}
+
+
+                                            <button type="submit"
+                                                    class="btn btn-gradient-danger btn-sm"
+                                                    onclick="return confirm('آیا از حذف این سند اطمینان دارید؟');">
+
+
+                                                <i class="mdi mdi-delete"></i>
+
+
+                                            </button>
+
+
+                                        </form>
+
+
+                                    </td>
+
+
+                                </tr>
+
+                            {% endfor %}
+
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+
+            {% else %}
+
+
+                <div class="alert alert-info">
+
+                    برای این اطلاعیه هنوز سندی بارگذاری نشده است.
+
+                </div>
+
+
+            {% endif %}
+
+        </div>
+
+    {% endif %}
+
+
 </div>
+
 {% endblock %}
-
-
-
-
-
-
-
-

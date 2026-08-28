@@ -15,11 +15,7 @@
                             <th>عنوان پیام</th>
                             <th>متن پیام </th>
                             <th>تاریخ ایجاد</th>
-{#                            <th>فعال/غیرفعال</th>#}
-{#                            <th>وضعیت</th>#}
-{#                            <th>تاریخ ارسال</th>#}
-{#                            <th>تعداد پیامک ارسالی</th>#}
-{#                            <th>دستورات</th>#}
+
                         </tr>
                     </thead>
                     {% if all_messages %}
@@ -47,10 +43,6 @@
             </div>
         </div>
     <div class="card shadow-lg border-0 rounded-4">
-{#        <div class="card-header bg-gradient-secondary text-white text-center py-3 rounded-top-4">#}
-{#            <h4 class="mb-0"><i class="fas fa-sms me-2"></i>مدیریت ارسال پیامک‌ها</h4>#}
-{#        </div>#}
- 
         <div class="card-body p-4">
             <form method="POST" action="{% url 'middle_send_message' message.id %}">
                 {% csrf_token %}
@@ -58,32 +50,115 @@
                 <div class="row g-4 ">
                     <!-- واحدهای موجود -->
                     <div class="col-md-5">
-                        <div class="card border-0 shadow-sm rounded-3 h-100">
-                            <div class="card-header bg-light text-center fw-bold">
-                                <i class="fas fa-building text-primary me-1"></i> واحدهای موجود
-                            </div>
-                            <div class="card-body p-0">
-                                <input type="text" id="searchAvailable" class="form-control mb-3"
-                                       placeholder="جستجو..." />
-                                <select id="availableUnits" multiple size="15" class="form-select rounded-3">
-                                    {% for item in units_with_details %}
-                                        {% with unit=item.unit active_renter=item.active_renter %}
-                                        <option value="{{ unit.id }}">
-                                            واحد {{ unit.unit|to_persian_number  }} -
-                                            {% if unit.is_renter %}
-                                                مستاجر: {% if active_renter %}{{ active_renter.renter_name|to_persian_number  }}{% else %}ندارد{% endif %}
-                                                {% if active_renter and active_renter.renter_mobile|to_persian_number  %} ({{ active_renter.renter_mobile|to_persian_number  }}){% endif %}
-                                            {% else %}
-                                                مالک: {{ unit.owner_name }}
-                                                {% if unit.user and unit.user.mobile %} ({{ unit.user.mobile|to_persian_number  }}){% endif %}
-                                            {% endif %}
-                                        </option>
-                                        {% endwith %}
-                                    {% endfor %}
-                                </select>
-                            </div>
-                        </div>
-                    </div>
+    <div class="card border-0 shadow-sm rounded-3 h-100">
+        <div class="card-header bg-light text-center fw-bold">
+            <i class="fas fa-building text-primary me-1"></i>
+            واحدهای موجود
+        </div>
+
+        <div class="card-body p-0">
+
+{#            <input#}
+{#                type="text"#}
+{#                id="searchAvailable"#}
+{#                class="form-control mb-3"#}
+{#                placeholder="جستجو..."#}
+{#            />#}
+        <div class="input-group mb-3">
+
+    <input
+        type="text"
+        id="searchAvailable"
+        class="form-control"
+        placeholder="جستجو..."
+    />
+
+    <button
+        type="button"
+        class="btn btn-outline-primary btn-sm"
+        id="showAllResidents"
+        title="همه"
+    >
+        همه
+    </button>
+
+    <button
+        type="button"
+        class="btn btn-outline-success btn-sm"
+        id="showOwners"
+        title="فقط مالکین"
+    >
+        مالکین
+    </button>
+
+    <button
+        type="button"
+        class="btn btn-outline-warning btn-sm"
+        id="showRenters"
+        title="فقط مستأجرین"
+    >
+        مستأجرین
+    </button>
+
+</div>
+
+            <select
+                id="availableUnits"
+                multiple
+                size="15"
+                class="form-select rounded-3"
+            >
+
+                {% for item in units_with_details %}
+
+                    {% with unit=item.unit active_renter=item.active_renter %}
+
+                        <!-- ========================= -->
+                        <!-- مالک -->
+                        <!-- ========================= -->
+
+                        <option
+    value="owner_{{ unit.user.id }}"
+    data-type="owner"
+    data-unit="{{ unit.unit }}"
+>
+    واحد {{ unit.unit|to_persian_number }}
+    - مالک: {{ unit.owner_name|to_persian_number }}
+    {% if unit.owner_mobile %}
+        ({{ unit.owner_mobile|to_persian_number }})
+    {% endif %}
+</option>
+
+
+                        <!-- ========================= -->
+                        <!-- مستأجر فعال -->
+                        <!-- ========================= -->
+
+                        {% if active_renter %}
+
+                            <option
+    value="renter_{{ active_renter.id }}"
+    data-type="renter"
+    data-unit="{{ unit.unit }}"
+>
+    واحد {{ unit.unit|to_persian_number }}
+    - مستأجر: {{ active_renter.renter_name|to_persian_number }}
+    {% if active_renter.renter_mobile %}
+        ({{ active_renter.renter_mobile|to_persian_number }})
+    {% endif %}
+</option>
+
+                        {% endif %}
+
+                    {% endwith %}
+
+                {% endfor %}
+
+            </select>
+
+        </div>
+    </div>
+</div>
 
                     <!-- دکمه‌های انتقال -->
                     <div class="col-md-2 d-flex flex-column justify-content-center align-items-center gap-3">

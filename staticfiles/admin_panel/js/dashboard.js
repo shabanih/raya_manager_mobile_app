@@ -1,10 +1,17 @@
-$('#myForm').on('submit', function(e){
-  $('#myModal').modal('show');
-  e.preventDefault();
+$('#myForm').on('submit', function (e) {
+    $('#myModal').modal('show');
+    e.preventDefault();
 });
+
 // ====================
+function toPersianNumber(num) {
+    const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
+    return num.toString().replace(/[0-9]/g, function (w) {
+        return persianDigits[+w];
+    });
+}
 function toJalaali(gy, gm, gd) {
-    var g_d_m = [0,31,59,90,120,151,181,212,243,273,304,334];
+    var g_d_m = [0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334];
     var gy2 = (gm > 2) ? (gy + 1) : gy;
     var days = 355666 + (365 * gy) + Math.floor((gy2 + 3) / 4) - Math.floor((gy2 + 99) / 100) + Math.floor((gy2 + 399) / 400) + gd + g_d_m[gm - 1];
 
@@ -13,15 +20,15 @@ function toJalaali(gy, gm, gd) {
     jy += 4 * Math.floor(days / 1461);
     days %= 1461;
     if (days > 365) {
-        jy += Math.floor((days - 1)/365);
+        jy += Math.floor((days - 1) / 365);
         days = (days - 1) % 365;
     }
     var jm, jd;
     if (days < 186) {
-        jm = 1 + Math.floor(days/31);
+        jm = 1 + Math.floor(days / 31);
         jd = 1 + (days % 31);
     } else {
-        jm = 7 + Math.floor((days - 186)/30);
+        jm = 7 + Math.floor((days - 186) / 30);
         jd = 1 + ((days - 186) % 30);
     }
     return {jy: jy, jm: jm, jd: jd};
@@ -31,21 +38,28 @@ function updateClockAndDate() {
     let now = new Date();
 
     // ساعت
-    let hours = now.getHours().toString().padStart(2,'0');
-    let minutes = now.getMinutes().toString().padStart(2,'0');
-    let seconds = now.getSeconds().toString().padStart(2,'0');
-    document.getElementById("time").innerHTML = "ساعت " + hours + ":" + minutes + ":" + seconds;
+    let hours = now.getHours().toString().padStart(2, '0');
+    let minutes = now.getMinutes().toString().padStart(2, '0');
+    let seconds = now.getSeconds().toString().padStart(2, '0');
+    document.getElementById("time").innerHTML =
+    "ساعت " +
+    toPersianNumber(hours) + ":" +
+    toPersianNumber(minutes) + ":" +
+    toPersianNumber(seconds);
 
     // تاریخ شمسی دقیق
-    let jDate = toJalaali(now.getFullYear(), now.getMonth()+1, now.getDate());
-    let weekDays = ["یکشنبه","دوشنبه","سه‌شنبه","چهارشنبه","پنجشنبه","جمعه","شنبه"];
+    let jDate = toJalaali(now.getFullYear(), now.getMonth() + 1, now.getDate());
+    let weekDays = ["یکشنبه", "دوشنبه", "سه‌شنبه", "چهارشنبه", "پنجشنبه", "جمعه", "شنبه"];
     let todayName = weekDays[now.getDay()];
 
-    let jMonths = ["فروردین","اردیبهشت","خرداد","تیر","مرداد","شهریور",
-                   "مهر","آبان","آذر","دی","بهمن","اسفند"];
+    let jMonths = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+        "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
 
     document.getElementById("date").innerHTML =
-        "امروز: " + todayName + " " + jDate.jd + " " + jMonths[jDate.jm - 1] + " " + jDate.jy;
+    "امروز: " + todayName + " " +
+    toPersianNumber(jDate.jd) + " " +
+    jMonths[jDate.jm - 1] + " " +
+    toPersianNumber(jDate.jy);
 }
 
 setInterval(updateClockAndDate, 1000);
@@ -70,7 +84,7 @@ $(document).on('click', '.edit-expense-btn', function (e) {
     $('#preview').empty();
 
     if (images.length > 0) {
-        images.forEach(function(imgUrl, index) {
+        images.forEach(function (imgUrl, index) {
             var imageWrapper = `
                 <div class="image-item m-2 position-relative" style="display:inline-block;">
                     <img src="${imgUrl}"
@@ -118,7 +132,7 @@ $(document).on('click', '.delete-image321-btn', function () {
                     url: imageUrl,  // The URL of the image to delete
                     expense_id: expenseId  // The ID of the related expense
                 },
-                success: function(response) {
+                success: function (response) {
                     if (response.status === 'success') {
                         Swal.fire('حذف شد!', 'تصویر با موفقیت حذف شد.', 'success');
                         // Optionally, remove the image from the preview
@@ -127,7 +141,7 @@ $(document).on('click', '.delete-image321-btn', function () {
                         Swal.fire('خطا', response.message, 'error');
                     }
                 },
-                error: function() {
+                error: function () {
                     Swal.fire('خطا', 'خطا در حذف تصویر', 'error');
                 }
             });
@@ -190,7 +204,7 @@ $(document).on('click', '.edit-income-btn', function (e) {
     $('#preview').empty();
 
     if (images.length > 0) {
-        images.forEach(function(imgUrl, index) {
+        images.forEach(function (imgUrl, index) {
             var imageWrapper = `
                 <div class="image-item m-2 position-relative" style="display:inline-block;">
                     <img src="${imgUrl}"
@@ -239,7 +253,7 @@ $(document).on('click', '.delete-image21-btn', function () {
                     url: imageUrl,  // The URL of the image to delete
                     income_id: incomeId  // The ID of the related expense
                 },
-                success: function(response) {
+                success: function (response) {
                     if (response.status === 'success') {
                         Swal.fire('حذف شد!', 'تصویر با موفقیت حذف شد.', 'success');
                         // Optionally, remove the image from the preview
@@ -248,7 +262,7 @@ $(document).on('click', '.delete-image21-btn', function () {
                         Swal.fire('خطا2', response.message, 'error');
                     }
                 },
-                error: function() {
+                error: function () {
                     Swal.fire('خطا', 'خطا در حذف تصویر', 'error');
                 }
             });
@@ -264,7 +278,7 @@ $(document).on('click', '.edit-income-btn', function () {
     // Set the form action URL dynamically
     $('#incomeForm').attr('action', '/admin-panel/income/edit/' + id + '/');
 
-   // category
+    // category
     var category = $(this).data('category');
     if ($('#id_category option[value="' + category + '"]').length) {
         $('#id_category').val(category).trigger('change');
@@ -316,24 +330,24 @@ $(document).on('click', '.edit-house-btn', function () {
     $('#id_user_type').val($(this).data('user_type'));
     $('#id_city').val($(this).data('city'));
     $('#id_address').val($(this).data('address'));
-       // تعیین مقدار is_active
+    // تعیین مقدار is_active
     let isActive = $(this).data('is_active');
     $('#editForm select[name="is_active"]').val(isActive.toString());
     // Update the modal title and submit button text for editing
     $('#exampleModalLongTitle3').text('ویرایش اطلاعات ');
     $('#btn-submit-bank').text('ویرایش اطلاعات ساختمان');
 });
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('personForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 
- $(document).on('click', '.edit-bank-btn', function () {
+$(document).on('click', '.edit-bank-btn', function () {
     console.log('ویرایش کلیک شد2');
 
     // Get the expense ID from the clicked button's data attributes
@@ -355,16 +369,16 @@ $(document).on('click', '.edit-house-btn', function () {
     $('#exampleModalLongTitle3').text('ویرایش اطلاعات ساختمان');
     $('#btn-submit-bank').text('ویرایش اطلاعات ساختمان');
 });
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('personForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
- // ==================================================
+// ==================================================
 $(document).on('click', '.edit-middle-btn', function () {
     console.log('ویرایش کلیک شد2');
 
@@ -393,8 +407,8 @@ $(document).on('click', '.edit-middle-btn', function () {
     }
     modal.find('input[name="charge_methods"]').prop('checked', false);
     if (selectedMethods) {
-        selectedMethods.forEach(function(id) {
-            modal.find('input[name="charge_methods"][value="'+id+'"]').prop('checked', true);
+        selectedMethods.forEach(function (id) {
+            modal.find('input[name="charge_methods"][value="' + id + '"]').prop('checked', true);
         });
     }
 
@@ -403,14 +417,14 @@ $(document).on('click', '.edit-middle-btn', function () {
     $('#btn-submit-bank').text('ویرایش اطلاعات ');
 });
 
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('personForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 // ===================================================
 $(document).on('click', '.edit-receive-btn', function (e) {
@@ -431,7 +445,7 @@ $(document).on('click', '.edit-receive-btn', function (e) {
     $('#preview').empty();
 
     if (images.length > 0) {
-        images.forEach(function(imgUrl, index) {
+        images.forEach(function (imgUrl, index) {
             var imageWrapper = `
                 <div class="image-item m-2 position-relative" style="display:inline-block;">
                     <img src="${imgUrl}"
@@ -480,7 +494,7 @@ $(document).on('click', '.delete-image1-btn', function () {
                     url: imageUrl,  // The URL of the image to delete
                     receive_id: receiveId  // The ID of the related expense
                 },
-                success: function(response) {
+                success: function (response) {
                     if (response.status === 'success') {
                         Swal.fire('حذف شد!', 'تصویر با موفقیت حذف شد.', 'success');
                         // Optionally, remove the image from the preview
@@ -489,7 +503,7 @@ $(document).on('click', '.delete-image1-btn', function () {
                         Swal.fire('خطا2', response.message, 'error');
                     }
                 },
-                error: function() {
+                error: function () {
                     Swal.fire('خطا', 'خطا در حذف تصویر', 'error');
                 }
             });
@@ -525,14 +539,14 @@ $(document).on('click', '.edit-receive-btn', function () {
     $('#btn-submit-receive').text('ویرایش سند دریافتنی');
 });
 
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('personForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 // ================================================= pay ====
 $(document).on('click', '.edit-pay-btn', function (e) {
     e.preventDefault();
@@ -552,7 +566,7 @@ $(document).on('click', '.edit-pay-btn', function (e) {
     $('#preview').empty();
 
     if (images.length > 0) {
-        images.forEach(function(imgUrl, index) {
+        images.forEach(function (imgUrl, index) {
             var imageWrapper = `
                 <div class="image-item m-2 position-relative" style="display:inline-block;">
                     <img src="${imgUrl}"
@@ -602,7 +616,7 @@ $(document).on('click', '.delete-image_payment-btn', function () {
                     url: imageUrl,  // The URL of the image to delete
                     payment_id: paymentId  // The ID of the related expense
                 },
-                success: function(response) {
+                success: function (response) {
                     if (response.status === 'success') {
                         Swal.fire('حذف شد!', 'تصویر با موفقیت حذف شد.', 'success');
                         button.closest('.image-item').remove();
@@ -610,7 +624,7 @@ $(document).on('click', '.delete-image_payment-btn', function () {
                         Swal.fire('خطا', response.message, 'error');
                     }
                 },
-                error: function() {
+                error: function () {
                     Swal.fire('خطا', 'خطا در حذف تصویر', 'error');
                 }
             });
@@ -644,14 +658,14 @@ $(document).on('click', '.edit-pay-btn', function () {
     $('#exampleModalLongTitle').text('ویرایش سند پرداختنی');
     $('#btn-submit-receive').text('ویرایش سند پرداختنی');
 });
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('personForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 // =============================== Property ==================
 $(document).on('click', '.edit-productProperty-btn', function (e) {
@@ -672,7 +686,7 @@ $(document).on('click', '.edit-productProperty-btn', function (e) {
     $('#preview').empty();
 
     if (images.length > 0) {
-        images.forEach(function(imgUrl, index) {
+        images.forEach(function (imgUrl, index) {
             var imageWrapper = `
                 <div class="image-item m-2 position-relative" style="display:inline-block;">
                     <img src="${imgUrl}"
@@ -719,7 +733,7 @@ $(document).on('click', '.delete-image2-btn', function () {
                     url: imageUrl,
                     property_id: propertyId
                 },
-                success: function(response) {
+                success: function (response) {
                     if (response.status === 'success') {
                         Swal.fire('حذف شد!', 'تصویر با موفقیت حذف شد.', 'success');
                         button.closest('.image-item').remove();
@@ -727,7 +741,7 @@ $(document).on('click', '.delete-image2-btn', function () {
                         Swal.fire('خطا', response.message, 'error');
                     }
                 },
-                error: function() {
+                error: function () {
                     Swal.fire('خطا', 'خطا در حذف تصویر', 'error');
                 }
             });
@@ -760,14 +774,14 @@ $(document).on('click', '.edit-productProperty-btn', function () {
     $('#exampleModalLongTitle').text('ویرایش اموال');
     $('#btn-submit-receive').text('ویرایش اموال');
 });
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('personForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 // =============================== Maintenance ==================
 $(document).on('click', '.edit-maintenance-btn', function (e) {
@@ -788,7 +802,7 @@ $(document).on('click', '.edit-maintenance-btn', function (e) {
     $('#preview').empty();
 
     if (images.length > 0) {
-        images.forEach(function(imgUrl, index) {
+        images.forEach(function (imgUrl, index) {
             var imageWrapper = `
                 <div class="image-item m-2 position-relative" style="display:inline-block;">
                     <img src="${imgUrl}"
@@ -835,7 +849,7 @@ $(document).on('click', '.delete-image-btn', function () {
                     url: imageUrl,
                     maintenance_id: maintenanceId
                 },
-                success: function(response) {
+                success: function (response) {
                     if (response.status === 'success') {
                         Swal.fire('حذف شد!', 'تصویر با موفقیت حذف شد.', 'success');
                         button.closest('.image-item').remove();
@@ -843,7 +857,7 @@ $(document).on('click', '.delete-image-btn', function () {
                         Swal.fire('خطا', response.message, 'error');
                     }
                 },
-                error: function() {
+                error: function () {
                     Swal.fire('خطا', 'خطا در حذف تصویر', 'error');
                 }
             });
@@ -877,14 +891,14 @@ $(document).on('click', '.edit-maintenance-btn', function () {
     $('#exampleModalLongTitle').text('ویرایش سند');
     $('#btn-submit-receive').text('ویرایش سند');
 });
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('maintenanceForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 // ===================================================
 
@@ -909,15 +923,15 @@ $(document).on('click', '.edit-charge-btn', function () {
     $('#exampleModalLongTitle').text('ویرایش : ' + chargeName);
     $('#btn-submit-receive').text('ویرایش شارژ');
 });
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('chargeForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
- // ==============================================
+});
+// ==============================================
 $(document).on('click', '.edit-charge-area-btn', function () {
     console.log('ویرایش کلیک شد');
 
@@ -935,21 +949,21 @@ $(document).on('click', '.edit-charge-area-btn', function () {
     $('#id_details').val($(this).data('details'));
 
     // Update the modal title and submit button text for editing
-   let chargeName = $(this).data('name');
+    let chargeName = $(this).data('name');
     $('#exampleModalLongTitle').text('ویرایش : ' + chargeName);
     $('#btn-submit-receive').text('ویرایش شارژ');
 });
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('areaForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 
- // ==============================================
+// ==============================================
 $(document).on('click', '.edit-charge-person-btn', function () {
     console.log('ویرایش کلیک شد');
 
@@ -971,16 +985,16 @@ $(document).on('click', '.edit-charge-person-btn', function () {
     $('#exampleModalLongTitle').text('ویرایش : ' + chargeName);
     $('#btn-submit-receive').text('ویرایش شارژ');
 });
- document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('personForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
- // ==============================================
+// ==============================================
 // When the Edit button is clicked
 $(document).on('click', '.edit-fix-area-btn', function () {
     console.log('ویرایش کلیک شد');
@@ -1006,18 +1020,18 @@ $(document).on('click', '.edit-fix-area-btn', function () {
     $('#btn-submit-receive').text('ویرایش شارژ');
 });
 
-  document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('fixAreaForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 // ============================================================
 
- // ==============================================
+// ==============================================
 // When the Edit button is clicked
 $(document).on('click', '.edit-fix-person-btn', function () {
     console.log('ویرایش کلیک شد');
@@ -1043,14 +1057,14 @@ $(document).on('click', '.edit-fix-person-btn', function () {
     $('#btn-submit-receive').text('ویرایش شارژ');
 });
 
-  document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('fixPersonForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 // ============================================================
 $(document).on('click', '.edit-area-person-btn', function () {
@@ -1077,14 +1091,14 @@ $(document).on('click', '.edit-area-person-btn', function () {
     $('#btn-submit-receive').text('ویرایش شارژ');
 });
 
-  document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('persianAreaForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 // ============================================================
 
@@ -1113,14 +1127,14 @@ $(document).on('click', '.edit-area-person-fix-btn', function () {
     $('#btn-submit-receive').text('ویرایش شارژ');
 });
 
-  document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('personAreaFixForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
+});
 
 // ============================================================
 $(document).on('click', '.edit-variable-fix-btn', function () {
@@ -1148,27 +1162,27 @@ $(document).on('click', '.edit-variable-fix-btn', function () {
     $('#btn-submit-receive').text('ویرایش شارژ');
 });
 
-  document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', function () {
     const modal = document.getElementById('exampleModalLong');
     const form = document.getElementById('variableFixForm');
 
     modal.addEventListener('hidden.bs.modal', function () {
-      form.reset();
+        form.reset();
     });
-  });
-  // =======================================================
-    document.addEventListener('DOMContentLoaded', function () {
-        const toggleBtn = document.getElementById('toggle-select-btn');
-        let allSelected = false;
+});
+// =======================================================
+document.addEventListener('DOMContentLoaded', function () {
+    const toggleBtn = document.getElementById('toggle-select-btn');
+    let allSelected = false;
 
-        toggleBtn.addEventListener('click', function () {
-            const checkboxes = document.querySelectorAll('.unit-checkbox:not(:disabled)');
-            checkboxes.forEach(cb => cb.checked = !allSelected);
+    toggleBtn.addEventListener('click', function () {
+        const checkboxes = document.querySelectorAll('.unit-checkbox:not(:disabled)');
+        checkboxes.forEach(cb => cb.checked = !allSelected);
 
-            allSelected = !allSelected;
-            toggleBtn.textContent = allSelected ? 'لغو انتخاب همه واحدها' : 'انتخاب همه واحدها';
-        });
+        allSelected = !allSelected;
+        toggleBtn.textContent = allSelected ? 'لغو انتخاب همه واحدها' : 'انتخاب همه واحدها';
     });
+});
 
 // ============================================
 function confirmDeleteWithSweetAlert(event) {
@@ -1194,70 +1208,165 @@ function confirmDeleteWithSweetAlert(event) {
     return false; // جلوگیری از رفتار پیش‌فرض لینک
 }
 
-// ================sms =================
-document.addEventListener("DOMContentLoaded", function() {
-    const available = document.getElementById("availableUnits");
-    const selected = document.getElementById("selectedUnits");
-    const addBtn = document.getElementById("addBtn");
-    const removeBtn = document.getElementById("removeBtn");
-    const addAllBtn = document.getElementById("addAllBtn");
-    const removeAllBtn = document.getElementById("removeAllBtn");
-    const searchAvailable = document.getElementById("searchAvailable");
-    const searchSelected = document.getElementById("searchSelected");
-    const form = document.querySelector("form");
+// ================ admin chart =================
+document.addEventListener("DOMContentLoaded", function () {
 
-    // انتقال گزینه‌ها
-    addBtn.onclick = () => moveOptions(available, selected);
-    removeBtn.onclick = () => moveOptions(selected, available);
-    addAllBtn.onclick = () => moveAllOptions(available, selected);
-    removeAllBtn.onclick = () => moveAllOptions(selected, available);
+    const userTypeData = JSON.parse(document.getElementById('user_type_data').textContent);
+    const cityData = JSON.parse(document.getElementById('city_data').textContent);
 
-    function moveOptions(from, to) {
-        [...from.selectedOptions].forEach(opt => {
-            to.add(opt);
-            opt.selected = true; // ✅ اینجا اضافه شد
-        });
-    }
+    const userTypeLabels = userTypeData.map(item => item.user_type);
+    const userTypeCounts = userTypeData.map(item => item.total);
 
-    function moveAllOptions(from, to) {
-        [...from.options].forEach(opt => {
-            to.add(opt);
-            opt.selected = true; // ✅ اینجا اضافه شد
-        });
-    }
-    // جستجو
-    searchAvailable.addEventListener("keyup", function() {
-        const filter = this.value.toLowerCase();
-        [...available.options].forEach(opt => {
-            opt.style.display = opt.text.toLowerCase().includes(filter) ? "" : "none";
-        });
-    });
+    const cityLabels = cityData.map(item => item.city);
+    const cityCounts = cityData.map(item => item.total);
 
-    searchSelected.addEventListener("keyup", function() {
-        const filter = this.value.toLowerCase();
-        [...selected.options].forEach(opt => {
-            opt.style.display = opt.text.toLowerCase().includes(filter) ? "" : "none";
-        });
-    });
-
-    // SweetAlert تأیید ارسال
-    form.addEventListener("submit", function(e) {
-        e.preventDefault();
-        Swal.fire({
-            title: 'ارسال پیامک؟',
-            text: "آیا از ارسال پیامک برای واحدهای انتخاب‌شده اطمینان دارید؟",
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonText: 'بله، ارسال شود',
-            cancelButtonText: 'خیر',
-        }).then((result) => {
-            if (result.isConfirmed) {
-                [...selected.options].forEach(opt => opt.selected = true);
-                form.submit();
+    // چارت نوع کاربری
+    const ctx1 = document.getElementById("userTypeChart");
+    if (ctx1) {
+        new Chart(ctx1, {
+            type: 'doughnut',
+            data: {
+                labels: userTypeLabels,
+                datasets: [{
+                    data: userTypeCounts
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        display: false   // 👈 حذف لیبل بالا
+                    }
+                }
             }
         });
-    });
+    }
+
+    // چارت شهر
+    const ctx2 = document.getElementById("cityChart");
+    if (ctx2) {
+        new Chart(ctx2, {
+            type: 'doughnut',
+            data: {
+                labels: cityLabels,
+                datasets: [{
+                    data: cityCounts
+                }]
+            },
+            options: {
+                plugins: {
+                    legend: {
+                        display: false   // 👈 حذف لیبل بالا
+                    }
+                }
+            }
+        });
+    }
+
 });
+
+
+document.addEventListener("DOMContentLoaded", function () {
+
+    const stats = JSON.parse(document.getElementById('owner_renter_data').textContent);
+
+    const ctx = document.getElementById("ownerRenterChart");
+
+    if (ctx) {
+    new Chart(ctx, {
+    type: 'doughnut',
+    data: {
+    labels: ['مالک', 'مستاجر'],
+    datasets: [{
+    data: [stats.owner, stats.renter],
+    backgroundColor: [
+    'rgba(54, 162, 235, 0.6)',  // مالک
+    'rgba(255, 99, 132, 0.6)'   // مستاجر
+    ],
+    borderWidth: 1
+}]
+},
+    options: {
+    plugins: {
+    legend: {
+    position: false  // اگر نمیخوای نمایش داده بشه بکن false
+}
+}
+}
+});
+}
+
+});
+// ==================
+var months = ["فروردین", "اردیبهشت", "خرداد", "تیر", "مرداد", "شهریور",
+    "مهر", "آبان", "آذر", "دی", "بهمن", "اسفند"];
+
+var chartColors = {
+    red: 'rgb(255, 99, 132)',
+    blue: 'rgb(54, 162, 235)'
+};
+
+var barData = {
+    labels: months,
+    datasets: [
+        {
+            label: 'پرداخت شده',
+            backgroundColor: Chart.helpers.color(chartColors.blue).alpha(0.5).rgbString(),
+            borderColor: chartColors.blue,
+            borderWidth: 1,
+            data: paidCharges
+        },
+        {
+            label: 'پرداخت نشده',
+            backgroundColor: Chart.helpers.color(chartColors.red).alpha(0.5).rgbString(),
+            borderColor: chartColors.red,
+            borderWidth: 1,
+            data: unpaidCharges
+        }
+    ]
+};
+
+var ctx = document.getElementById("barChart").getContext("2d");
+var myNewChartB = new Chart(ctx, {
+    type: 'bar',
+    data: barData,
+    options: {
+        responsive: true,
+        maintainAspectRatio: true, // حفظ نسبت تصویر
+        plugins: {
+            legend: {
+                position: 'top',
+                labels: {
+                    font: {family: 'Vazir', size: 14}
+                }
+            },
+            title: {
+                display: true,
+                text: 'وضعیت شارژ ماهانه2',
+                font: {family: 'Vazir', size: 25, weight: 'bold'}
+            }
+        },
+        scales: {
+            y: {
+                beginAtZero: true,
+                ticks: {
+                    font: {family: 'Vazir', size: 12},
+                    stepSize: 50,
+                    // برای نمایش اعداد فارسی
+                    callback: function (value) {
+                        const persianDigits = "۰۱۲۳۴۵۶۷۸۹";
+                        return value.toString().replace(/\d/g, d => persianDigits[d]);
+                    }
+                }
+            },
+            x: {
+                ticks: {font: {family: 'Vazir', size: 12}}
+            }
+        }
+    }
+});
+
+// ==========================================
+
 
 
 

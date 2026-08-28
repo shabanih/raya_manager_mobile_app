@@ -1661,70 +1661,471 @@ function confirmSendWithSweetAlert(event) {
 
 // ================= middle message ================
 
-document.addEventListener("DOMContentLoaded", function () {
-    const available = document.getElementById("availableUnits");
-    const selected = document.getElementById("selectedUnits");
-    const addBtn = document.getElementById("addBtn");
-    const removeBtn = document.getElementById("removeBtn");
-    const addAllBtn = document.getElementById("addAllBtn");
-    const removeAllBtn = document.getElementById("removeAllBtn");
-    const searchAvailable = document.getElementById("searchAvailable");
-    const searchSelected = document.getElementById("searchSelected");
-    const form = document.querySelector("form");
+    document.addEventListener('DOMContentLoaded', function () {
 
-    // انتقال گزینه‌ها
-    addBtn.onclick = () => moveOptions(available, selected);
-    removeBtn.onclick = () => moveOptions(selected, available);
-    addAllBtn.onclick = () => moveAllOptions(available, selected);
-    removeAllBtn.onclick = () => moveAllOptions(selected, available);
+    const available = document.getElementById('availableUnits');
+    const selected = document.getElementById('selectedUnits');
+
+    const addBtn = document.getElementById('addBtn');
+    const removeBtn = document.getElementById('removeBtn');
+    const addAllBtn = document.getElementById('addAllBtn');
+    const removeAllBtn = document.getElementById('removeAllBtn');
+
+    const searchAvailable = document.getElementById('searchAvailable');
+    const searchSelected = document.getElementById('searchSelected');
+
+    const showAllResidents = document.getElementById('showAllResidents');
+    const showOwners = document.getElementById('showOwners');
+    const showRenters = document.getElementById('showRenters');
+
+    const form = document.querySelector('form');
+
+    let residentFilter = 'all';
+
+
+    // =====================================================
+    // تبدیل اعداد فارسی و عربی به انگلیسی
+    // =====================================================
+
+    function normalizeDigits(value) {
+
+    return String(value)
+    .replace(/[۰-۹]/g, function (digit) {
+    return '۰۱۲۳۴۵۶۷۸۹'.indexOf(digit);
+})
+    .replace(/[٠-٩]/g, function (digit) {
+    return '٠١٢٣٤٥٦٧٨٩'.indexOf(digit);
+});
+}
+
+
+    // =====================================================
+    // نرمال کردن متن
+    // =====================================================
+
+    function normalizeText(value) {
+
+    return normalizeDigits(value)
+    .replace(/\u200c/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+
+    // =====================================================
+    // فیلتر واحدهای موجود
+    // =====================================================
+
+    function filterAvailableUnits() {
+
+    const searchValue = normalizeText(searchAvailable.value);
+
+    Array.from(available.options).forEach(function (option) {
+
+    const optionText = normalizeText(option.textContent);
+
+    const unitNumber = normalizeText(
+    option.dataset.unit || ''
+    );
+
+    const type = option.dataset.type || '';
+
+    const searchMatch =
+    searchValue === '' ||
+    optionText.includes(searchValue) ||
+    unitNumber.includes(searchValue);
+
+    const typeMatch =
+    residentFilter === 'all' ||
+    type === residentFilter;
+
+    option.hidden = !(searchMatch && typeMatch);
+});
+}
+
+
+    // =====================================================
+    // فیلتر واحدهای انتخاب شده
+    // =====================================================
+
+    function filterSelectedUnits() {
+
+    const searchValue = normalizeText(searchSelected.value);
+
+    Array.from(selected.options).forEach(function (option) {
+
+    const optionText = normalizeText(option.textContent);
+
+    option.hidden = !(
+    searchValue === '' ||
+    optionText.includes(searchValue)
+    );
+});
+}
+
+
+    // =====================================================
+    // جستجوی واحدهای موجود
+    // =====================================================
+
+    searchAvailable.addEventListener('input', function () {
+    filterAvailableUnits();
+});
+
+
+    // =====================================================
+    // جستجوی واحدهای انتخاب شده
+    // =====================================================
+
+    searchSelected.addEventListener('input', function () {
+    filterSelectedUnits();
+});
+
+
+    // =====================================================
+    // فیلتر همه
+    // =====================================================
+
+    showAllResidents.addEventListener('click', function () {
+
+    residentFilter = 'all';
+
+    filterAvailableUnits();
+});
+
+
+    // =====================================================
+    // فقط مالکین
+    // =====================================================
+
+    showOwners.addEventListener('click', function () {
+
+    residentFilter = 'owner';
+
+    filterAvailableUnits();
+});
+
+
+    // =====================================================
+    // فقط مستاجرین
+    // =====================================================
+
+    showRenters.addEventListener('click', function () {
+
+    residentFilter = 'renter';
+
+    filterAvailableUnits();
+});
+
+
+    // =====================================================
+    // انتقال گزینه‌های انتخاب شده
+    // =====================================================
 
     function moveOptions(from, to) {
-        [...from.selectedOptions].forEach(opt => {
-            to.add(opt);
-            opt.selected = true; // ✅ اینجا اضافه شد
-        });
-    }
+
+    Array.from(from.selectedOptions).forEach(function (option) {
+
+    to.appendChild(option);
+
+    // گزینه منتقل شده همچنان انتخاب شده باشد
+    option.selected = true;
+});
+
+    filterAvailableUnits();
+    filterSelectedUnits();
+}
+
+
+    // =====================================================
+    // انتقال همه گزینه‌ها
+    // =====================================================
 
     function moveAllOptions(from, to) {
-        [...from.options].forEach(opt => {
-            to.add(opt);
-            opt.selected = true; // ✅ اینجا اضافه شد
-        });
-    }
 
-    // جستجو
-    searchAvailable.addEventListener("keyup", function () {
-        const filter = this.value.toLowerCase();
-        [...available.options].forEach(opt => {
-            opt.style.display = opt.text.toLowerCase().includes(filter) ? "" : "none";
-        });
-    });
+    Array.from(from.options).forEach(function (option) {
 
-    searchSelected.addEventListener("keyup", function () {
-        const filter = this.value.toLowerCase();
-        [...selected.options].forEach(opt => {
-            opt.style.display = opt.text.toLowerCase().includes(filter) ? "" : "none";
-        });
-    });
+    // فقط گزینه‌های قابل مشاهده منتقل شوند
+    if (!option.hidden) {
 
-    // SweetAlert تأیید ارسال
-    form.addEventListener("submit", function (e) {
-        e.preventDefault();
-        Swal.fire({
-            title: 'ارسال پیامک؟',
-            text: "آیا از ارسال پیامک برای واحدهای انتخاب‌شده اطمینان دارید؟",
-            icon: 'question',
-            showCancelButton: true,
-            confirmButtonText: 'بله، ارسال شود',
-            cancelButtonText: 'خیر',
-        }).then((result) => {
-            if (result.isConfirmed) {
-                [...selected.options].forEach(opt => opt.selected = true);
-                form.submit();
-            }
-        });
-    });
+    to.appendChild(option);
+
+    option.selected = true;
+}
 });
+
+    filterAvailableUnits();
+    filterSelectedUnits();
+}
+
+
+    // =====================================================
+    // دکمه افزودن انتخاب شده‌ها
+    // =====================================================
+
+    addBtn.addEventListener('click', function () {
+
+    moveOptions(available, selected);
+});
+
+
+    // =====================================================
+    // دکمه حذف انتخاب شده‌ها
+    // =====================================================
+
+    removeBtn.addEventListener('click', function () {
+
+    moveOptions(selected, available);
+});
+
+
+    // =====================================================
+    // افزودن همه
+    // =====================================================
+
+    addAllBtn.addEventListener('click', function () {
+
+    moveAllOptions(available, selected);
+});
+
+
+    // =====================================================
+    // حذف همه
+    // =====================================================
+
+    removeAllBtn.addEventListener('click', function () {
+
+    moveAllOptions(selected, available);
+});
+
+
+    // =====================================================
+    // قبل از ارسال فرم
+    // همه گزینه‌های selected باید selected باشند
+    // =====================================================
+
+    form.addEventListener('submit', function (e) {
+
+    e.preventDefault();
+
+    Swal.fire({
+    title: 'ارسال پیامک؟',
+    text: 'آیا از ارسال پیامک برای واحدهای انتخاب‌شده اطمینان دارید؟',
+    icon: 'question',
+    showCancelButton: true,
+    confirmButtonText: 'بله، ارسال شود',
+    cancelButtonText: 'خیر'
+}).then(function (result) {
+
+    if (result.isConfirmed) {
+
+    Array.from(selected.options).forEach(function (option) {
+    option.selected = true;
+});
+
+    form.submit();
+}
+
+});
+
+});
+
+
+    // =====================================================
+    // اجرای اولیه فیلتر
+    // =====================================================
+
+    filterAvailableUnits();
+    filterSelectedUnits();
+
+});
+
+//     document.addEventListener('DOMContentLoaded', function () {
+//
+//     const searchInput = document.getElementById('searchAvailable');
+//     const availableUnits = document.getElementById('availableUnits');
+//
+//     const showAllResidents = document.getElementById('showAllResidents');
+//     const showOwners = document.getElementById('showOwners');
+//     const showRenters = document.getElementById('showRenters');
+//
+//     let residentFilter = 'all';
+//
+//
+//     // تبدیل اعداد فارسی و عربی به انگلیسی
+//     function normalizeDigits(value) {
+//
+//     return String(value)
+//     .replace(/[۰-۹]/g, function (digit) {
+//     return '۰۱۲۳۴۵۶۷۸۹'.indexOf(digit);
+// })
+//     .replace(/[٠-٩]/g, function (digit) {
+//     return '٠١٢٣٤٥٦٧٨٩'.indexOf(digit);
+// });
+// }
+//
+//
+//     // نرمال کردن متن برای جستجو
+//     function normalizeText(value) {
+//
+//     return normalizeDigits(value)
+//     .replace(/\u200c/g, ' ')
+//     .replace(/\s+/g, ' ')
+//     .trim()
+//     .toLowerCase();
+// }
+//
+//
+//     function filterAvailableUnits() {
+//
+//     const searchValue = normalizeText(
+//     searchInput.value
+//     );
+//
+//     const options = Array.from(
+//     availableUnits.options
+//     );
+//
+//     options.forEach(function (option) {
+//
+//     const optionText = normalizeText(
+//     option.textContent
+//     );
+//
+//     const unitNumber = normalizeText(
+//     option.dataset.unit || ''
+//     );
+//
+//     const type = option.dataset.type || '';
+//
+//     // جستجو
+//     const searchMatch =
+//     searchValue === '' ||
+//     optionText.includes(searchValue) ||
+//     unitNumber.includes(searchValue);
+//
+//     // فیلتر مالک / مستاجر
+//     const typeMatch =
+//     residentFilter === 'all' ||
+//     type === residentFilter;
+//
+//     option.hidden = !(
+//     searchMatch &&
+//     typeMatch
+//     );
+// });
+// }
+//
+//
+//     // جستجو
+//     searchInput.addEventListener(
+//     'input',
+//     filterAvailableUnits
+//     );
+//
+//
+//     // همه
+//     showAllResidents.addEventListener(
+//     'click',
+//     function () {
+//
+//     residentFilter = 'all';
+//
+//     filterAvailableUnits();
+// }
+//     );
+//
+//
+//     // فقط مالکین
+//     showOwners.addEventListener(
+//     'click',
+//     function () {
+//
+//     residentFilter = 'owner';
+//
+//     filterAvailableUnits();
+// }
+//     );
+//
+//
+//     // فقط مستاجرین
+//     showRenters.addEventListener(
+//     'click',
+//     function () {
+//
+//     residentFilter = 'renter';
+//
+//     filterAvailableUnits();
+// }
+//     );
+//
+// });
+
+// document.addEventListener("DOMContentLoaded", function () {
+//     const available = document.getElementById("availableUnits");
+//     const selected = document.getElementById("selectedUnits");
+//     const addBtn = document.getElementById("addBtn");
+//     const removeBtn = document.getElementById("removeBtn");
+//     const addAllBtn = document.getElementById("addAllBtn");
+//     const removeAllBtn = document.getElementById("removeAllBtn");
+//     const searchAvailable = document.getElementById("searchAvailable");
+//     const searchSelected = document.getElementById("searchSelected");
+//     const form = document.querySelector("form");
+//
+//     // انتقال گزینه‌ها
+//     addBtn.onclick = () => moveOptions(available, selected);
+//     removeBtn.onclick = () => moveOptions(selected, available);
+//     addAllBtn.onclick = () => moveAllOptions(available, selected);
+//     removeAllBtn.onclick = () => moveAllOptions(selected, available);
+//
+//     function moveOptions(from, to) {
+//         [...from.selectedOptions].forEach(opt => {
+//             to.add(opt);
+//             opt.selected = true; // ✅ اینجا اضافه شد
+//         });
+//     }
+//
+//     function moveAllOptions(from, to) {
+//         [...from.options].forEach(opt => {
+//             to.add(opt);
+//             opt.selected = true; // ✅ اینجا اضافه شد
+//         });
+//     }
+//
+//     // جستجو
+//     searchAvailable.addEventListener("keyup", function () {
+//         const filter = this.value.toLowerCase();
+//         [...available.options].forEach(opt => {
+//             opt.style.display = opt.text.toLowerCase().includes(filter) ? "" : "none";
+//         });
+//     });
+//
+//     searchSelected.addEventListener("keyup", function () {
+//         const filter = this.value.toLowerCase();
+//         [...selected.options].forEach(opt => {
+//             opt.style.display = opt.text.toLowerCase().includes(filter) ? "" : "none";
+//         });
+//     });
+//
+//     // SweetAlert تأیید ارسال
+//     form.addEventListener("submit", function (e) {
+//         e.preventDefault();
+//         Swal.fire({
+//             title: 'ارسال پیامک؟',
+//             text: "آیا از ارسال پیامک برای واحدهای انتخاب‌شده اطمینان دارید؟",
+//             icon: 'question',
+//             showCancelButton: true,
+//             confirmButtonText: 'بله، ارسال شود',
+//             cancelButtonText: 'خیر',
+//         }).then((result) => {
+//             if (result.isConfirmed) {
+//                 [...selected.options].forEach(opt => opt.selected = true);
+//                 form.submit();
+//             }
+//         });
+//     });
+// });
 // ============================middle charge notify ================
 
 const select = document.getElementById('cardsPerPage');
@@ -1744,10 +2145,10 @@ select.addEventListener('change', () => {
 });
 
 document.addEventListener('DOMContentLoaded', function () {
-  const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
-  const popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
-    return new bootstrap.Popover(popoverTriggerEl);
-  });
+    const popoverTriggerList = [].slice.call(document.querySelectorAll('[data-bs-toggle="popover"]'));
+    const popoverList = popoverTriggerList.map(function (popoverTriggerEl) {
+        return new bootstrap.Popover(popoverTriggerEl);
+    });
 });
 
 function confirmWithSweetAlert(event) {
@@ -1891,6 +2292,7 @@ document.addEventListener('DOMContentLoaded', function () {
     });
 
 });
+
 function getCookie(name) {
     let cookieValue = null;
     if (document.cookie && document.cookie !== '') {
@@ -1905,6 +2307,7 @@ function getCookie(name) {
     }
     return cookieValue;
 }
+
 document.addEventListener('DOMContentLoaded', function () {
     console.log("toggle js loaded");
 
@@ -1925,16 +2328,16 @@ document.addEventListener('DOMContentLoaded', function () {
                     unit_id: this.value
                 })
             })
-            .then(r => r.json())
-            .then(data => {
+                .then(r => r.json())
+                .then(data => {
 
-                if (!data.ok) {
-                    this.checked = !this.checked;
-                    return;
-                }
+                    if (!data.ok) {
+                        this.checked = !this.checked;
+                        return;
+                    }
 
-                this.checked = data.checked;
-            });
+                    this.checked = data.checked;
+                });
 
         });
 

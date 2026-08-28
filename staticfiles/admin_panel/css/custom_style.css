@@ -114,9 +114,13 @@
     left: auto;
     right: 0;
 }
+.navbar .navbar-brand-wrapper .navbar-brand.brand-logo-mini img {
+    width: 70%;
+    height: 70%;
+}
 
 .navbar .navbar-brand-wrapper .navbar-brand img {
-    width: 70%;
+    width: 60%;
     height: 70%;
 }
 
@@ -152,6 +156,33 @@
     font-weight: 600;
     height: 35px;
 }
+.alert-warning {
+    /*width: content-box;*/
+    /*margin-top: 10px;*/
+    background-color: #ffb700;
+    color: #fcfcfc;
+    /*position: initial;*/
+    /*padding: -1rem;*/
+    margin-bottom: -1rem;
+    border: 0 solid transparent;
+    /*border-radius: 1.25rem;*/
+    font-weight: 600;
+    height: 35px;
+}
+.alert-info {
+    /*width: content-box;*/
+    /*margin-top: 10px;*/
+    background-color: #73acf8;
+    color: #fcfcfc;
+    /*position: initial;*/
+    /*padding: -1rem;*/
+    margin-bottom: -1rem;
+    border: 0 solid transparent;
+    /*border-radius: 1.25rem;*/
+    font-weight: 600;
+    height: 35px;
+}
+
 
 .alert{
     /*margin-right: -1rem;*/
@@ -845,4 +876,294 @@ div.d-flex.justify-content-between div{
     top: 0;
     z-index: 20;
     background-color: #fff3cd !important;
+}
+
+.text-notify{
+    font-size: 14px;
+}
+
+
+.profile-image-user,
+.profile-image,
+.profile-image-password {
+    position: absolute;
+    bottom: 10px;
+    left: 10px;
+    max-width: 180px;
+    width: auto;
+    height: auto;
+    border-radius: 10px;
+    opacity: 0.9;
+}
+@media (max-width: 768px) {
+
+    .profile-image-user,
+    .profile-image,
+    .profile-image-password {
+        position: static;        /* مهم‌ترین خط */
+        display: block;
+        max-width: 120px;
+        margin: 15px auto 0;
+        opacity: 1;
+    }
+
+}
+.password-field {
+    position: relative;
+}
+
+.password-field input {
+    padding-left: 40px;
+}
+
+.toggle-password {
+    position: absolute;
+    right: 200px;   /* برای RTL */
+    top: 50%;
+    transform: translateY(-50%);
+    cursor: pointer;
+    font-size: 18px;
+    color: #666;
+}
+
+.toggle-password:hover {
+    color: #000;
+}
+.sticky-summary {
+    position: sticky;
+    top: 0;
+    z-index: 20;
+    background-color: #fff3cd !important;
+}
+
+/*============ CSS for Sunscription ==============*/
+
+/* کارت پلن‌ها */
+.plan-card {
+    border-radius: 15px;
+    transition: 0.3s;
+    cursor: pointer;
+    border: 2px solid #f1f1f1;
+}
+
+/* هاور کارت */
+.plan-card:hover {
+    transform: translateY(-10px);
+    box-shadow: 0 15px 30px rgba(0,0,0,0.1);
+    /*border-color: #202548F9;*/
+}
+
+/* عنوان پلن */
+.plan-card .card-title {
+    font-size: 22px;
+    font-weight: bold;
+}
+
+/* قیمت */
+.plan-card h4 {
+    font-weight: bold;
+}
+
+/* مبلغ کل پلن */
+.plan-card h5 {
+    font-size: 20px;
+    font-weight: bold;
+}
+
+/* کارت مبلغ نهایی */
+.final-card {
+    border-radius: 20px;
+    background: linear-gradient(135deg, #0d6efd, #0a58ca);
+    color: white;
+}
+
+.final-card h4 {
+    font-weight: bold;
+}
+
+/* دکمه پرداخت */
+/*.btn-buy {*/
+/*    border-radius: 10px;*/
+/*    font-size: 18px;*/
+/*    padding: 10px 25px;*/
+/*}*/
+
+/* ورودی تعداد واحد */
+#units {
+    border-radius: 10px;
+    font-size: 18px;
+    text-align: center;
+}
+
+.card-small {
+    height: 124px;  /* ارتفاع ثابت */
+    min-height: 124px;
+    max-height: 124px;
+    border: 1px solid #ffb700;
+}
+
+/* ===== کارت اشتراک ===== */
+.plan-card{
+    border-radius:15px;
+    border:2px solid #eee;
+    cursor:pointer;
+    transition:0.3s;
+}
+
+.plan-card:hover{
+    transform:translateY(-6px);
+    box-shadow:0 10px 25px rgba(0,0,0,0.1);
+}
+
+/* کارت انتخاب شده */
+.plan-wrapper input:checked + .plan-card{
+    border:2px solid #5FD247F9;
+    background:#eef4ff;
+    box-shadow:0 12px 30px rgba(13,110,253,0.25);
+}
+
+
+.subscription-card {
+    border: none;
+    border-radius: 20px;
+    box-shadow: 0 8px 25px rgba(0, 0, 0, 0.08);
+    padding: 10px;
+    background: #fff;
+    margin: 0;
+}
+
+/* ===== کانتینر دایره ===== */
+.subscription-circle-wrapper {
+    position: relative;
+    width: 130px;
+    height: 130px;
+}
+
+/* ===== متن وسط دایره ===== */
+.subscription-circle-center {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    text-align: center;
+}
+
+/* عدد روزهای مانده */
+.subscription-remaining {
+    font-size: 13px;
+    font-weight: 600;
+    color: #333;
+}
+
+/* خط جداکننده */
+.subscription-divider {
+    width: 25px;
+    height: 2px;
+    background: #ccc;
+
+}
+
+/* کل روزها */
+.subscription-total {
+    font-size: 13px;
+    color: #888;
+}
+
+/* ===== وضعیت ها ===== */
+.subscription-status {
+    font-size: 14px;
+    font-weight: 400;
+    /*margin-bottom: 8px;*/
+}
+
+.subscription-trial {
+    color: #202548F9;
+}
+
+.subscription-paid {
+    color: #1cc88a;
+    margin: 0;
+    font-size: 10px;
+}
+
+.subscription-inactive {
+    color: #dc3545;
+}
+
+.subscription-free {
+    color: #28a745;
+}
+
+/* ===== دکمه ===== */
+/*.subscription-btn {*/
+/*    padding: 8px 25px;*/
+/*    border-radius: 50px;*/
+/*    font-size: 14px;*/
+/*    font-weight: 500;*/
+/*}*/
+
+/* ===== ریسپانسیو ===== */
+@media (max-width: 768px) {
+    .subscription-card {
+        text-align: center;
+    }
+
+    .subscription-flex {
+        flex-direction: column;
+        align-items: center !important;
+    }
+
+    .subscription-circle-wrapper {
+        /*margin-bottom: 15px;*/
+    }
+}
+/*============== calendar =================*/
+.today {
+    background: #eef6ff;
+    border: 2px solid #3f6ad8;
+    position: relative;
+}
+
+.add-note-today {
+    font-size: 10px;
+    color: #3f6ad8;
+    margin-top: 4px;
+    cursor: pointer;
+}
+
+.add-note-today:hover {
+    text-decoration: underline;
+}
+
+/*==============================*/
+
+.sidebar-subscription-box {
+display: block !important;
+}
+
+/* ۲. اگر سایدبار در دسکتاپ جمع شد (کلاس sidebar-icon-only در body) */
+body.sidebar-icon-only .sidebar-subscription-box {
+    display: none !important;
+}
+/*==========================*/
+.zero-bill{
+    margin: 0 20px;
+}
+
+.blink-dot {
+    position: absolute;
+    top: 50%;
+    right: -2px;
+    width: 20px;
+    height: 20px;
+    background-color: red;
+    border-radius: 50%;
+    border: 2px solid white;
+    animation: blink 1s infinite;
+}
+
+@keyframes blink {
+    0% { opacity: 1; transform: scale(1); }
+    50% { opacity: 0.2; transform: scale(0.8); }
+    100% { opacity: 1; transform: scale(1); }
 }

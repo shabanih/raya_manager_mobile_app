@@ -41,4 +41,44 @@ urlpatterns = [
     path('poll/', views.unit_polls, name='unit_poll'),
     path('poll/<int:poll_id>/', views.resident_poll_vote, name='resident_poll_vote'),
 
+    # mobile app
+    path('register/', views.RegisterView.as_view(), name='register'),
+    path('login/', views.LoginView.as_view(), name='login'),
+    path('profile/', views.UserProfileView.as_view(), name='profile'),
+    path('change-password/', views.ChangePasswordView.as_view(), name='change-password'),
+    path('logout/', views.LogoutView.as_view(), name='logout'),
+
+    # ========== داشبورد ==========
+    path('dashboard/', views.DashboardView.as_view(), name='dashboard'),
+
+    # ========== ساختمان‌ها ==========
+    path('houses/', views.MyHouseListCreateView.as_view(), name='house-list'),
+    path('houses/<int:pk>/', views.MyHouseDetailView.as_view(), name='house-detail'),
+
+    # ========== واحدها ==========
+    path('units/', views.UnitListCreateView.as_view(), name='unit-list'),
+    path('units/<int:pk>/', views.UnitDetailView.as_view(), name='unit-detail'),
+
+    # ========== مستاجرها ==========
+    path('renters/', views.RenterListCreateView.as_view(), name='renter-list'),
+    path('renters/<int:pk>/', views.RenterDetailView.as_view(), name='renter-detail'),
+
+    # ========== بانک‌ها ==========
+    path('banks/', views.BankListCreateView.as_view(), name='bank-list'),
+    path('banks/<int:pk>/', views.BankDetailView.as_view(), name='bank-detail'),
+
+    # ========== پرداخت‌ها ==========
+    path('payments/', views.UserPayMoneyListCreateView.as_view(), name='payment-list'),
+    path('payments/<int:pk>/', views.UserPayMoneyDetailView.as_view(), name='payment-detail'),
+    path('payments/<int:payment_id>/status/', views.PaymentStatusUpdateView.as_view(), name='payment-status'),
+
+    # ========== تقویم ==========
+    path('calendar-notes/', views.CalendarNoteListCreateView.as_view(), name='calendar-notes'),
+
+    # ========== روش‌های شارژ ==========
+    path('charge-methods/', views.ChargeMethodListView.as_view(), name='charge-methods'),
+
+    # ========== سابقه سکونت ==========
+    path('residence-history/', views.UnitResidenceHistoryView.as_view(), name='residence-history'),
+
 ]
