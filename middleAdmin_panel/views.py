@@ -52,7 +52,7 @@ from admin_panel.models import Announcement, ExpenseCategory, Expense, Fund, Exp
     FixAreaCharge, FixPersonCharge, ChargeByPersonArea, \
     ChargeByFixPersonArea, ChargeFixVariable, SmsManagement, \
     UnifiedCharge, SmsCredit, SubscriptionPlan, Subscription, CivilManage, CivilDocument, CivilInstallment, \
-    SewageManage, SewageDocument, SewageInstallment, BankFund, Coupon, CouponUsage, AnnouncementDocument
+    SewageManage, SewageDocument, SewageInstallment, BankFund, Coupon, CouponUsage
 from admin_panel.services.calculators import CALCULATORS
 from middleAdmin_panel.services.bank_services import BankTransactionService
 from middleAdmin_panel.services.unit_services import UnitUpdateService
@@ -512,7 +512,7 @@ def middle_admin_dashboard(request):
     unit_count_unpaid_charges = (
         UnifiedCharge.objects
         .filter(
-            house__user=request.user,
+            user=request.user,
             send_notification=True,
             is_paid=False,
             unit__isnull=False
@@ -700,37 +700,17 @@ class MiddleAnnouncementView(CreateView):
 
     def form_valid(self, form):
         self.object = form.save(commit=False)
-
         self.object.user = self.request.user
-        self.object.house = MyHouse.objects.filter(
-            user=self.request.user
-        ).first()
+        self.object.house = MyHouse.objects.filter(user=self.request.user).first()  # یا .houses.first()
 
         self.object.save()
 
-        # ذخیره اسناد / تصاویر اطلاعیه
-        files = self.request.FILES.getlist('documents')
-
-        for file in files:
-            AnnouncementDocument.objects.create(
-                announcement=self.object,
-                document=file
-            )
-
-        messages.success(
-            self.request,
-            'اطلاعیه با موفقیت ثبت گردید!'
-        )
-
-        return super().form_valid(form)
+        messages.success(self.request, 'اطلاعیه با موفقیت ثبت گردید!')
+        return super(MiddleAnnouncementView, self).form_valid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        context['announcements'] = Announcement.objects.filter(
-            user=self.request.user
-        ).order_by('-created_at')
-
+        context['announcements'] = Announcement.objects.filter(user=self.request.user).order_by('-created_at')
         return context
 
 
@@ -742,10 +722,8 @@ class MiddleAnnouncementListView(ListView):
 
     def get_paginate_by(self, queryset):
         paginate = self.request.GET.get('paginate')
-
         if paginate == '1000':
-            return None
-
+            return None  # نمایش همه آیتم‌ها
         return int(paginate or 20)
 
     def get_queryset(self):
@@ -754,23 +732,17 @@ class MiddleAnnouncementListView(ListView):
         queryset = Announcement.objects.filter(
             user=self.request.user,
             is_active=True
-        ).prefetch_related(
-            'documents'
         )
 
         if query:
-            queryset = queryset.filter(
-                title__icontains=query
-            )
+            queryset = queryset.filter(title__icontains=query)
 
         return queryset.order_by('-created_at')
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
         context['query'] = self.request.GET.get('q', '')
         context['paginate'] = self.request.GET.get('paginate', '20')
-
         return context
 
 
@@ -782,74 +754,19 @@ class MiddleAnnouncementUpdateView(UpdateView):
     success_url = reverse_lazy('middle_announcement')
 
     def form_valid(self, form):
+        edit_instance = form.instance
         self.object = form.save(commit=False)
-
         self.object.user = self.request.user
-        self.object.house = MyHouse.objects.filter(
-            user=self.request.user
-        ).first()
+        self.object.house = MyHouse.objects.filter(user=self.request.user).first()  # یا .houses.first()
 
         self.object.save()
-
-        # اضافه کردن فایل‌های جدید
-        files = self.request.FILES.getlist('documents')
-
-        for file in files:
-            AnnouncementDocument.objects.create(
-                announcement=self.object,
-                document=file
-            )
-
-        messages.success(
-            self.request,
-            'اطلاعیه با موفقیت ویرایش گردید!'
-        )
-
-        return redirect(self.success_url)
+        messages.success(self.request, 'اطلاعیه با موفقیت ویرایش گردید!')
+        return super().form_valid(form)
 
     def get_context_data(self, **kwargs):
         context = super().get_context_data(**kwargs)
-
-        context['announcements'] = Announcement.objects.filter(
-            user=self.request.user
-        ).order_by('-created_at')
-
-        context['announcement_documents'] = (
-            self.object.documents.all()
-        )
-
+        context['announcements'] = Announcement.objects.filter(user=self.request.user).order_by('-created_at')
         return context
-
-
-@method_decorator(middle_admin_required, name='dispatch')
-class DeleteAnnouncementDocumentView(View):
-
-    def post(self, request, pk):
-
-        document = get_object_or_404(
-            AnnouncementDocument,
-            pk=pk,
-            announcement__user=request.user
-        )
-
-        announcement_id = document.announcement_id
-
-        # حذف فایل از storage
-        if document.document:
-            document.document.delete(save=False)
-
-        # حذف رکورد دیتابیس
-        document.delete()
-
-        messages.success(
-            request,
-            'سند با موفقیت حذف گردید!'
-        )
-
-        return redirect(
-            'edit_middle_announcement',
-            pk=announcement_id
-        )
 
 
 @login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
@@ -905,7 +822,7 @@ class middleAddBankView(CreateView):
                     house=house,
                     payer_name=bank.account_holder_name,
                     receiver_name='صندوق',
-                    payment_gateway='کارت به کارت',
+                    payment_gateway='پرداخت اولیه',
                     content_type=content_type,
                     object_id=bank.id,
                     is_initial=True,
@@ -11303,29 +11220,3 @@ def restore_penalty_bulk(request):
             'success': False,
             'error': str(e)
         }, status=500)
-
-
-# def public_payment(request, token):
-#     charge = get_object_or_404(
-#         UnifiedCharge,
-#         payment_token=token
-#     )
-#     print("TOKEN =", token)
-#     print(
-#         UnifiedCharge.objects.filter(payment_token=token).values(
-#             "id", "payment_token"
-#         )
-#     )
-#
-#     if charge.is_paid:
-#         return render(
-#             request,
-#             "already_paid.html",
-#             {"charge": charge}
-#         )
-#
-#     return render(
-#         request,
-#         "middleCharge/public_payment.html",
-#         {"charge": charge}
-#     )

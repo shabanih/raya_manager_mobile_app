@@ -18,7 +18,6 @@ urlpatterns = [
     path('ckeditor/', include('ckeditor_uploader.urls')),  # this is required
     path('select2/', include('django_select2.urls')),
     path('api/', include('mobileApp.urls')),
-
     # path('bankgateways/', az_bank_gateways_urls()),
 
 ]

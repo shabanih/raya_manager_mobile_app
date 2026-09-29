@@ -54,7 +54,6 @@ def current_middle_house(request):
         is_active=True
     ).order_by('-created_at').first()
 
-
     # مقادیر پیش‌فرض امن
     context = {
         "middle_house": middle_house,
@@ -142,7 +141,6 @@ def current_middle_house(request):
     context["has_renter_expire_warning"] = bool(
         renter_expire_notifications
     )
-
     return context
 
 

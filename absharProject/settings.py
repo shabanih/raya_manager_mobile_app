@@ -9,9 +9,9 @@ https://docs.djangoproject.com/en/5.2/topics/settings/
 For the full list of settings and their values, see
 https://docs.djangoproject.com/en/5.2/ref/settings/
 """
-from datetime import timedelta
-from pathlib import Path
 
+from pathlib import Path
+from datetime import timedelta
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -25,13 +25,6 @@ SECRET_KEY = 'django-insecure-_o*sce-7v=squt58jj0$l=ezgw^!ek$_%8c2##qd^o&7n@4v0h
 DEBUG = True
 
 ALLOWED_HOSTS = ["*"]
-# CSRF_TRUSTED_ORIGINS = [
-#     'https://rayacharge.ir',
-#     'https://www.rayacharge.ir',
-# ]
-# SECURE_SSL_REDIRECT = True
-# SESSION_COOKIE_SECURE = True
-# CSRF_COOKIE_SECURE = True
 
 # Application definition
 
@@ -61,13 +54,7 @@ INSTALLED_APPS = [
     'polls',
     'payment_app',
     'reports',
-
-    # mobile app
-    'rest_framework',
-    'rest_framework.authtoken',
-    'corsheaders',
-    'django_filters',
-    'drf_yasg',
+    #
     # # other_app
     'django_render_partial',
     'sweetify',
@@ -80,44 +67,6 @@ INSTALLED_APPS = [
     # 'django_select2',
 
 ]
-
-# AZ_IRANIAN_BANK_GATEWAYS = {
-#    'GATEWAYS': {
-#        'MELLAT': {
-#            'TERMINAL_CODE': '8807710',
-#            'USERNAME': '8807710',
-#            'PASSWORD': '64728741',
-#        },
-#    },
-#    'DEFAULT': 'MELLAT',
-#    'CURRENCY': 'IRR', # اختیاری
-#    'TRACKING_CODE_QUERY_PARAM': 'tc', # اختیاری
-#    'TRACKING_CODE_LENGTH': 16, # اختیاری
-#    'SETTING_VALUE_READER_CLASS': 'azbankgateways.readers.DefaultReader', # اختیاری
-#    'BANK_PRIORITIES': [
-#    ], # اختیاری
-# }
-
-MIDDLEWARE = [
-    'django.middleware.security.SecurityMiddleware',
-
-    'corsheaders.middleware.CorsMiddleware',
-
-    'django.contrib.sessions.middleware.SessionMiddleware',
-
-    'django.middleware.common.CommonMiddleware',
-
-    'django.middleware.csrf.CsrfViewMiddleware',
-
-    'django.contrib.auth.middleware.AuthenticationMiddleware',
-
-    'django.contrib.messages.middleware.MessageMiddleware',
-
-    'django.middleware.clickjacking.XFrameOptionsMiddleware',
-
-    'home.middleware.SubdomainMiddleware',
-]
-
 # تنظیمات REST Framework
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': [
@@ -161,18 +110,33 @@ SIMPLE_JWT = {
     'USER_ID_FIELD': 'id',
     'USER_ID_CLAIM': 'user_id',
 }
+# AZ_IRANIAN_BANK_GATEWAYS = {
+#    'GATEWAYS': {
+#        'MELLAT': {
+#            'TERMINAL_CODE': '8807710',
+#            'USERNAME': '8807710',
+#            'PASSWORD': '64728741',
+#        },
+#    },
+#    'DEFAULT': 'MELLAT',
+#    'CURRENCY': 'IRR', # اختیاری
+#    'TRACKING_CODE_QUERY_PARAM': 'tc', # اختیاری
+#    'TRACKING_CODE_LENGTH': 16, # اختیاری
+#    'SETTING_VALUE_READER_CLASS': 'azbankgateways.readers.DefaultReader', # اختیاری
+#    'BANK_PRIORITIES': [
+#    ], # اختیاری
+# }
 
-# CORS تنظیمات
-CORS_ALLOW_ALL_ORIGINS = True  # فقط برای توسعه
-CORS_ALLOW_CREDENTIALS = True
-
-# یا
-CORS_ALLOWED_ORIGINS = [
-    "http://localhost:3000",
-    "http://127.0.0.1:3000",
-    "http://192.168.1.100:3000",  # آی‌پی دستگاه موبایل
+MIDDLEWARE = [
+    'django.middleware.security.SecurityMiddleware',
+    'django.contrib.sessions.middleware.SessionMiddleware',
+    'django.middleware.common.CommonMiddleware',
+    'django.middleware.csrf.CsrfViewMiddleware',
+    'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'django.contrib.messages.middleware.MessageMiddleware',
+    'django.middleware.clickjacking.XFrameOptionsMiddleware',
+    'home.middleware.SubdomainMiddleware',
 ]
-
 AUTH_USER_MODEL = 'user_app.User'
 
 ROOT_URLCONF = 'absharProject.urls'
@@ -353,10 +317,17 @@ LOGGING = {
         },
     },
 }
+SAMAN_TERMINAL_ID = "15758588"
 
-ZP_API_REQUEST = "https://api.zarinpal.com/pg/v4/payment/request.json"
+SAMAN_REDIRECT_URL = (
+    "https://rayacharge.ir/payment/callback/"
+    # "http://localhost:8000/payment/callback/"
+)
 
-ZP_API_STARTPAY = "https://www.zarinpal.com/pg/StartPay/"
+SAMAN_TOKEN_URL = (
+    "https://sep.shaparak.ir/OnlinePG/OnlinePG"
+)
 
-CallbackURLCharge = "http://localhost:8000/payment/pay/verify/"
-
+SAMAN_VERIFY_URL = (
+    "https://sep.shaparak.ir/verifyTxnRandomSessionkey/ipg/VerifyTransaction"
+)

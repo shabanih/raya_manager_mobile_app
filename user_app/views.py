@@ -27,7 +27,6 @@ from django.views.decorators.http import require_POST
 from django.views.generic import TemplateView, CreateView, ListView, DetailView
 from openpyxl.styles import Font, Alignment, PatternFill
 from pypdf import PdfWriter
-from rest_framework import generics, permissions
 from weasyprint import CSS, HTML
 
 from admin_panel.forms import UnifiedChargePaymentForm
@@ -35,36 +34,11 @@ from middleAdmin_panel.views import middle_admin_required
 from notifications.models import Notification, SupportUser
 from polls.templatetags.poll_extras import show_jalali
 from polls_app.models import Poll, Vote
+from user_app import helper
 from admin_panel.models import Announcement, UnifiedCharge, MessageToUser, MessageReadStatus, Expense, Fund, \
     CivilManage, CivilInstallment, SewageManage, SewageInstallment
 from user_app.forms import LoginForm, MobileLoginForm, UserPayForm, UserPayMoneyForm
 from user_app.models import User, Unit, Bank, MyHouse, CalendarNote, UserPayMoney, UserPayMoneyDocument
-from . import helper
-
-from .models import (
-    User, MyHouse, Unit, Renter, Bank,
-    UserPayMoney, CalendarNote, ChargeMethod,
-    UnitResidenceHistory
-)
-from .serializers import (
-    UserSerializer, UserRegisterSerializer, UserLoginSerializer,
-    UserChangePasswordSerializer, UserUpdateProfileSerializer,
-    MyHouseSerializer, UnitSerializer, RenterSerializer,
-    BankSerializer, UserPayMoneySerializer, CalendarNoteSerializer,
-    ChargeMethodSerializer, UnitResidenceHistorySerializer
-)
-from rest_framework import status, generics, permissions
-from rest_framework.response import Response
-from rest_framework.views import APIView
-from rest_framework.authtoken.models import Token
-from django.contrib.auth.models import User
-from django.db.models import Count, Sum, Q
-from django.utils import timezone
-from django.shortcuts import get_object_or_404
-
-from django.contrib.auth import get_user_model
-
-User = get_user_model()
 
 # def index(request):
 #     form = LoginForm(request.POST or None)
@@ -101,8 +75,6 @@ User = get_user_model()
 #     return render(request, 'middle_login.html', {'form': form})
 from django.db.models import Exists, OuterRef
 
-from user_app.serializers import UnitSerializer
-
 
 @login_required
 def switch_to_manager(request):
@@ -121,6 +93,7 @@ def switch_to_manager(request):
 
 
 def mobile_login(request):
+
     house = request.house
 
     if not house:
@@ -375,7 +348,7 @@ def user_panel(request):
 
         "tickets": tickets,
         "ticket": ticket_count,
-        "pending_polls": pending_polls,
+        "pending_polls":pending_polls,
         "announcements": announcements,
 
         "total_charge": total_charge,
@@ -734,9 +707,9 @@ def unit_sewage_list(request):
 
         if search.isdigit():
             q_obj = (
-                    Q(amount__icontains=search) |
-                    Q(prepayment__icontains=search) |
-                    Q(installment_count__icontains=search)
+                Q(amount__icontains=search) |
+                Q(prepayment__icontains=search) |
+                Q(installment_count__icontains=search)
             )
 
         sewages = sewages.filter(q_obj)
@@ -1278,6 +1251,7 @@ class UserPayMoneyViewCreateView(CreateView):
                            "حداکثر دو فایل مجاز است. در صورت لزوم فایل را بصورت pdf یا zip آپلود کنید")
             return redirect('user_pay_money')
 
+
         unit = Unit.objects.filter(
             Q(user=self.request.user) |  # مالک
             Q(renters__user=self.request.user),  # مستأجر
@@ -1665,394 +1639,3 @@ def resident_poll_vote(request, poll_id):
         "already_voted": already_voted,
         "house": house
     })
-
-
-# ==================== احراز هویت ========= Mobile view ===========
-
-class RegisterView(generics.CreateAPIView):
-    permission_classes = [permissions.AllowAny]
-    serializer_class = UserRegisterSerializer
-
-
-class LoginView(APIView):
-    permission_classes = [permissions.AllowAny]
-
-    def post(self, request):
-        serializer = UserLoginSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        user = serializer.validated_data
-
-        token, created = Token.objects.get_or_create(user=user)
-
-        return Response({
-            'token': token.key,
-            'user_id': user.id,
-            'username': user.username,
-            'full_name': user.full_name,
-            'mobile': user.mobile,
-            'is_middle_admin': user.is_middle_admin,
-            'is_resident': user.is_resident,
-            'is_unit': user.is_unit,
-            'is_staff': user.is_staff,
-            'is_superuser': user.is_superuser,
-        })
-
-
-class UserProfileView(generics.RetrieveUpdateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = UserSerializer
-
-    def get_object(self):
-        return self.request.user
-
-    def update(self, request, *args, **kwargs):
-        serializer = UserUpdateProfileSerializer(
-            self.get_object(),
-            data=request.data,
-            partial=True
-        )
-        serializer.is_valid(raise_exception=True)
-        self.perform_update(serializer)
-        return Response(serializer.data)
-
-
-class ChangePasswordView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        serializer = UserChangePasswordSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-
-        user = request.user
-        if not user.check_password(serializer.validated_data['old_password']):
-            return Response(
-                {'error': 'رمز عبور فعلی اشتباه است'},
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        user.set_password(serializer.validated_data['new_password'])
-        user.save()
-
-        return Response({'message': 'رمز عبور با موفقیت تغییر کرد'})
-
-
-class LogoutView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request):
-        try:
-            request.user.auth_token.delete()
-        except:
-            pass
-        return Response({'message': 'با موفقیت خارج شدید'})
-
-
-# ==================== داشبورد ====================
-
-class DashboardView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def get(self, request):
-        user = request.user
-
-        # اطلاعات پایه
-        data = {
-            'user': UserSerializer(user).data,
-            'today': timezone.now().date(),
-        }
-
-        # اگر مدیر کل یا مدیر سطح میانی باشد
-        if user.is_superuser or user.is_middle_admin:
-            houses = MyHouse.objects.filter(user=user)
-            total_houses = houses.count()
-
-            # اگر مدیر سطح میانی است، ساختمان‌های زیر مجموعه را هم بگیرد
-            if user.is_middle_admin:
-                managed_houses = MyHouse.objects.filter(
-                    user__manager=user
-                )
-                total_houses += managed_houses.count()
-                houses = houses | managed_houses
-
-            data['dashboard'] = {
-                'total_houses': total_houses,
-                'total_units': Unit.objects.filter(myhouse__in=houses).count(),
-                'total_renters': Renter.objects.filter(
-                    unit__myhouse__in=houses,
-                    renter_is_active=True
-                ).count(),
-                'total_payments': UserPayMoney.objects.filter(
-                    house__in=houses,
-                    is_paid=True
-                ).aggregate(
-                    total=Sum('amount')
-                )['total'] or 0,
-                'recent_houses': MyHouseSerializer(
-                    houses.order_by('-created_at')[:5],
-                    many=True
-                ).data,
-            }
-
-        # اگر ساکن ساختمان یا مستاجر باشد
-        elif user.is_resident or user.is_unit:
-            # ساختمان‌هایی که کاربر در آنها ساکن است
-            houses = user.houses.all() if user.houses.exists() else MyHouse.objects.filter(
-                units__renters__user=user,
-                units__renters__renter_is_active=True
-            ).distinct()
-
-            data['dashboard'] = {
-                'my_houses': MyHouseSerializer(houses, many=True).data,
-                'my_units': UnitSerializer(
-                    Unit.objects.filter(
-                        Q(myhouse__residents=user) |
-                        Q(renters__user=user, renters__renter_is_active=True)
-                    ).distinct(),
-                    many=True
-                ).data,
-                'active_rents': Renter.objects.filter(
-                    user=user,
-                    renter_is_active=True
-                ).count(),
-                'total_payments': UserPayMoney.objects.filter(
-                    user=user,
-                    is_paid=True
-                ).aggregate(
-                    total=Sum('amount')
-                )['total'] or 0,
-            }
-
-        return Response(data)
-
-
-# ==================== مدیریت ساختمان‌ها ====================
-
-class MyHouseListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = MyHouseSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            return MyHouse.objects.filter(user=user)
-        elif user.is_resident:
-            return user.houses.all()
-        return MyHouse.objects.none()
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-
-class MyHouseDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = MyHouseSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            return MyHouse.objects.filter(user=user)
-        return user.houses.all()
-
-
-# ==================== مدیریت واحدها ====================
-
-class UnitListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = UnitSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            houses = MyHouse.objects.filter(user=user)
-            return Unit.objects.filter(myhouse__in=houses)
-        elif user.is_resident:
-            houses = user.houses.all()
-            return Unit.objects.filter(myhouse__in=houses)
-        elif user.is_unit:
-            return Unit.objects.filter(renters__user=user, renters__renter_is_active=True)
-        return Unit.objects.none()
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-
-class UnitDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = UnitSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            houses = MyHouse.objects.filter(user=user)
-            return Unit.objects.filter(myhouse__in=houses)
-        elif user.is_resident:
-            houses = user.houses.all()
-            return Unit.objects.filter(myhouse__in=houses)
-        elif user.is_unit:
-            return Unit.objects.filter(renters__user=user, renters__renter_is_active=True)
-        return Unit.objects.none()
-
-
-# ==================== مدیریت مستاجرها ====================
-
-class RenterListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = RenterSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            houses = MyHouse.objects.filter(user=user)
-            return Renter.objects.filter(unit__myhouse__in=houses)
-        elif user.is_resident:
-            houses = user.houses.all()
-            return Renter.objects.filter(unit__myhouse__in=houses)
-        elif user.is_unit:
-            return Renter.objects.filter(user=user)
-        return Renter.objects.none()
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-
-class RenterDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = RenterSerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            houses = MyHouse.objects.filter(user=user)
-            return Renter.objects.filter(unit__myhouse__in=houses)
-        elif user.is_resident:
-            houses = user.houses.all()
-            return Renter.objects.filter(unit__myhouse__in=houses)
-        elif user.is_unit:
-            return Renter.objects.filter(user=user)
-        return Renter.objects.none()
-
-
-# ==================== مدیریت بانک‌ها ====================
-
-class BankListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = BankSerializer
-
-    def get_queryset(self):
-        return Bank.objects.filter(user=self.request.user, is_active=True)
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-
-class BankDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = BankSerializer
-
-    def get_queryset(self):
-        return Bank.objects.filter(user=self.request.user)
-
-
-# ==================== مدیریت پرداخت‌ها ====================
-
-class UserPayMoneyListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = UserPayMoneySerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            houses = MyHouse.objects.filter(user=user)
-            return UserPayMoney.objects.filter(house__in=houses)
-        elif user.is_resident:
-            houses = user.houses.all()
-            return UserPayMoney.objects.filter(house__in=houses)
-        else:
-            return UserPayMoney.objects.filter(user=user)
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-
-class UserPayMoneyDetailView(generics.RetrieveUpdateDestroyAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = UserPayMoneySerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            houses = MyHouse.objects.filter(user=user)
-            return UserPayMoney.objects.filter(house__in=houses)
-        elif user.is_resident:
-            houses = user.houses.all()
-            return UserPayMoney.objects.filter(house__in=houses)
-        else:
-            return UserPayMoney.objects.filter(user=user)
-
-
-class PaymentStatusUpdateView(APIView):
-    permission_classes = [permissions.IsAuthenticated]
-
-    def post(self, request, payment_id):
-        payment = get_object_or_404(UserPayMoney, id=payment_id)
-
-        # بررسی دسترسی
-        if not (request.user.is_superuser or
-                request.user.is_middle_admin or
-                payment.user == request.user):
-            return Response(
-                {'error': 'شما دسترسی به این پرداخت ندارید'},
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        payment.is_paid = request.data.get('is_paid', False)
-        if payment.is_paid and not payment.payment_date:
-            payment.payment_date = timezone.now().date()
-        payment.save()
-
-        return Response(UserPayMoneySerializer(payment).data)
-
-
-# ==================== تقویم ====================
-
-class CalendarNoteListCreateView(generics.ListCreateAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = CalendarNoteSerializer
-
-    def get_queryset(self):
-        return CalendarNote.objects.filter(user=self.request.user)
-
-    def perform_create(self, serializer):
-        serializer.save(user=self.request.user)
-
-
-# ==================== روش‌های شارژ ====================
-
-class ChargeMethodListView(generics.ListAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = ChargeMethodSerializer
-
-    def get_queryset(self):
-        return ChargeMethod.objects.filter(is_active=True)
-
-
-# ==================== سابقه سکونت ====================
-
-class UnitResidenceHistoryView(generics.ListAPIView):
-    permission_classes = [permissions.IsAuthenticated]
-    serializer_class = UnitResidenceHistorySerializer
-
-    def get_queryset(self):
-        user = self.request.user
-        if user.is_superuser or user.is_middle_admin:
-            houses = MyHouse.objects.filter(user=user)
-            units = Unit.objects.filter(myhouse__in=houses)
-            return UnitResidenceHistory.objects.filter(unit__in=units)
-        elif user.is_resident:
-            houses = user.houses.all()
-            units = Unit.objects.filter(myhouse__in=houses)
-            return UnitResidenceHistory.objects.filter(unit__in=units)
-        else:
-            return UnitResidenceHistory.objects.filter(
-                unit__renters__user=user
-            )

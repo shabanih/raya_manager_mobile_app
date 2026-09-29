@@ -2,7 +2,7 @@ from django.db.models import Q
 from rest_framework import serializers
 
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageInstallment, \
-    SewageManage, MessageToUser, AnnouncementDocument
+    SewageManage, MessageToUser, AnnouncementDocument, BankFund
 from polls_app.models import Choice, Question, Poll, Vote
 from user_app.models import Unit, MyHouse, User, Bank, UserPayMoney, Renter
 
@@ -378,29 +378,31 @@ class MobilePaymentHistorySerializer(serializers.ModelSerializer):
                 return 'renter'
 
         return 'owner'
-
+        
 
 class MobileAnnouncementDocumentSerializer(serializers.ModelSerializer):
-    file_url = serializers.SerializerMethodField()
+    url = serializers.SerializerMethodField()
 
     class Meta:
         model = AnnouncementDocument
         fields = [
             'id',
-            'file_url',
+            'url',
             'uploaded_at',
         ]
 
-    def get_file_url(self, obj):
-        if not obj.document:
-            return None
+    def get_url(self, obj):
+        if obj.document:
+            request = self.context.get('request')
 
-        request = self.context.get('request')
+            if request:
+                return request.build_absolute_uri(
+                    obj.document.url
+                )
 
-        if request:
-            return request.build_absolute_uri(obj.document.url)
+            return obj.document.url
 
-        return obj.document.url
+        return None
 
 
 class MobileAnnouncementSerializer(serializers.ModelSerializer):
@@ -1087,3 +1089,970 @@ class ManualUserPayMoneyPaymentSerializer(serializers.Serializer):
         attrs['bank'] = bank
 
         return attrs
+
+
+# ===================== Manager =================================
+
+class ManagerAnnouncementDocumentSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AnnouncementDocument
+        fields = [
+            'id',
+            'url',
+            'uploaded_at',
+        ]
+
+    def get_url(self, obj):
+        if not obj.document:
+            return None
+
+        request = self.context.get('request')
+
+        if request:
+            return request.build_absolute_uri(
+                obj.document.url
+            )
+
+        return obj.document.url
+
+
+class ManagerAnnouncementSerializer(serializers.ModelSerializer):
+    documents = ManagerAnnouncementDocumentSerializer(
+        many=True,
+        read_only=True
+    )
+
+    class Meta:
+        model = Announcement
+        fields = [
+            'id',
+            'title',
+            'show_in_marquee',
+            'is_active',
+            'created_at',
+            'documents',
+        ]
+
+# -------------------------------------------
+# ===================== Manager Messages =========================
+
+
+class ManagerMessageUnitSerializer(serializers.ModelSerializer):
+
+    unit_id = serializers.IntegerField(
+        source='id',
+        read_only=True
+    )
+
+    recipient_type = serializers.SerializerMethodField()
+
+    recipient_name = serializers.SerializerMethodField()
+
+    mobile = serializers.SerializerMethodField()
+
+    has_mobile = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Unit
+
+        fields = [
+            'id',
+            'unit_id',
+            'unit',
+            'recipient_type',
+            'recipient_name',
+            'mobile',
+            'has_mobile',
+        ]
+
+    def _get_renter(self, obj):
+
+        renter = getattr(
+            obj,
+            '_active_renter',
+            None
+        )
+
+        if renter:
+            return renter
+
+        return getattr(
+            obj,
+            '_message_renter',
+            None
+        )
+
+    def get_recipient_type(self, obj):
+
+        recipient_type = getattr(
+            obj,
+            '_recipient_type',
+            None
+        )
+
+        if recipient_type:
+            return recipient_type
+
+        renter = self._get_renter(obj)
+
+        if renter:
+            return 'renter'
+
+        return 'owner'
+
+    def get_recipient_name(self, obj):
+
+        renter = self._get_renter(obj)
+
+        # =====================================================
+        # مستأجر
+        # =====================================================
+
+        if renter:
+
+            renter_user = renter.user
+
+            return (
+                renter.renter_name
+                or (
+                    renter_user.full_name
+                    if renter_user
+                    else ''
+                )
+                or (
+                    renter_user.username
+                    if renter_user
+                    else ''
+                )
+                or ''
+            )
+
+        # =====================================================
+        # مالک
+        # =====================================================
+
+        owner_user = obj.user
+
+        return (
+            obj.owner_name
+            or (
+                owner_user.full_name
+                if owner_user
+                else ''
+            )
+            or (
+                owner_user.username
+                if owner_user
+                else ''
+            )
+            or ''
+        )
+
+    def get_mobile(self, obj):
+
+        renter = self._get_renter(obj)
+
+        # =====================================================
+        # مستأجر
+        # =====================================================
+
+        if renter:
+
+            renter_user = renter.user
+
+            return (
+                renter.renter_mobile
+                or (
+                    renter_user.mobile
+                    if renter_user
+                    else ''
+                )
+                or ''
+            )
+
+        # =====================================================
+        # مالک
+        # =====================================================
+
+        owner_user = obj.user
+
+        return (
+            obj.owner_mobile
+            or (
+                owner_user.mobile
+                if owner_user
+                else ''
+            )
+            or ''
+        )
+
+    def get_has_mobile(self, obj):
+
+        mobile = self.get_mobile(obj)
+
+        return bool(
+            str(mobile).strip()
+        )
+
+
+class ManagerMessageListSerializer(
+    serializers.ModelSerializer
+):
+    """
+    Serializer لیست مدیریت پیام‌ها
+
+    این لیست شامل:
+    - پیام‌های آماده ارسال
+    - پیام‌های ارسال شده
+    """
+
+    recipient_count = serializers.SerializerMethodField()
+
+    read_count = serializers.SerializerMethodField()
+
+    unread_count = serializers.SerializerMethodField()
+
+    class Meta:
+
+        model = MessageToUser
+
+        fields = [
+            'id',
+            'title',
+            'message',
+            'created_at',
+            'send_notification',
+            'send_notification_date',
+            'recipient_count',
+            'read_count',
+            'unread_count',
+        ]
+
+    # =========================================================
+    # تعداد گیرندگان واقعی
+    # =========================================================
+
+    def get_recipient_count(
+        self,
+        obj
+    ):
+
+        return (
+            obj.read_statuses
+            .values(
+                'recipient_id'
+            )
+            .distinct()
+            .count()
+        )
+
+    # =========================================================
+    # خوانده شده
+    # =========================================================
+
+    def get_read_count(
+        self,
+        obj
+    ):
+
+        return (
+            obj.read_statuses
+            .filter(
+                is_read=True
+            )
+            .values(
+                'recipient_id'
+            )
+            .distinct()
+            .count()
+        )
+
+    # =========================================================
+    # خوانده نشده
+    # =========================================================
+
+    def get_unread_count(
+        self,
+        obj
+    ):
+
+        return (
+            obj.read_statuses
+            .filter(
+                is_read=False
+            )
+            .values(
+                'recipient_id'
+            )
+            .distinct()
+            .count()
+        )
+
+
+class ManagerMessageDetailSerializer(serializers.ModelSerializer):
+    """
+    جزئیات پیام مدیر
+    """
+
+    recipient_count = serializers.SerializerMethodField()
+    read_count = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+
+    notified_units = ManagerMessageUnitSerializer(
+        many=True,
+        read_only=True
+    )
+
+    recipients = serializers.SerializerMethodField()
+
+    class Meta:
+        model = MessageToUser
+
+        fields = [
+            'id',
+            'title',
+            'message',
+            'created_at',
+            'send_notification',
+            'send_notification_date',
+
+            'recipient_count',
+            'read_count',
+            'unread_count',
+
+            'notified_units',
+            'recipients',
+        ]
+
+    def get_recipient_count(self, obj):
+
+        return (
+            obj.read_statuses
+            .values('recipient_id')
+            .distinct()
+            .count()
+        )
+
+    def get_read_count(self, obj):
+
+        return (
+            obj.read_statuses
+            .filter(
+                is_read=True
+            )
+            .values('recipient_id')
+            .distinct()
+            .count()
+        )
+
+    def get_unread_count(self, obj):
+
+        return (
+            obj.read_statuses
+            .filter(
+                is_read=False
+            )
+            .values('recipient_id')
+            .distinct()
+            .count()
+        )
+
+    def get_recipients(self, obj):
+
+        result = []
+
+        read_statuses = (
+            obj.read_statuses
+            .select_related(
+                'unit',
+                'recipient',
+                'unit__user',
+            )
+            .prefetch_related(
+                'unit__renters'
+            )
+        )
+
+        for status in read_statuses:
+
+            unit = status.unit
+            recipient = status.recipient
+
+            if not unit:
+                continue
+
+            # =================================================
+            # مالک
+            # =================================================
+
+            if unit.user_id == recipient.id:
+
+                result.append({
+                    'unit_id': unit.id,
+                    'unit': unit.unit,
+                    'type': 'owner',
+                    'recipient_type': 'owner',
+
+                    'name': (
+                        unit.owner_name
+                        or getattr(
+                            recipient,
+                            'full_name',
+                            ''
+                        )
+                        or getattr(
+                            recipient,
+                            'username',
+                            ''
+                        )
+                    ),
+
+                    'mobile': (
+                        unit.owner_mobile
+                        or getattr(
+                            recipient,
+                            'mobile',
+                            ''
+                        )
+                        or ''
+                    ),
+
+                    'is_read': status.is_read,
+                    'read_at': status.read_at,
+                })
+
+                continue
+
+            # =================================================
+            # مستأجر فعال
+            # =================================================
+
+            renter = (
+                unit.renters
+                .filter(
+                    renter_is_active=True,
+                    user_id=recipient.id,
+                )
+                .first()
+            )
+
+            if renter:
+
+                result.append({
+                    'unit_id': unit.id,
+                    'unit': unit.unit,
+                    'type': 'renter',
+                    'recipient_type': 'renter',
+
+                    'name': (
+                        renter.renter_name
+                        or getattr(
+                            recipient,
+                            'full_name',
+                            ''
+                        )
+                        or getattr(
+                            recipient,
+                            'username',
+                            ''
+                        )
+                    ),
+
+                    'mobile': (
+                        renter.renter_mobile
+                        or getattr(
+                            recipient,
+                            'mobile',
+                            ''
+                        )
+                        or ''
+                    ),
+
+                    'is_read': status.is_read,
+                    'read_at': status.read_at,
+                })
+
+        return result
+
+
+# ============================================================
+# ===================== Manager Banks ========================
+# ============================================================
+
+
+class ManagerBankSerializer(serializers.ModelSerializer):
+
+    house_name = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Bank
+
+        fields = [
+            'id',
+
+            'house',
+            'house_name',
+
+            'bank_name',
+            'account_no',
+            'account_holder_name',
+
+            'sheba_number',
+            'cart_number',
+
+            'initial_fund',
+            'current_balance',
+
+            'financial_document_number',
+
+            'is_default',
+            'is_gateway',
+            'create_at',
+            'is_active',
+        ]
+
+        read_only_fields = [
+            'id',
+            'current_balance',
+            'financial_document_number',
+        ]
+
+    def get_house_name(self, obj):
+
+        if obj.house:
+            return obj.house.name
+
+        return None
+
+    def validate_house(self, house):
+
+        request = self.context.get('request')
+
+        if not request:
+            raise serializers.ValidationError(
+                'درخواست معتبر نیست.'
+            )
+
+        user = request.user
+
+        if not user.is_middle_admin:
+            raise serializers.ValidationError(
+                'دسترسی فقط برای مدیر ساختمان مجاز است.'
+            )
+
+        if not house or not house.is_active:
+            raise serializers.ValidationError(
+                'ساختمان انتخاب شده معتبر نیست.'
+            )
+
+        has_access = MyHouse.objects.filter(
+            id=house.id,
+            is_active=True
+        ).filter(
+            Q(user=user) |
+            Q(user__manager=user)
+        ).exists()
+
+        if not has_access:
+            raise serializers.ValidationError(
+                'شما به این ساختمان دسترسی ندارید.'
+            )
+
+        return house
+
+    def validate_sheba_number(self, value):
+
+        value = (
+            value or ''
+        ).replace(
+            ' ',
+            ''
+        ).strip().upper()
+
+        if not value.startswith('IR'):
+
+            raise serializers.ValidationError(
+                'شماره شبا باید با IR شروع شود.'
+            )
+
+        if len(value) != 26:
+
+            raise serializers.ValidationError(
+                'شماره شبا باید ۲۶ کاراکتر باشد.'
+            )
+
+        if not value[2:].isdigit():
+
+            raise serializers.ValidationError(
+                'بعد از IR باید دقیقاً ۲۴ رقم وارد شود.'
+            )
+
+        return value
+
+    def validate_cart_number(self, value):
+
+        value = (
+            str(value or '')
+            .replace(' ', '')
+            .strip()
+        )
+
+        if len(value) != 16:
+
+            raise serializers.ValidationError(
+                'شماره کارت باید ۱۶ رقم باشد.'
+            )
+
+        if not value.isdigit():
+
+            raise serializers.ValidationError(
+                'شماره کارت باید فقط شامل اعداد باشد.'
+            )
+
+        return value
+
+    def validate_create_at(self, value):
+
+        if not value:
+            raise serializers.ValidationError(
+                'تاریخ افتتاح حساب الزامی است.'
+            )
+
+        return value
+
+    def validate_initial_fund(self, value):
+
+        if value is None:
+            return 0
+
+        if value < 0:
+
+            raise serializers.ValidationError(
+                'موجودی اولیه نمی‌تواند منفی باشد.'
+            )
+
+        return value
+
+
+class ManagerBankTransferSerializer(serializers.Serializer):
+
+    from_bank = serializers.IntegerField(
+        required=True
+    )
+
+    to_bank = serializers.IntegerField(
+        required=True
+    )
+
+    amount = serializers.DecimalField(
+        max_digits=12,
+        decimal_places=0,
+        required=True,
+        min_value=1
+    )
+
+    payment_date = serializers.DateField(
+        required=True
+    )
+
+    transaction_reference = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=15
+    )
+
+    # --------------------------------------------------------
+    # شرح انتقال - اختیاری
+    # --------------------------------------------------------
+
+    description = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+        max_length=500
+    )
+
+    def validate(self, attrs):
+
+        request = self.context.get('request')
+
+        if not request:
+            raise serializers.ValidationError(
+                'درخواست معتبر نیست.'
+            )
+
+        user = request.user
+
+        if not user.is_middle_admin:
+
+            raise serializers.ValidationError(
+                'دسترسی فقط برای مدیر ساختمان مجاز است.'
+            )
+
+        from_bank = Bank.objects.filter(
+            id=attrs['from_bank'],
+            user=user,
+            is_active=True
+        ).select_related(
+            'house'
+        ).first()
+
+        if not from_bank:
+
+            raise serializers.ValidationError({
+                'from_bank':
+                    'حساب مبدا معتبر نیست.'
+            })
+
+        to_bank = Bank.objects.filter(
+            id=attrs['to_bank'],
+            user=user,
+            is_active=True
+        ).select_related(
+            'house'
+        ).first()
+
+        if not to_bank:
+
+            raise serializers.ValidationError({
+                'to_bank':
+                    'حساب مقصد معتبر نیست.'
+            })
+
+        if from_bank.id == to_bank.id:
+
+            raise serializers.ValidationError(
+                'بانک مبدا و مقصد نمی‌تواند یکسان باشد.'
+            )
+
+        # --------------------------------------------------------
+        # ساختمان
+        # --------------------------------------------------------
+
+        if (
+            from_bank.house_id
+            and to_bank.house_id
+            and from_bank.house_id != to_bank.house_id
+        ):
+
+            raise serializers.ValidationError(
+                'حساب‌های مبدا و مقصد باید متعلق به یک ساختمان باشند.'
+            )
+
+        amount = attrs['amount']
+
+        # --------------------------------------------------------
+        # بررسی موجودی
+        # --------------------------------------------------------
+
+        if from_bank.current_balance < amount:
+
+            raise serializers.ValidationError({
+                'amount':
+                    f'موجودی حساب مبدا کافی نیست. '
+                    f'(موجودی فعلی: {from_bank.current_balance:,})'
+            })
+
+        payment_date = attrs['payment_date']
+
+        # --------------------------------------------------------
+        # تاریخ افتتاح بانک مبدا
+        # --------------------------------------------------------
+
+        if (
+            from_bank.create_at
+            and payment_date < from_bank.create_at
+        ):
+
+            raise serializers.ValidationError({
+                'payment_date':
+                    'تاریخ انتقال نمی‌تواند قبل از تاریخ افتتاح '
+                    'حساب مبدا باشد.'
+            })
+
+        # --------------------------------------------------------
+        # تاریخ افتتاح بانک مقصد
+        # --------------------------------------------------------
+
+        if (
+            to_bank.create_at
+            and payment_date < to_bank.create_at
+        ):
+
+            raise serializers.ValidationError({
+                'payment_date':
+                    'تاریخ انتقال نمی‌تواند قبل از تاریخ افتتاح '
+                    'حساب مقصد باشد.'
+            })
+
+        # --------------------------------------------------------
+        # بانک‌ها
+        # --------------------------------------------------------
+
+        attrs['from_bank_obj'] = from_bank
+        attrs['to_bank_obj'] = to_bank
+
+        return attrs
+
+
+class ManagerBankTransferListSerializer(
+    serializers.ModelSerializer
+):
+
+    from_bank_id = serializers.SerializerMethodField()
+    from_bank_name = serializers.SerializerMethodField()
+
+    to_bank_id = serializers.SerializerMethodField()
+    to_bank_name = serializers.SerializerMethodField()
+
+    transfer_amount = serializers.SerializerMethodField()
+
+    transaction_reference = serializers.SerializerMethodField()
+
+    description = serializers.SerializerMethodField()
+
+    payment_date = serializers.SerializerMethodField()
+
+    financial_document_number = serializers.SerializerMethodField()
+
+    transfer_group_id = serializers.SerializerMethodField()
+
+    class Meta:
+        model = BankFund
+
+        fields = [
+
+            'id',
+
+            'transfer_group_id',
+
+            'from_bank_id',
+            'from_bank_name',
+
+            'to_bank_id',
+            'to_bank_name',
+
+            'transfer_amount',
+
+            'payment_date',
+
+            'transaction_reference',
+
+            'description',
+
+            'financial_document_number',
+
+            'created_at',
+        ]
+
+    def get_from_bank_id(self, obj):
+
+        group_id = obj.transfer_group_id
+
+        if not group_id:
+            return None
+
+        record = BankFund.objects.filter(
+            transfer_group_id=group_id,
+            transaction_type='withdraw'
+        ).select_related(
+            'bank'
+        ).first()
+
+        if record and record.bank:
+            return record.bank.id
+
+        return None
+
+    def get_from_bank_name(self, obj):
+
+        group_id = obj.transfer_group_id
+
+        if not group_id:
+            return None
+
+        record = BankFund.objects.filter(
+            transfer_group_id=group_id,
+            transaction_type='withdraw'
+        ).select_related(
+            'bank'
+        ).first()
+
+        if record and record.bank:
+            return record.bank.bank_name
+
+        return None
+
+    def get_to_bank_id(self, obj):
+
+        group_id = obj.transfer_group_id
+
+        if not group_id:
+            return None
+
+        record = BankFund.objects.filter(
+            transfer_group_id=group_id,
+            transaction_type='deposit'
+        ).select_related(
+            'bank'
+        ).first()
+
+        if record and record.bank:
+            return record.bank.id
+
+        return None
+
+    def get_to_bank_name(self, obj):
+
+        group_id = obj.transfer_group_id
+
+        if not group_id:
+            return None
+
+        record = BankFund.objects.filter(
+            transfer_group_id=group_id,
+            transaction_type='deposit'
+        ).select_related(
+            'bank'
+        ).first()
+
+        if record and record.bank:
+            return record.bank.bank_name
+
+        return None
+
+    def get_transfer_amount(self, obj):
+
+        return obj.amount or 0
+
+    def get_transaction_reference(self, obj):
+
+        return obj.transaction_no
+
+    def get_description(self, obj):
+
+        # --------------------------------------------------------
+        # شرح واقعی انتقال که توسط مدیر وارد شده
+        # --------------------------------------------------------
+
+        return obj.payment_description or ''
+
+    def get_payment_date(self, obj):
+
+        return obj.payment_date
+
+    def get_financial_document_number(self, obj):
+
+        return obj.financial_document_number
+
+    def get_transfer_group_id(self, obj):
+
+        if obj.transfer_group_id:
+            return str(
+                obj.transfer_group_id
+            )
+
+        return None

@@ -634,7 +634,7 @@ a:focus {
     position: absolute;
     top: -25px;
     left: 250px;
-    width: 40%;   /* فقط نصف عرض */
+    width: 50%;   /* فقط نصف عرض */
     height: 75%;
     z-index: 1;   /* زیر متن */
 }

@@ -21,7 +21,7 @@ from middleAdmin_panel.views import middle_admin_required
 from notifications.models import SupportUser, SupportFile, SupportMessage, Notification, AdminTicket, AdminTicketFile, \
     AdminTicketMessage, MiddleAdminNotification
 from user_app.forms import SupportUserForm, SupportMessageForm, MiddleAdminTicketForm, MiddleAdminMessageForm
-from user_app.models import User, Unit, MyHouse, Renter
+from user_app.models import User, Unit, MyHouse
 
 
 @method_decorator(login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN), name='dispatch')
@@ -720,26 +720,14 @@ def middle_show_message_form(request, pk):
     managed_users = request.user.managed_users.all()
     message = get_object_or_404(MessageToUser, id=pk, user=request.user)
     house = MyHouse.objects.filter(user=request.user).first()
-    units = Unit.objects.filter(
-        Q(user=request.user) | Q(user__in=managed_users),
-        is_active=True,
-        myhouse=house
-    ).prefetch_related(
-        'renters'
-    ).select_related(
-        'user'
-    ).order_by('unit')
+    units = Unit.objects.filter(Q(user=request.user) | Q(user__in=managed_users),
+                                is_active=True, myhouse=house).prefetch_related('renters').order_by('unit')
     units_with_details = []
-
     for unit in units:
-        active_renter = unit.renters.filter(
-            renter_is_active=True
-        ).first()
-
+        active_renter = unit.renters.filter(renter_is_active=True).first()
         units_with_details.append({
             'unit': unit,
-            'owner': unit.user,
-            'active_renter': active_renter,
+            'active_renter': active_renter
         })
     all_messages = MessageToUser.objects.filter(user=request.user,
                                                 send_notification=False, pk=pk).order_by(
@@ -755,209 +743,57 @@ def middle_show_message_form(request, pk):
 @login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
 def middle_send_message(request, pk):
     managed_users = request.user.managed_users.all()
-
-    message = get_object_or_404(
-        MessageToUser,
-        id=pk,
-        user=request.user
-    )
+    message = get_object_or_404(MessageToUser, id=pk, user=request.user)
 
     if request.method == "POST":
+        selected_units = request.POST.getlist('units')
+        if not selected_units:
+            messages.warning(request, 'هیچ واحدی انتخاب نشده است.')
+            return redirect('message_middle_to_user')
 
-        selected = request.POST.getlist('units')
+        units_qs = Unit.objects.filter(Q(user=request.user) | Q(user__in=managed_users),
+                                       is_active=True)
 
-        if not selected:
-            messages.warning(
-                request,
-                'هیچ مالک یا مستأجری انتخاب نشده است.'
-            )
-            return redirect(
-                'middle_show_message_form',
-                pk=message.id
-            )
+        if 'all' in selected_units:
+            units_to_notify = units_qs
+        else:
+            units_to_notify = units_qs.filter(id__in=selected_units)
 
-        # -------------------------------------------------
-        # تفکیک مالک و مستأجر
-        # -------------------------------------------------
+        # فقط واحدهایی که کاربر و موبایل دارند
+        units_to_notify = units_to_notify.filter(user__isnull=False, user__mobile__isnull=False)
 
-        owner_ids = []
-        renter_ids = []
-
-        for value in selected:
-
-            if value.startswith('owner_'):
-                try:
-                    owner_ids.append(
-                        int(value.replace('owner_', '', 1))
-                    )
-                except ValueError:
-                    continue
-
-            elif value.startswith('renter_'):
-                try:
-                    renter_ids.append(
-                        int(value.replace('renter_', '', 1))
-                    )
-                except ValueError:
-                    continue
-
-        # -------------------------------------------------
-        # واحدهای مجاز مدیر
-        # -------------------------------------------------
-
-        house = MyHouse.objects.filter(
-            user=request.user
-        ).first()
-
-        allowed_units = Unit.objects.filter(
-            Q(user=request.user) |
-            Q(user__in=managed_users),
-            is_active=True,
-            myhouse=house
-        ).select_related(
-            'user'
-        )
-
-        allowed_unit_ids = set(
-            allowed_units.values_list(
-                'id',
-                flat=True
-            )
-        )
-
-        # -------------------------------------------------
-        # مالک‌های انتخاب‌شده
-        # -------------------------------------------------
-
-        owners = User.objects.filter(
-            id__in=owner_ids
-        )
-
-        # فقط مالکانی که واقعاً مدیر به آنها دسترسی دارد
-        owners = owners.filter(
-            Q(id=request.user.id) |
-            Q(id__in=managed_users.values_list('id', flat=True))
-        )
-
-        # -------------------------------------------------
-        # مستأجرهای انتخاب‌شده
-        # -------------------------------------------------
-
-        renters = Renter.objects.filter(
-            id__in=renter_ids,
-            renter_is_active=True
-        ).select_related(
-            'user',
-            'unit'
-        )
-
-        # فقط مستأجرهای واحدهای مجاز
-        renters = renters.filter(
-            unit_id__in=allowed_unit_ids
-        )
-
-        # -------------------------------------------------
-        # ارسال / ثبت وضعیت
-        # -------------------------------------------------
-
-        created_count = 0
-        notified_unit_ids = set()
+        if not units_to_notify.exists():
+            messages.warning(request, 'هیچ واحد معتبری برای ارسال پیامک پیدا نشد.')
+            return redirect('message_middle_to_user')
 
         with transaction.atomic():
+            notified_units = list(units_to_notify)
 
-            # -----------------------------
-            # مالک‌ها
-            # -----------------------------
-
-            for owner in owners:
-
-                unit = allowed_units.filter(
-                    user=owner
-                ).first()
-
-                if not unit:
-                    continue
-
-                MessageReadStatus.objects.get_or_create(
-                    message=message,
-                    recipient=owner,
-                    defaults={
-                        'unit': unit,
-                        'is_read': False,
-                    }
-                )
-
-                notified_unit_ids.add(unit.id)
-                created_count += 1
-
-            # -----------------------------
-            # مستأجرها
-            # -----------------------------
-
-            for renter in renters:
-
-                if not renter.unit:
-                    continue
-
-                MessageReadStatus.objects.get_or_create(
-                    message=message,
-                    recipient=renter.user,
-                    defaults={
-                        'unit': renter.unit,
-                        'is_read': False,
-                    }
-                )
-
-                notified_unit_ids.add(
-                    renter.unit.id
-                )
-
-                created_count += 1
-
-            # -------------------------------------------------
-            # ثبت واحدهای دریافت‌کننده پیام
-            # -------------------------------------------------
-
-            notified_units = allowed_units.filter(
-                id__in=notified_unit_ids
-            )
-
-            message.notified_units.set(
-                notified_units
-            )
-
+            message.notified_units.set(notified_units)
             message.send_notification = True
             message.send_notification_date = timezone.now()
-            message.save(
-                update_fields=[
-                    'send_notification',
-                    'send_notification_date'
-                ]
-            )
+            message.save()
 
-        # -------------------------------------------------
-        # نتیجه
-        # -------------------------------------------------
+            for unit in notified_units:
+                MessageReadStatus.objects.get_or_create(
+                    message=message,
+                    unit=unit,
+                    defaults={'is_read': False}
+                )
 
-        if created_count == 0:
-            messages.warning(
-                request,
-                'هیچ گیرنده معتبری برای ارسال پیام پیدا نشد.'
-            )
-        else:
+            # 👇 فقط یک پیام کلی
             messages.success(
                 request,
-                f'پیام برای {created_count} نفر ارسال شد.'
+                f"پیام برای {len(notified_units)} واحد ارسال شد."
             )
 
-        return redirect(
-            'message_management_for_middle'
-        )
+        return redirect('message_management_for_middle')
 
-    return redirect(
-        'middle_show_message_form',
-        pk=message.id
-    )
+    units_with_details = Unit.objects.filter(is_active=True)
+    return render(request, 'middle_send_message.html', {
+        'message': message,
+        'units_with_details': units_with_details,
+    })
 
 
 @method_decorator(middle_admin_required, name='dispatch')

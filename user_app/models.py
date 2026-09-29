@@ -94,6 +94,12 @@ class Bank(models.Model):
         related_name='banks',
         verbose_name='ساختمان مرتبط'
     )
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
+    )
     bank_name = models.CharField(max_length=100, verbose_name='نام بانک')
     account_no = models.CharField(max_length=100, verbose_name='شماره حساب')
     account_holder_name = models.CharField(max_length=100, verbose_name='نام صاحب حساب')
@@ -113,7 +119,7 @@ class Bank(models.Model):
     )
     is_default = models.BooleanField(default=False, verbose_name='حساب پیش فرض')
     is_gateway = models.BooleanField(default=False, verbose_name='حساب پیش فرض درگاه اینترنتی')
-    create_at = models.DateTimeField(auto_now_add=True, verbose_name='تاریخ ایجاد')
+    create_at = models.DateField(null=True, blank=True, verbose_name='تاریخ افتتاح حساب')
     is_active = models.BooleanField(default=True, verbose_name='فعال/غیرفعال')
 
     def save(self, *args, **kwargs):

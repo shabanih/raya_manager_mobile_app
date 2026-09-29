@@ -7,13 +7,23 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     CivilChargeListAPIView, CivilChargeInstallmentsAPIView, CivilChargePaymentMethodsView, ManualCivilPaymentView, \
     ManualSewagePaymentView, SewageChargePaymentMethodsView, SewageChargeInstallmentsAPIView, SewageChargeListAPIView, \
     MessageListAPIView, MessageDetailAPIView, MessageReadAPIView, UserPayMoneyListCreateView, \
-    UserPayMoneyPaymentMethodsView, ManualUserPayMoneyPaymentView
+    UserPayMoneyPaymentMethodsView, ManualUserPayMoneyPaymentView, ManagerDashboardView, \
+    ManagerAnnouncementListCreateView, ManagerAnnouncementDetailView, ManagerMessageUnitsAPIView, \
+    ManagerMessageListCreateAPIView, ManagerMessageDetailAPIView, ManagerMessageSendAPIView, ManagerBankListCreateView, \
+    ManagerBankDetailView, ManagerBankTransferListCreateView, ManagerBankTransferDeleteView, ManagerHouseListView
 
 urlpatterns = [
     path(
         'auth/login/',
         LoginView.as_view(),
         name='api_login'
+    ),
+
+    # داشبورد مدیر
+    path(
+        'manager/dashboard/',
+        ManagerDashboardView.as_view(),
+        name='manager_dashboard'
     ),
 
     path(
@@ -177,5 +187,92 @@ urlpatterns = [
         'user-payments/<int:payment_id>/manual-payment/',
         ManualUserPayMoneyPaymentView.as_view(),
         name='user-payments-manual-payment',
+    ),
+
+    # Managers Urls
+
+    path(
+        'manager/announcements/',
+        ManagerAnnouncementListCreateView.as_view(),
+        name='manager_announcements'
+    ),
+
+    path(
+        'manager/announcements/<int:pk>/',
+        ManagerAnnouncementDetailView.as_view(),
+        name='manager_announcement_detail'
+    ),
+
+    # ============================================================
+    # مدیریت پیام‌های مدیر
+    # یک لیست برای همه پیام‌ها
+    # ============================================================
+
+    path(
+        'manager/messages/',
+        ManagerMessageListCreateAPIView.as_view(),
+        name='manager-message-list-create',
+    ),
+
+    # ============================================================
+    # واحدهای قابل انتخاب برای پیام
+    # ============================================================
+
+    path(
+        'manager/messages/units/',
+        ManagerMessageUnitsAPIView.as_view(),
+        name='manager-message-units',
+    ),
+
+    # ============================================================
+    # جزئیات / ویرایش / حذف
+    # ============================================================
+
+    path(
+        'manager/messages/<int:pk>/',
+        ManagerMessageDetailAPIView.as_view(),
+        name='manager-message-detail',
+    ),
+
+    # ============================================================
+    # ارسال پیام
+    # ============================================================
+
+    path(
+        'manager/messages/<int:pk>/send/',
+        ManagerMessageSendAPIView.as_view(),
+        name='manager-message-send',
+    ),
+
+    # -----------------------------
+    # بانکها
+    # -----------------------------
+    path(
+        'manager/houses/',
+        ManagerHouseListView.as_view(),
+        name='manager-house-list'
+    ),
+    path(
+        'manager/banks/',
+        ManagerBankListCreateView.as_view(),
+        name='manager-bank-list-create'
+    ),
+
+    path(
+        'manager/banks/<int:pk>/',
+        ManagerBankDetailView.as_view(),
+        name='manager-bank-detail'
+    ),
+
+    path(
+        'manager/bank-transfers/',
+        ManagerBankTransferListCreateView.as_view(),
+        name='manager-bank-transfer-list-create'
+    ),
+
+    path(
+        'manager/bank-transfers/<int:pk>/',
+        ManagerBankTransferDeleteView.as_view(),
+        name='manager-bank-transfer-delete'
     ),
 ]

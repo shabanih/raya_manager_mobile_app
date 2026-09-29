@@ -1,6 +1,5 @@
 from datetime import timedelta
 
-from dateutil.relativedelta import relativedelta
 from django.contrib import messages
 from django.contrib.auth import authenticate, login
 from django.core.paginator import Paginator
@@ -196,10 +195,10 @@ def register_house_by_user(request):
                     status='active'
                 )
 
-            # messages.success(
-            #     request,
-            #     "ثبت‌نام با موفقیت انجام شد. طی چند ساعت آینده پنل کاربری شما ایجاد و با شما تماس خواهیم گرفت"
-            # )
+            messages.success(
+                request,
+                "ثبت‌نام با موفقیت انجام شد. طی چند ساعت آینده پنل کاربری شما ایجاد و با شما تماس خواهیم گرفت"
+            )
 
             # ⛔ مهم: لاگین ممنوع
             return redirect(
@@ -245,7 +244,7 @@ def buy_subscription_by_user(request, user_id):
 
         units = int(request.POST.get('units_count'))
 
-        total_amount = units * plan.price_per_unit * plan.duration
+        total_amount = units * plan.price_per_unit
 
         coupon_code = request.POST.get("coupon")
 
@@ -294,8 +293,6 @@ def buy_subscription_by_user(request, user_id):
 
         final_amount = total_amount - discount_amount
 
-        start_date = timezone.now()
-
         Subscription.objects.create(
             user=user,
             house=house,
@@ -306,8 +303,8 @@ def buy_subscription_by_user(request, user_id):
             final_amount=final_amount,
             is_paid=True,
             status='active',
-            start_date=start_date,
-            end_date=start_date + relativedelta(months=plan.duration)
+            start_date=timezone.now(),
+            end_date=timezone.now() + timedelta(days=plan.duration)
         )
 
         messages.success(

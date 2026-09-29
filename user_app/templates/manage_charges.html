@@ -80,7 +80,7 @@
                                     {% endif %} 
                     </td>
                
-                    <td>{{ charge.send_notification_date|show_jalali_date_only }}</td>
+                    <td>{{ charge.send_notification_date|show_jalali }}</td>
                 <td>
                        {% if charge.payment_deadline_date %}
                     {{ charge.payment_deadline_date|show_jalali }}
@@ -173,7 +173,14 @@
                                             <strong>مبلغ شارژ ماهانه:</strong>
                                             {{ charge.amount|three_digit_currency }} تومان
                                         </p>
+                            
+                       
 
+{#                                       {% if charge.civil %}#}
+{#                                <p><strong>شارژ عمرانی:</strong> {{ charge.civil|three_digit_currency }} تومان</p>#}
+{#                                           {% else %}#}
+{#                                <p><strong>شارژ عمرانی:</strong> -- </p>#}
+{#                            {% endif %}#}
 
                             {% if charge.other_cost_amount %}
                             	 <p><strong>سایر هزینه ها:</strong> {{ charge.other_cost_amount|three_digit_currency }} تومان</p>

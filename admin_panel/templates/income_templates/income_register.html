@@ -2,7 +2,8 @@
 {% load static %}
 {% load poll_extras %}
 {% block page_title %}
-مدیریت درامدها ( تعداد کل درآمدهای ثبت شده:{{ total_incomes }} )
+مدیریت درامدها ( تعداد کل درآمدهای ثبت شده:{{ total_incomes|to_persian_number }} )
+    
 {% endblock page_title %}
 
 {% block main_content %}

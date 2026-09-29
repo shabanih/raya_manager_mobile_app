@@ -206,25 +206,19 @@ function openQuery() {
 
     let selectedTotal = 0;
 
-radios.forEach(radio => {
-
+    radios.forEach(radio=>{
     let price = parseInt(radio.dataset.price);
-    let duration = parseInt(radio.dataset.duration);
-
-    let total = units * price * duration;
+    let total = units * price;
 
     let span = document.getElementById("total_" + radio.value);
-
     if(span){
-        span.innerText =
-            toPersianNumber(formatNumber(total)) + " تومان";
-    }
+    span.innerText = toPersianNumber(formatNumber(total)) + " تومان";
+}
 
     if(radio.checked){
-        selectedTotal = total;
-    }
+    selectedTotal = total;
+}
 });
-
 
  // 🎯 محاسبه تخفیف
 let discount = 0;

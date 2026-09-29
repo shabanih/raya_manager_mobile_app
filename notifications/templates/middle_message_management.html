@@ -99,71 +99,31 @@
     <i class="mdi mdi-eye"></i>
 </button>
                                        </td>
-<div class="modal fade"
-     id="exampleModalLong2{{ message.id }}"
-     tabindex="-1"
-     role="dialog"
-     aria-labelledby="modalLabel{{ message.id }}"
-     aria-hidden="true">
-
+<div class="modal fade" id="exampleModalLong2{{ message.id }}" tabindex="-1" role="dialog" aria-labelledby="modalLabel{{ message.id }}" aria-hidden="true">
     <div class="modal-dialog" role="document">
         <div class="modal-content">
-
             <div class="modal-header">
-                <h5 class="modal-title"
-                    id="modalLabel{{ message.id }}">
-                    مشاهده جزئیات
-                </h5>
+                <h5 class="modal-title" id="modalLabel{{ message.id }}">مشاهده جزئیات</h5>
             </div>
-
             <hr/>
-
             <div class="modal-body text-end">
-
-                <p>
-                    <strong>لیست گیرندگان پیام:</strong>
-                </p>
-
-                {% for status in message.read_statuses.all %}
-
-                    واحد {{ status.unit.unit|to_persian_number }}
-                    -
-
-                    {% if status.unit.user_id == status.recipient_id %}
-                        مالک:
-                    {% else %}
-                        مستأجر:
-                    {% endif %}
-
-                    {{ status.recipient.full_name|default:"نامشخص"|to_persian_number }}
-
-                    ؛
-
-                    {% if status.is_read %}
-                        <span class="text-success">
-                            خوانده شده
-                        </span>
-                    {% else %}
-                        <span class="text-danger">
-                            خوانده نشده
-                        </span>
-                    {% endif %}
-
-                    <br/>
-
-                {% empty %}
-
-                    <span class="text-muted">
-                        هیچ گیرنده‌ای برای این پیام ثبت نشده است.
-                    </span>
-
-                {% endfor %}
-
+                <p><strong>لیست واحدهای ارسالی:</strong></p>
+              {% for status in message.read_statuses.all %}
+    {{ status.unit.get_label|to_persian_number }} -
+    {% if status.is_read %}
+        خوانده شده
+    {% else %}
+        خوانده نشده
+    {% endif %}
+    <br/>
+{% empty %}
+    هیچ واحدی ارسال نشده است.
+{% endfor %}
             </div>
-
         </div>
     </div>
 </div>
+
                             </tr>
                         </tbody>
                         {% endfor %}

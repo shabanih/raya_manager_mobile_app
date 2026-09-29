@@ -3,7 +3,6 @@ from django.conf.urls.static import static
 from django.urls import path
 
 from middleAdmin_panel import views
-from middleAdmin_panel.views import DeleteAnnouncementDocumentView
 
 urlpatterns = [
     path('middle-dashboard', views.middle_admin_dashboard, name='middle_admin_dashboard'),
@@ -20,11 +19,6 @@ urlpatterns = [
     path('middle-announcement/', views.MiddleAnnouncementListView.as_view(), name='middle_announcement'),
     path('edit/middle/announcement/<int:pk>/', views.MiddleAnnouncementUpdateView.as_view(),
          name='edit_middle_announcement'),
-    path(
-        'middle-announcement-document/delete/<int:pk>/',
-        DeleteAnnouncementDocumentView.as_view(),
-        name='delete_announcement_document'
-    ),
     path('announcement-middle-delete/<int:pk>/', views.middle_announcement_delete, name='delete_middle_announcement'),
 
     # House Urls

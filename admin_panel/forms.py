@@ -1,6 +1,6 @@
 import datetime
 import re
-
+from datetime import date
 import jdatetime
 from ckeditor_uploader.widgets import CKEditorUploadingWidget
 from django import forms
@@ -516,8 +516,8 @@ class BankForm(forms.ModelForm):
             sheba = sheba.replace(' ', '').upper()
             if not sheba.startswith('IR'):
                 raise forms.ValidationError('شماره شبا باید با IR شروع شود')
-            if len(sheba) != 24:
-                raise forms.ValidationError('شماره شبا باید ۲۴ کاراکتر باشد')
+            if len(sheba) != 26:
+                raise forms.ValidationError('شماره شبا باید 26 کاراکتر باشد')
         return sheba
 
 
@@ -1082,10 +1082,10 @@ class RenterAddForm(forms.ModelForm):
                                   label='نام اجاره دهنده')
     first_charge_owner = forms.CharField(error_messages=error_message, required=False,
                                          widget=forms.TextInput(attrs=attr),
-                                         label='شارژ اولیه مالک', initial=0)
+                                         label='شارژ اولیه مالک')
     first_charge_renter = forms.CharField(error_messages=error_message, required=False,
                                           widget=forms.TextInput(attrs=attr),
-                                          label='شارژ اولیه مستاجر', initial=0)
+                                          label='شارژ اولیه مستاجر')
     renter_details = forms.CharField(widget=forms.TextInput(attrs={'class': 'form-control', 'rows': 8}), required=False,
                                      label='توضیحات مستاجر')
 
@@ -3103,7 +3103,7 @@ class TransferMoneyForm(forms.ModelForm):
 
         # ۲. بررسی تاریخ افتتاح بانک مبدا
         if from_bank and payment_date:
-            bank_open_date = from_bank.create_at.date()
+            bank_open_date = from_bank.create_at
 
             if payment_date < bank_open_date:
                 self.add_error(
@@ -3113,7 +3113,7 @@ class TransferMoneyForm(forms.ModelForm):
 
         # ۳. بررسی تاریخ افتتاح بانک مقصد
         if to_bank and payment_date:
-            bank_open_date = to_bank.create_at.date()
+            bank_open_date = to_bank.create_at
 
             if payment_date < bank_open_date:
                 self.add_error(

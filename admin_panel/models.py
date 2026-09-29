@@ -1,9 +1,8 @@
 import json
 import math
-import secrets
 from collections import defaultdict
 from decimal import Decimal
-
+from django.db.models import Count, Q, F
 from ckeditor_uploader.fields import RichTextUploadingField
 from django.conf import settings
 from django.contrib.contenttypes.fields import GenericForeignKey, GenericRelation
@@ -20,6 +19,8 @@ from datetime import date, timedelta
 from jalali_date import date2jalali
 
 from user_app.models import Unit, User, Bank, MyHouse
+import uuid
+import secrets
 
 
 class Announcement(models.Model):
@@ -59,7 +60,6 @@ class ImpersonationLog(models.Model):
         return f"{self.admin} → {self.target_user}"
 
 
-
 class MessageToUser(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     title = models.CharField(max_length=400, null=True, blank=True)
@@ -80,6 +80,7 @@ class MessageToUser(models.Model):
     def __str__(self):
         return self.title or str(self.id)
 
+
 class MessageReadStatus(models.Model):
     message = models.ForeignKey(
         MessageToUser,
@@ -94,6 +95,8 @@ class MessageReadStatus(models.Model):
 
     recipient = models.ForeignKey(
         User,
+        null=True,
+        blank=True,
         on_delete=models.CASCADE,
         related_name='message_read_statuses'
     )
@@ -117,21 +120,6 @@ class MessageReadStatus(models.Model):
             f"{self.message.title} - "
             f"{'خوانده شده' if self.is_read else 'خوانده نشده'}"
         )
-# class MessageReadStatus(models.Model):
-#     message = models.ForeignKey(
-#         MessageToUser,
-#         on_delete=models.CASCADE,
-#         related_name='read_statuses'
-#     )
-#     unit = models.ForeignKey(Unit, on_delete=models.CASCADE)
-#     is_read = models.BooleanField(default=False)
-#     read_at = models.DateTimeField(null=True, blank=True)
-#
-#     class Meta:
-#         unique_together = ('message', 'unit')
-#
-#     def __str__(self):
-#         return f"{self.unit} - {self.message.title} - {'خوانده شده' if self.is_read else 'خوانده نشده'}"
 
 
 # ------------------- Admin Message To MiddleAdmin --------------------------
@@ -195,8 +183,8 @@ class ExpenseCategory(models.Model):
 
 class Expense(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
+    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
+    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -209,7 +197,13 @@ class Expense(models.Model):
     category = models.ForeignKey(ExpenseCategory, on_delete=models.CASCADE, verbose_name='گروه',
                                  related_name='expenses')
     date = models.DateField(verbose_name='تاریخ سند')
-    doc_no = models.IntegerField(verbose_name='شماره سند')
+    doc_no = models.IntegerField(null=True, blank=True, verbose_name='شماره سند')
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
+    )
     description = models.CharField(max_length=4000, verbose_name='شرح')
     amount = models.PositiveIntegerField(verbose_name='قیمت', null=True, blank=True, default=0)
     details = models.TextField(verbose_name='توضیحات', null=True, blank=True)
@@ -252,8 +246,8 @@ class IncomeCategory(models.Model):
 
 class Income(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
+    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
+    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -265,7 +259,13 @@ class Income(models.Model):
     payer_name = models.CharField(max_length=400, null=True, blank=True)
     category = models.ForeignKey(IncomeCategory, on_delete=models.CASCADE, verbose_name='گروه', related_name='incomes')
     doc_date = models.DateField(verbose_name='تاریخ سند')
-    doc_number = models.IntegerField(verbose_name='شماره سند')
+    doc_number = models.IntegerField(null=True, blank=True, verbose_name='شماره سند')
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
+    )
     description = models.CharField(max_length=4000, verbose_name='شرح')
     amount = models.PositiveIntegerField(verbose_name='قیمت', null=True, blank=True, default=0)
     details = models.TextField(verbose_name='توضیحات', null=True, blank=True)
@@ -301,8 +301,8 @@ class IncomeDocument(models.Model):
 # ======================= Receive & Pay Modals ==========================
 class ReceiveMoney(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
+    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
+    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -313,13 +313,19 @@ class ReceiveMoney(models.Model):
     )
     payer_name = models.CharField(max_length=400, null=True, blank=True)
     doc_date = models.DateField(verbose_name='تاریخ سند')
-    doc_number = models.IntegerField(verbose_name='شماره سند')
+    doc_number = models.IntegerField(null=True, blank=True, verbose_name='شماره سند')
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
+    )
     description = models.CharField(max_length=4000, verbose_name='شرح')
     amount = models.PositiveIntegerField(verbose_name='مبلغ', null=True, blank=True, default=0)
     details = models.TextField(verbose_name='توضیحات', null=True, blank=True)
     is_received_money = models.BooleanField(default=False)
     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
+    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
     payment_date = models.DateField(
         null=True,
         blank=True,
@@ -332,7 +338,6 @@ class ReceiveMoney(models.Model):
         return str(self.unit.unit)
 
     def save(self, *args, **kwargs):
-        self.is_paid = bool(self.transaction_reference and self.payment_date)
         super().save(*args, **kwargs)
 
     def get_document_json(self):
@@ -363,10 +368,12 @@ class ReceiveDocument(models.Model):
         return str(self.receive.payer_name)
 
 
+# =====================================================================
+
 class PayMoney(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
+    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
+    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -377,13 +384,19 @@ class PayMoney(models.Model):
     )
     receiver_name = models.CharField(max_length=200, verbose_name='دریافت کننده')
     document_date = models.DateField(verbose_name='تاریخ سند')
-    document_number = models.IntegerField(verbose_name='شماره سند')
+    document_number = models.IntegerField(null=True, blank=True, verbose_name='شماره سند')
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
+    )
     description = models.CharField(max_length=4000, verbose_name='شرح')
     amount = models.PositiveIntegerField(verbose_name='مبلغ', null=True, blank=True, default=0)
     details = models.TextField(verbose_name='توضیحات', null=True, blank=True)
     is_paid_money = models.BooleanField(default=False)
     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
+    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
     payment_date = models.DateField(
         null=True,
         blank=True,
@@ -396,7 +409,7 @@ class PayMoney(models.Model):
         return str(self.receiver_name)
 
     def save(self, *args, **kwargs):
-        self.is_paid = bool(self.transaction_reference and self.payment_date)
+
         super().save(*args, **kwargs)
 
     @property
@@ -431,7 +444,7 @@ class PayDocument(models.Model):
 # =========================== middleProperty Views ====================
 class Property(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
+    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -443,6 +456,12 @@ class Property(models.Model):
     receiver_name = models.CharField(max_length=200, verbose_name='دریافت کننده')
     company_name = models.CharField(max_length=200, verbose_name='فروشنده', null=True, blank=True)
     document_number = models.IntegerField(verbose_name='شماره سند')
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
+    )
     count = models.IntegerField(verbose_name='تعداد')
     property_name = models.CharField(max_length=400, verbose_name='نام')
     property_unit = models.CharField(max_length=3000, verbose_name='واحد')
@@ -452,7 +471,7 @@ class Property(models.Model):
     details = models.CharField(max_length=4000, verbose_name='توضیحات', null=True, blank=True)
     property_purchase_date = models.DateField(verbose_name='تاریخ خرید', null=True, blank=True)
     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
+    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
     payment_date = models.DateField(
         null=True,
         blank=True,
@@ -483,7 +502,7 @@ class PropertyDocument(models.Model):
 # ======================== Maintenance =============================
 class Maintenance(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
+    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -500,9 +519,15 @@ class Maintenance(models.Model):
     maintenance_status = models.CharField(max_length=100, verbose_name='')
     service_company = models.CharField(max_length=200, verbose_name='')
     maintenance_document_no = models.CharField(max_length=100, verbose_name='', null=True, blank=True)
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
+    )
     details = models.CharField(max_length=4000, verbose_name='', null=True, blank=True)
     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
+    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
     payment_date = models.DateField(
         null=True,
         blank=True,
@@ -529,6 +554,31 @@ class MaintenanceDocument(models.Model):
 
     def __str__(self):
         return str(self.maintenance.maintenance_description)
+
+
+class FinancialDocumentSequence(models.Model):
+    house = models.ForeignKey(
+        MyHouse,
+        on_delete=models.CASCADE,
+        related_name='financial_document_sequences',
+        verbose_name='ساختمان'
+    )
+
+    last_number = models.PositiveIntegerField(
+        default=0,
+        verbose_name='آخرین شماره سند'
+    )
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=['house'],
+                name='unique_financial_document_sequence_per_house'
+            )
+        ]
+
+    def __str__(self):
+        return f'{self.house} - {self.last_number}'
 
 
 # =========================== sewage Modals =============================
@@ -599,6 +649,7 @@ class SewageInstallment(models.Model):
         related_name='house_installment_sewage',
         verbose_name='ساختمان مرتبط'
     )
+    financial_document_number = models.PositiveIntegerField(null=True, blank=True)
     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
     installment_number = models.PositiveIntegerField()
     amount = models.PositiveIntegerField()
@@ -633,41 +684,6 @@ class SewageInstallment(models.Model):
 
     def __str__(self):
         return f"قسط شماره {self.installment_number} از {self.sewage_manage.name}"
-# class SewageInstallment(models.Model):
-#     sewage_manage = models.ForeignKey('SewageManage', on_delete=models.CASCADE, related_name='sewage_installments')
-#     bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
-#     house = models.ForeignKey(
-#         MyHouse,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name='house_installment_sewage',
-#         verbose_name='ساختمان مرتبط'
-#     )
-#     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
-#     installment_number = models.PositiveIntegerField()
-#     amount = models.PositiveIntegerField()
-#     prepayment_per_unit = models.PositiveIntegerField()
-#     due_date = models.DateField(null=True, blank=True)
-#     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-#     transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
-#     payment_date = models.DateField(
-#         null=True,
-#         blank=True,
-#         verbose_name="تاریخ پرداخت"
-#     )
-#     payment_gateway = models.CharField(max_length=100, null=True, blank=True)
-#     send_notification = models.BooleanField(default=False)
-#
-#     # تاریخ ارسال نوتیفیکیشن
-#     send_notification_date = models.DateField(
-#         null=True,
-#         blank=True,
-#         verbose_name="تاریخ ارسال اعلان"
-#     )
-#
-#     def __str__(self):
-#         return f"قسط شماره {self.installment_number} از {self.sewage_manage.name}"
 
 
 # =========================== civil Modals =============================
@@ -717,6 +733,24 @@ class CivilManage(models.Model):
         )
         return sent_units_count.get('unique_unit_count', 0)
 
+    def count_fully_paid_units(self):
+        return (
+            self.installments
+            .filter(unit__isnull=False)
+            .values('unit_id')
+            .annotate(
+                total_installments=Count('id'),
+                paid_installments=Count(
+                    'id',
+                    filter=Q(is_paid=True)
+                )
+            )
+            .filter(
+                total_installments=F('paid_installments')
+            )
+            .count()
+        )
+
 
 class CivilDocument(models.Model):
     civil = models.ForeignKey(CivilManage, on_delete=models.CASCADE, related_name='civil_documents')
@@ -744,6 +778,7 @@ class CivilInstallment(models.Model):
     prepayment_per_unit = models.PositiveIntegerField()
     due_date = models.DateField(null=True, blank=True)
     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
+    financial_document_number = models.PositiveIntegerField(null=True, blank=True)
     payment_pending = models.BooleanField(
         default=False,
         verbose_name='در انتظار تایید پرداخت'
@@ -772,41 +807,6 @@ class CivilInstallment(models.Model):
 
     def __str__(self):
         return f"قسط شماره {self.installment_number} از {self.civil_manage.name}"
-# class CivilInstallment(models.Model):
-#     civil_manage = models.ForeignKey('CivilManage', on_delete=models.CASCADE, related_name='installments')
-#     bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
-#     house = models.ForeignKey(
-#         MyHouse,
-#         on_delete=models.SET_NULL,
-#         null=True,
-#         blank=True,
-#         related_name='house_installment',
-#         verbose_name='ساختمان مرتبط'
-#     )
-#     unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True)
-#     installment_number = models.PositiveIntegerField()
-#     amount = models.PositiveIntegerField()
-#     prepayment_per_unit = models.PositiveIntegerField()
-#     due_date = models.DateField(null=True, blank=True)
-#     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-#     transaction_reference = models.CharField(max_length=20, null=True, blank=True, default=0)
-#     payment_date = models.DateField(
-#         null=True,
-#         blank=True,
-#         verbose_name="تاریخ پرداخت"
-#     )
-#     payment_gateway = models.CharField(max_length=100, null=True, blank=True)
-#     send_notification = models.BooleanField(default=False)
-#
-#     # تاریخ ارسال نوتیفیکیشن
-#     send_notification_date = models.DateField(
-#         null=True,
-#         blank=True,
-#         verbose_name="تاریخ ارسال اعلان"
-#     )
-#
-#     def __str__(self):
-#         return f"قسط شماره {self.installment_number} از {self.civil_manage.name}"
 
 
 # =========================== Charge Modals =============================
@@ -928,13 +928,500 @@ class ChargeFixVariable(BaseCharge):
     display_fields = ['unit_fix_amount', 'unit_variable_amount', 'unit_variable_area_amount', 'extra_parking_amount', ]
 
 
-class ChargeByExpense(BaseCharge):
-    unit_power_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='')
-    unit_water_amount = models.PositiveIntegerField(null=True)
-    unit_gas_amount = models.PositiveIntegerField(null=True)
-    extra_parking_amount = models.PositiveIntegerField(null=True)
-    charge_type = 'expense_charge'
-    display_fields = ['unit_power_amount', 'unit_water_amount', 'unit_gas_amount', 'extra_parking_amount', ]
+# class ChargeByExpense(BaseCharge):
+
+#     extra_parking_amount = models.PositiveIntegerField(null=True)
+#     charge_type = 'expense_charge'
+#     display_fields = ['extra_parking_amount' ]
+
+
+class ChargeCalculation(models.Model):
+    class Status(models.TextChoices):
+        DRAFT = 'draft', 'پیش‌نویس'
+        CALCULATED = 'calculated', 'محاسبه شده'
+        FINALIZED = 'finalized', 'نهایی شده'
+        CANCELLED = 'cancelled', 'لغو شده'
+
+    house = models.ForeignKey(
+        'user_app.MyHouse',
+        on_delete=models.CASCADE,
+        related_name='charge_calculations',
+        verbose_name='ساختمان'
+    )
+
+    name = models.CharField(
+        max_length=300,
+        verbose_name='عنوان شارژ'
+    )
+
+    start_date = models.DateField(
+        verbose_name='از تاریخ'
+    )
+
+    end_date = models.DateField(
+        verbose_name='تا تاریخ'
+    )
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL,
+        on_delete=models.PROTECT,
+        related_name='created_charge_calculations',
+        verbose_name='ایجاد کننده'
+    )
+
+    # -------------------------
+    # اطلاعات پایه شارژ
+    # -------------------------
+
+    unit_count = models.PositiveIntegerField(
+        default=0,
+        verbose_name='تعداد واحد'
+    )
+
+    # civil = models.PositiveIntegerField(
+    #     default=0,
+    #     verbose_name='شارژ عمرانی'
+    # )
+
+    other_cost_amount = models.PositiveIntegerField(
+        default=0,
+        verbose_name='هزینه متفرقه'
+    )
+
+    payment_deadline = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name='مهلت پرداخت'
+    )
+
+    payment_penalty_amount = models.PositiveIntegerField(
+        default=0,
+        verbose_name='مبلغ جریمه'
+    )
+
+    details = models.CharField(
+        max_length=4000,
+        null=True,
+        blank=True,
+        verbose_name='توضیحات'
+    )
+
+    # -------------------------
+    # وضعیت محاسبه
+    # -------------------------
+
+    status = models.CharField(
+        max_length=20,
+        choices=Status.choices,
+        default=Status.DRAFT,
+        verbose_name='وضعیت'
+    )
+
+    is_finalized = models.BooleanField(
+        default=False,
+        verbose_name='نهایی شده'
+    )
+
+    finalized_at = models.DateTimeField(
+        null=True,
+        blank=True,
+        verbose_name='تاریخ نهایی شدن'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ایجاد'
+    )
+
+    updated_at = models.DateTimeField(
+        auto_now=True,
+        verbose_name='آخرین ویرایش'
+    )
+
+    class Meta:
+        ordering = ['-created_at']
+        verbose_name = 'محاسبه شارژ'
+        verbose_name_plural = 'محاسبات شارژ'
+
+    def __str__(self):
+        return self.name
+
+    def can_edit(self):
+        return not self.is_finalized
+
+    def can_finalize(self):
+        return (
+                not self.is_finalized
+                and self.items.filter(is_selected=True).exists()
+        )
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'name': self.name,
+            'charge_type': 'calculation',
+            'created_at': self.created_at,
+            'details': self.details,
+            'civil': 0,
+            'other_cost_amount': self.other_cost_amount,
+            'payment_penalty_amount': self.payment_penalty_amount,
+            'payment_deadline': self.payment_deadline,
+            'unit_count': self.unit_count,
+
+            'app_label': self._meta.app_label,
+            'model_name': self._meta.model_name,
+
+            # مخصوص ChargeCalculation
+            'start_date': self.start_date,
+            'end_date': self.end_date,
+            'status': self.status,
+            'status_display': self.get_status_display(),
+            'is_finalized': self.is_finalized,
+            'finalized_at': self.finalized_at,
+        }
+
+
+# class ChargeCalculationItem(models.Model):
+
+#     class AllocationBasis(models.TextChoices):
+#         EQUAL = 'equal', 'مساوی'
+#         AREA = 'area', 'متراژ'
+#         PERSON = 'person', 'تعداد نفرات'
+
+#     class AllocationScope(models.TextChoices):
+#         ALL = 'all', 'همه واحدها'
+#         OCCUPIED = 'occupied', 'واحدهای ساکن'
+#         VACANT = 'vacant', 'واحدهای خالی'
+
+#     calculation = models.ForeignKey(
+#         ChargeCalculation,
+#         on_delete=models.CASCADE,
+#         related_name='items',
+#         verbose_name='محاسبه شارژ'
+#     )
+
+#     content_type = models.ForeignKey(
+#         ContentType,
+#         on_delete=models.PROTECT,
+#         verbose_name='نوع هزینه'
+#     )
+
+#     object_id = models.PositiveIntegerField(
+#         verbose_name='شناسه هزینه'
+#     )
+
+#     source = GenericForeignKey(
+#         'content_type',
+#         'object_id'
+#     )
+
+#     amount = models.PositiveIntegerField(
+#         verbose_name='مبلغ هزینه'
+#     )
+
+#     title = models.CharField(
+#         max_length=1000,
+#         verbose_name='شرح هزینه'
+#     )
+
+#     source_date = models.DateField(
+#         null=True,
+#         blank=True,
+#         verbose_name='تاریخ هزینه'
+#     )
+
+#     allocation_basis = models.CharField(
+#         max_length=30,
+#         choices=AllocationBasis.choices,
+#         verbose_name='مبنای تقسیم'
+#     )
+
+#     # =====================================================
+#     # واحدهای مشمول هزینه
+#     # =====================================================
+
+#     allocation_scope = models.CharField(
+#         max_length=20,
+#         choices=AllocationScope.choices,
+#         default=AllocationScope.ALL,
+#         verbose_name='واحدهای مشمول'
+#     )
+
+#     source_unit = models.ForeignKey(
+#         Unit,
+#         on_delete=models.PROTECT,
+#         null=True,
+#         blank=True,
+#         related_name='charge_calculation_items',
+#         verbose_name='واحد هزینه'
+#     )
+
+#     fixed_amount = models.PositiveIntegerField(
+#         default=0,
+#         verbose_name='مبلغ ثابت'
+#     )
+
+#     is_selected = models.BooleanField(
+#         default=True,
+#         verbose_name='انتخاب شده'
+#     )
+
+#     created_at = models.DateTimeField(
+#         auto_now_add=True,
+#         verbose_name='تاریخ ایجاد'
+#     )
+
+#     class Meta:
+#         ordering = ['source_date', 'id']
+
+#         constraints = [
+#             models.UniqueConstraint(
+#                 fields=[
+#                     'calculation',
+#                     'content_type',
+#                     'object_id'
+#                 ],
+#                 name='unique_charge_calculation_source'
+#             )
+#         ]
+
+#         verbose_name = 'هزینه انتخاب شده برای شارژ'
+#         verbose_name_plural = 'هزینه های انتخاب شده برای شارژ'
+
+#     def __str__(self):
+#         return f'{self.title} - {self.amount:,}'
+
+#     @property
+#     def source_type(self):
+#         return self.content_type.model
+
+#     @property
+#     def source_name(self):
+#         if self.source_type == 'expense':
+#             return 'هزینه'
+
+#         if self.source_type == 'maintenance':
+#             return 'تعمیرات'
+
+#         return self.source_type
+
+class ChargeCalculationItem(models.Model):
+    class AllocationBasis(models.TextChoices):
+        EQUAL = 'equal', 'مساوی'
+        AREA = 'area', 'متراژ'
+        PERSON = 'person', 'تعداد نفرات'
+
+    class AllocationScope(models.TextChoices):
+        ALL = 'all', 'همه واحدها'
+        OCCUPIED = 'occupied', 'واحدهای ساکن'
+        VACANT = 'vacant', 'واحدهای خالی'
+        SELECTED = 'selected', 'انتخاب واحد'
+
+    calculation = models.ForeignKey(
+        ChargeCalculation,
+        on_delete=models.CASCADE,
+        related_name='items',
+        verbose_name='محاسبه شارژ'
+    )
+
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.PROTECT,
+        verbose_name='نوع هزینه'
+    )
+
+    object_id = models.PositiveIntegerField(
+        verbose_name='شناسه هزینه'
+    )
+
+    source = GenericForeignKey(
+        'content_type',
+        'object_id'
+    )
+
+    amount = models.PositiveIntegerField(
+        verbose_name='مبلغ هزینه'
+    )
+
+    title = models.CharField(
+        max_length=1000,
+        verbose_name='شرح هزینه'
+    )
+
+    source_date = models.DateField(
+        null=True,
+        blank=True,
+        verbose_name='تاریخ هزینه'
+    )
+
+    allocation_basis = models.CharField(
+        max_length=30,
+        choices=AllocationBasis.choices,
+        verbose_name='مبنای تقسیم'
+    )
+
+    allocation_scope = models.CharField(
+        max_length=20,
+        choices=AllocationScope.choices,
+        default=AllocationScope.ALL,
+        verbose_name='واحدهای مشمول'
+    )
+
+    # =====================================================
+    # واحدهای انتخاب‌شده در حالت انتخاب دستی
+    # =====================================================
+
+    selected_units = models.ManyToManyField(
+        Unit,
+        blank=True,
+        related_name='selected_charge_calculation_items',
+        verbose_name='واحدهای انتخاب شده'
+    )
+
+    source_unit = models.ForeignKey(
+        Unit,
+        on_delete=models.PROTECT,
+        null=True,
+        blank=True,
+        related_name='charge_calculation_items',
+        verbose_name='واحد هزینه'
+    )
+
+    fixed_amount = models.PositiveIntegerField(
+        default=0,
+        verbose_name='مبلغ ثابت'
+    )
+
+    is_selected = models.BooleanField(
+        default=True,
+        verbose_name='انتخاب شده'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ایجاد'
+    )
+
+    class Meta:
+        ordering = ['source_date', 'id']
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=[
+                    'calculation',
+                    'content_type',
+                    'object_id'
+                ],
+                name='unique_charge_calculation_source'
+            )
+        ]
+
+        verbose_name = 'هزینه انتخاب شده برای شارژ'
+        verbose_name_plural = 'هزینه های انتخاب شده برای شارژ'
+
+    def __str__(self):
+        return f'{self.title} - {self.amount:,}'
+
+    @property
+    def source_type(self):
+        return self.content_type.model
+
+    @property
+    def source_name(self):
+        if self.source_type == 'expense':
+            return 'هزینه'
+
+        if self.source_type == 'maintenance':
+            return 'تعمیرات'
+
+        return self.source_type
+
+
+class ChargeAllocation(models.Model):
+    item = models.ForeignKey(
+        ChargeCalculationItem,
+        on_delete=models.CASCADE,
+        related_name='allocations',
+        verbose_name='هزینه محاسبه'
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.PROTECT,
+        related_name='charge_allocations',
+        verbose_name='واحد'
+    )
+
+    # مقدار واقعی استفاده شده در محاسبه
+    #
+    # اگر مبنا متراژ باشد:
+    # 120
+    #
+    # اگر مبنا نفرات باشد:
+    # 3
+    #
+    # اگر مساوی باشد:
+    # 1
+    calculation_value = models.DecimalField(
+        max_digits=14,
+        decimal_places=2,
+        default=0,
+        verbose_name='مقدار محاسباتی'
+    )
+
+    # Snapshot متراژ
+    area_snapshot = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='متراژ در زمان محاسبه'
+    )
+
+    # Snapshot تعداد نفرات
+    people_snapshot = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        verbose_name='تعداد نفرات در زمان محاسبه'
+    )
+
+    # مبلغ سهم این واحد از این هزینه
+    amount = models.PositiveIntegerField(
+        default=0,
+        verbose_name='سهم واحد'
+    )
+
+    # برای کنترل خطاهای گرد کردن
+    exact_amount = models.DecimalField(
+        max_digits=18,
+        decimal_places=6,
+        default=0,
+        verbose_name='مبلغ دقیق محاسباتی'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ایجاد'
+    )
+
+    class Meta:
+        ordering = ['id']
+
+        constraints = [
+            models.UniqueConstraint(
+                fields=['item', 'unit'],
+                name='unique_charge_allocation_item_unit'
+            )
+        ]
+
+        verbose_name = 'سهم واحد از هزینه'
+        verbose_name_plural = 'سهم واحدها از هزینه'
+
+    def __str__(self):
+        return (
+            f'واحد {self.unit.unit} - '
+            f'{self.amount:,}'
+        )
 
 
 class UnifiedCharge(models.Model):
@@ -961,6 +1448,12 @@ class UnifiedCharge(models.Model):
     #     unique=True,
     #     editable=False
     # )
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
+    )
 
     unit = models.ForeignKey(
         Unit,
@@ -1080,8 +1573,8 @@ class UnifiedCharge(models.Model):
         if self.unit:
             self.house = self.unit.myhouse
 
-        # if not self.payment_token:
-        #     self.payment_token = secrets.token_urlsafe(12)
+        if not self.payment_token:
+            self.payment_token = secrets.token_urlsafe(12)
 
         super().save(*args, **kwargs)
 
@@ -1111,15 +1604,19 @@ class UnifiedCharge(models.Model):
         if not user:
             raise ValueError('user is required to waive penalty')
 
-        # ذخیره جریمه قبل از صفر شدن
-        self.previous_penalty_amount = self.penalty_amount
+        # مبلغ واقعی جریمه قبل از بخشودگی
+        previous_penalty = self.penalty_amount or 0
 
+        # ذخیره مبلغ جریمه قبلی
+        self.previous_penalty_amount = previous_penalty
+
+        # وضعیت بخشودگی
         self.is_penalty_waived = True
         self.penalty_amount = 0
         self.penalty_waived_at = timezone.now()
         self.penalty_waived_by = user
 
-        # محاسبه مبلغ کل بدون جریمه
+        # مبلغ کل شارژ بدون جریمه
         self.total_charge_month = self.base_charge or 0
 
         self.save(update_fields=[
@@ -1128,8 +1625,13 @@ class UnifiedCharge(models.Model):
             'previous_penalty_amount',
             'penalty_waived_at',
             'penalty_waived_by',
-            'total_charge_month'
+            'total_charge_month',
         ])
+
+        return {
+            'title': self.title or 'شارژ',
+            'previous_penalty_amount': previous_penalty,
+        }
 
     def restore_penalty(self):
         if not self.is_penalty_waived or self.previous_penalty_amount is None:
@@ -1306,6 +1808,8 @@ class Fund(models.Model):
     )
     bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
     doc_number = models.PositiveIntegerField(null=True, blank=True)
+    financial_document_number = models.PositiveIntegerField(null=True, blank=True)
+
     payer_name = models.CharField(max_length=200, null=True, blank=True)
     receiver_name = models.CharField(max_length=200, null=True, blank=True)
     content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
@@ -1413,6 +1917,7 @@ class BankFund(models.Model):
         decimal_places=0,
         default=0
     )
+    financial_document_number = models.PositiveIntegerField(null=True, blank=True)
     payer_name = models.CharField(max_length=200, null=True, blank=True)
     receiver_name = models.CharField(max_length=200, null=True, blank=True)
     bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
@@ -1462,6 +1967,12 @@ class SmsCredit(models.Model):
         null=True,
         blank=True
     )
+    res_num = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        verbose_name='شناسه سفارش'
+    )
     amount = models.DecimalField(max_digits=10, decimal_places=0, verbose_name='مبلغ شارژ')
     amount_with_tax = models.DecimalField(max_digits=10, decimal_places=2, verbose_name='مبلغ با مالیات', default=0)
     is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده؟')
@@ -1484,6 +1995,37 @@ class SmsManagement(models.Model):
         null=True,
         blank=True
     )
+    STATUS_CHOICES = [
+        ("draft", "پیش نویس"),
+        ("pending", "در انتظار بررسی"),
+        ("approved", "تأیید شده"),
+        ("revision", "نیاز به اصلاح"),
+        ("ready", "آماده ارسال مجدد"),
+    ]
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default="pending"
+    )
+
+    review_note = models.TextField(
+        blank=True,
+        verbose_name="دلیل نیاز به اصلاح"
+    )
+
+    reviewed_by = models.ForeignKey(
+        User,
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="reviewed_sms"
+    )
+
+    reviewed_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
     subject = models.CharField(max_length=200)
     message = models.TextField()
     created_at = models.DateTimeField(auto_now_add=True)
@@ -1502,8 +2044,8 @@ class SmsManagement(models.Model):
         default=0
     )
 
-    is_approved = models.BooleanField(default=False)
-    approved_at = models.DateTimeField(null=True, blank=True)
+    # is_approved = models.BooleanField(default=False)
+    # approved_at = models.DateTimeField(null=True, blank=True)
 
     def __str__(self):
         return self.subject
@@ -1613,8 +2155,12 @@ class Coupon(models.Model):
     code = models.CharField(max_length=50, unique=True)
     valid_from = models.DateTimeField()
     valid_to = models.DateTimeField()
-    discount = models.PositiveSmallIntegerField(
-        validators=[MinValueValidator(0), MaxValueValidator(10000000)]
+    discount = models.PositiveIntegerField(
+        validators=[
+            MinValueValidator(0),
+            MaxValueValidator(10000000)
+        ],
+        verbose_name='مبلغ تخفیف'
     )
     active = models.BooleanField(default=True)
 
@@ -1725,6 +2271,94 @@ class Subscription(models.Model):
                 self.status = "expired"
                 self.is_trial = False
                 self.save(update_fields=["status", "is_trial"])
+
+
+class SubscriptionPayment(models.Model):
+    STATUS_CHOICES = (
+        ('pending', 'در انتظار پرداخت'),
+        ('success', 'موفق'),
+        ('failed', 'ناموفق'),
+        ('cancelled', 'لغو شده'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        related_name='subscription_payments'
+    )
+
+    house = models.ForeignKey(
+        MyHouse,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='subscription_payments'
+    )
+
+    plan = models.ForeignKey(
+        SubscriptionPlan,
+        on_delete=models.PROTECT
+    )
+
+    coupon = models.ForeignKey(
+        Coupon,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
+    units_count = models.PositiveIntegerField()
+
+    total_amount = models.PositiveIntegerField()
+
+    discount_amount = models.PositiveIntegerField(
+        default=0
+    )
+
+    final_amount = models.PositiveIntegerField()
+
+    # شماره‌ای که به سامان ارسال می‌شود
+    res_num = models.CharField(
+        max_length=100,
+        unique=True,
+        db_index=True
+    )
+
+    # RefNum برگشتی سامان
+    ref_num = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True
+    )
+
+    # StraceNo سامان
+    tracking_code = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True
+    )
+
+    status = models.CharField(
+        max_length=20,
+        choices=STATUS_CHOICES,
+        default='pending'
+    )
+
+    new_registration = models.BooleanField(
+        default=False
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    paid_at = models.DateTimeField(
+        null=True,
+        blank=True
+    )
+
+    def __str__(self):
+        return f'{self.res_num} - {self.user}'
 
 
 class CouponUsage(models.Model):

@@ -171,12 +171,14 @@
                 <b>جمع کل: {{ item.total_payable|three_digit_currency }}</b> تومان 
                 ">
                 <input class="form-check-input unit-checkbox mx-2"
-                       type="checkbox"
-                       name="units"
-                       value="{{ unit.id }}"
-                       data-url="{% url 'toggle_unit_selection' charge.id %}"
-                          {% if unit.id in selected_units %}checked{% endif %}
-                >
+       type="checkbox"
+       name="units"
+       value="{{ unit.id }}"
+       data-url="{% url 'toggle_unit_selection' charge.id %}"
+       {% if unit.id in selected_units %}checked{% endif %}
+       {% if item.is_paid %}disabled{% endif %}
+>
+                
                 واحد شماره {{ unit.unit|to_persian_number }}
             </p>
                 {% if item.send_sms %}

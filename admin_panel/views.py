@@ -75,7 +75,6 @@ def admin_dashboard(request):
         .order_by()
     )
 
-
     city_stats = (
         MyHouse.objects
         .values('city')
@@ -239,160 +238,58 @@ class SubscriptionListView(ListView):
 
     def post(self, request, *args, **kwargs):
         form = SubscriptionUpdateForm(request.POST)
-
         if form.is_valid():
-
-            # 1. دریافت اطلاعات فرم
+            # ۱. استخراج داده‌ها از فرم
             house = form.cleaned_data['house']
-            plan = form.cleaned_data.get('plan')
+            plan = form.cleaned_data.get('plan')  # استفاده از .get چون ممکن است None باشد
 
-            # 2. ساخت آبجکت بدون ذخیره
-            subscription = form.save(commit=False)
+            # ۲. انتساب مدیر ساختمان
+            form.instance.user = house.user
 
-            # 3. مدیر ساختمان
-            subscription.user = house.user
-            subscription.house = house
-
+            # ۳. مدیریت وضعیت اشتراک
             if plan:
-                subscription.plan = plan
-                subscription.is_trial = False
-                subscription.is_paid = True
-
-                units_count = subscription.units_count
-
-                # هزینه هر واحد × تعداد ماه × تعداد واحد
-                total_amount = (
-                        plan.price_per_unit
-                        * plan.duration
-                        * units_count
-                )
-
-                discount_amount = subscription.discount_amount or 0
-
-                final_amount = max(
-                    total_amount - discount_amount,
-                    0
-                )
-
-                subscription.total_amount = total_amount
-                subscription.discount_amount = discount_amount
-                subscription.final_amount = final_amount
-
+                form.instance.is_trial = False
+                form.instance.plan = plan
+                form.instance.is_paid = True
             else:
-                # ==============================
-                # اشتراک آزمایشی
-                # ==============================
+                form.instance.is_trial = True
+                form.instance.is_paid = False  # اشتراک رایگان معمولاً پرداخت شده محسوب نمی‌شود
 
-                subscription.plan = None
-                subscription.is_trial = True
-                subscription.is_paid = False
-
-                subscription.total_amount = 0
-                subscription.discount_amount = 0
-                subscription.final_amount = 0
-
-            subscription.save()
-
-            messages.success(
-                request,
-                'اشتراک با موفقیت ثبت شد.'
-            )
-
+            form.save()
+            messages.success(request, 'اشتراک با موفقیت ثبت شد.')
             return redirect('subscription_list')
 
         # در صورت خطا
         self.object_list = self.get_queryset()
         context = self.get_context_data(form=form)
-
         return self.render_to_response(context)
 
 
 @login_required(login_url=settings.LOGIN_URL_ADMIN)
 def admin_edit_subscription(request, subscription_id):
-    subscription = get_object_or_404(
-        Subscription,
-        id=subscription_id
-    )
+    subscription = get_object_or_404(Subscription, id=subscription_id)
 
     if request.method == 'POST':
-        form = SubscriptionUpdateForm(
-            request.POST,
-            instance=subscription
-        )
-
+        form = SubscriptionUpdateForm(request.POST, instance=subscription)
         if form.is_valid():
-            # استخراج پلن جدید
+            # استخراج پلن از داده‌های فرم (حتی اگر خالی باشد)
             plan = form.cleaned_data.get('plan')
 
-            # ذخیره موقت
-            subscription = form.save(commit=False)
-
+            # به‌روزرسانی وضعیت بر اساس انتخاب جدید ادمین
             if plan:
-                # =========================
-                # اشتراک عادی
-                # =========================
-
-                subscription.plan = plan
-                subscription.is_trial = False
-                subscription.is_paid = True
-
-                # تعداد واحد
-                units_count = subscription.units_count
-
-                # قیمت هر واحد × تعداد ماه × تعداد واحد
-                total_amount = (
-                    plan.price_per_unit
-                    * plan.duration
-                    * units_count
-                )
-
-                # تخفیف
-                discount_amount = (
-                    subscription.discount_amount or 0
-                )
-
-                # مبلغ نهایی
-                final_amount = max(
-                    total_amount - discount_amount,
-                    0
-                )
-
-                subscription.total_amount = total_amount
-                subscription.discount_amount = discount_amount
-                subscription.final_amount = final_amount
-
+                form.instance.is_trial = False
+                form.instance.is_paid = True
             else:
-                # =========================
-                # اشتراک آزمایشی
-                # =========================
+                form.instance.is_trial = True
+                form.instance.is_paid = False
 
-                subscription.plan = None
-                subscription.is_trial = True
-                subscription.is_paid = False
-
-                subscription.total_amount = 0
-                subscription.discount_amount = 0
-                subscription.final_amount = 0
-
-            subscription.save()
-
-            messages.success(
-                request,
-                "تغییرات با موفقیت ذخیره شد."
-            )
-
+            form.save()
+            messages.success(request, "تغییرات با موفقیت ذخیره شد.")
             return redirect('subscription_list')
-
     else:
-        form = SubscriptionUpdateForm(
-            instance=subscription
-        )
+        form = SubscriptionUpdateForm(instance=subscription)
 
-    return render(
-        request,
-        'admin_panel/edit_subscription.html',
-        {'form': form}
-    )
+    return render(request, 'admin_panel/edit_subscription.html', {'form': form})
 
 
 # ==========================================================================
