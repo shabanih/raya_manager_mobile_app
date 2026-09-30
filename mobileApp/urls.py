@@ -10,7 +10,8 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     UserPayMoneyPaymentMethodsView, ManualUserPayMoneyPaymentView, ManagerDashboardView, \
     ManagerAnnouncementListCreateView, ManagerAnnouncementDetailView, ManagerMessageUnitsAPIView, \
     ManagerMessageListCreateAPIView, ManagerMessageDetailAPIView, ManagerMessageSendAPIView, ManagerBankListCreateView, \
-    ManagerBankDetailView, ManagerBankTransferListCreateView, ManagerBankTransferDeleteView, ManagerHouseListView
+    ManagerBankDetailView, ManagerBankTransferListCreateView, ManagerBankTransferDeleteView, ManagerHouseListView, \
+    ManagerPollListCreateView, ManagerPollDetailView, ManagerPollToggleActiveView, ManagerPollResultsView
 
 urlpatterns = [
     path(
@@ -274,5 +275,35 @@ urlpatterns = [
         'manager/bank-transfers/<int:pk>/',
         ManagerBankTransferDeleteView.as_view(),
         name='manager-bank-transfer-delete'
+    ),
+
+    # -----------------------------
+    # نظرسنجی
+    # -----------------------------
+    path(
+        'manager/polls/',
+        ManagerPollListCreateView.as_view(),
+        name='manager_poll_list_create'
+    ),
+
+    # جزئیات + ویرایش + حذف
+    path(
+        'manager/polls/<int:poll_id>/',
+        ManagerPollDetailView.as_view(),
+        name='manager_poll_detail'
+    ),
+
+    # فعال / غیرفعال
+    path(
+        'manager/polls/<int:poll_id>/toggle-active/',
+        ManagerPollToggleActiveView.as_view(),
+        name='manager_poll_toggle_active'
+    ),
+
+    # نتایج
+    path(
+        'manager/polls/<int:poll_id>/results/',
+        ManagerPollResultsView.as_view(),
+        name='manager_poll_results'
     ),
 ]

@@ -4,7 +4,7 @@ from django.db.models import Count, Q, Sum
 from django.http import JsonResponse
 from django.utils import timezone
 from decimal import Decimal
-
+from rest_framework.renderers import JSONRenderer
 import requests
 
 from django.contrib.contenttypes.models import ContentType
@@ -43,7 +43,8 @@ from .serializers import (
     SewageInstallmentSerializer, ManualSewagePaymentSerializer, MessageToUserSerializer, UserPayMoneySerializer,
     CreateUserPayMoneySerializer, ManualUserPayMoneyPaymentSerializer, ManagerAnnouncementSerializer,
     ManagerMessageUnitSerializer, ManagerMessageListSerializer, ManagerMessageDetailSerializer,
-    ManagerBankTransferListSerializer, ManagerBankTransferSerializer, ManagerBankSerializer,
+    ManagerBankTransferListSerializer, ManagerBankTransferSerializer, ManagerBankSerializer, ManagerPollListSerializer,
+    ManagerPollWriteSerializer, ManagerPollDetailSerializer,
 )
 
 User = get_user_model()
@@ -7555,64 +7556,110 @@ class ManagerBankDetailView(APIView):
 # ============================================================
 # =================== Bank Transfers =========================
 # ============================================================
-
-
 class ManagerBankTransferListCreateView(APIView):
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+
+    authentication_classes = [
+        JWTAuthentication
+    ]
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    # =====================================================
+    # ساختمان‌های قابل دسترسی مدیر
+    # =====================================================
 
     def get_accessible_houses(self, user):
+
         return MyHouse.objects.filter(
-            Q(user=user) | Q(user__manager=user),
+            Q(user=user) |
+            Q(user__manager=user),
             is_active=True
         )
 
-    def get_user_banks(self, user):
-        accessible_houses = self.get_accessible_houses(user)
+    # =====================================================
+    # حساب‌های بانکی قابل دسترسی
+    # =====================================================
 
-        return Bank.objects.filter(
-            user=user,
-            is_active=True,
-            house__in=accessible_houses
-        ).select_related('house')
+    def get_user_banks(self, user):
+
+        accessible_houses = (
+            self.get_accessible_houses(user)
+        )
+
+        return (
+            Bank.objects
+            .filter(
+                user=user,
+                is_active=True,
+                house__in=accessible_houses
+            )
+            .select_related('house')
+        )
+
+    # =====================================================
+    # GET
+    # =====================================================
 
     def get(self, request):
+
         user = request.user
 
         banks = self.get_user_banks(user)
 
         bank_ids = list(
-            banks.values_list('id', flat=True)
+            banks.values_list(
+                'id',
+                flat=True
+            )
         )
 
-        transfers = BankFund.objects.filter(
-            user=user,
-            transfer_group_id__isnull=False,
-            bank_id__in=bank_ids
-        ).select_related(
-            'bank',
-            'to_bank',
-            'house'
-        ).order_by('-created_at')
+        transfers = (
+            BankFund.objects
+            .filter(
+                user=user,
+                transfer_group_id__isnull=False,
+                bank_id__in=bank_ids
+            )
+            .select_related(
+                'bank',
+                'to_bank',
+                'house'
+            )
+            .order_by('-created_at')
+        )
 
         groups = {}
 
         for item in transfers:
 
-            group_id = str(item.transfer_group_id)
+            group_id = str(
+                item.transfer_group_id
+            )
 
             if group_id not in groups:
+
                 groups[group_id] = {
-                    'transfer_group_id': group_id,
-                    'withdraw': None,
-                    'deposit': None,
-                    'created_at': item.created_at,
+                    'transfer_group_id':
+                        group_id,
+
+                    'withdraw':
+                        None,
+
+                    'deposit':
+                        None,
+
+                    'created_at':
+                        item.created_at,
                 }
 
             if item.transaction_type == 'withdraw':
+
                 groups[group_id]['withdraw'] = item
 
             elif item.transaction_type == 'deposit':
+
                 groups[group_id]['deposit'] = item
 
         result = []
@@ -7620,60 +7667,114 @@ class ManagerBankTransferListCreateView(APIView):
         for group in groups.values():
 
             withdraw = group['withdraw']
+
             deposit = group['deposit']
 
             if not withdraw or not deposit:
                 continue
 
             result.append({
-                'id': withdraw.id,
+
+                'id':
+                    withdraw.id,
 
                 'transfer_group_id':
                     group['transfer_group_id'],
+
+                # -----------------------------------------
+                # بانک مبدأ
+                # -----------------------------------------
 
                 'from_bank_id':
                     withdraw.bank_id,
 
                 'from_bank_name':
-                    withdraw.bank.bank_name
-                    if withdraw.bank else None,
+                    (
+                        withdraw.bank.bank_name
+                        if withdraw.bank
+                        else None
+                    ),
+
+                # -----------------------------------------
+                # بانک مقصد
+                # -----------------------------------------
 
                 'to_bank_id':
                     deposit.bank_id,
 
                 'to_bank_name':
-                    deposit.bank.bank_name
-                    if deposit.bank else None,
+                    (
+                        deposit.bank.bank_name
+                        if deposit.bank
+                        else None
+                    ),
+
+                # -----------------------------------------
+                # مبلغ
+                # -----------------------------------------
 
                 'amount':
-                    str(withdraw.amount or 0),
+                    str(
+                        withdraw.amount or 0
+                    ),
+
+                # -----------------------------------------
+                # شماره تراکنش
+                # -----------------------------------------
 
                 'transaction_no':
                     withdraw.transaction_no,
 
+                # -----------------------------------------
+                # تاریخ
+                # -----------------------------------------
+
                 'payment_date':
                     withdraw.payment_date,
+
+                # -----------------------------------------
+                # شرح
+                # -----------------------------------------
 
                 'payment_description':
                     withdraw.payment_description or '',
 
+                # -----------------------------------------
+                # تاریخ ایجاد
+                # -----------------------------------------
+
                 'created_at':
                     group['created_at'],
+
+                # -----------------------------------------
+                # سند مالی
+                # -----------------------------------------
 
                 'financial_document_number':
                     withdraw.financial_document_number,
             })
 
-        return Response(result)
+        return Response(
+            result,
+            status=status.HTTP_200_OK
+        )
+
+    # =====================================================
+    # POST
+    # =====================================================
 
     @transaction.atomic
     def post(self, request):
 
         user = request.user
 
-        serializer = ManagerBankTransferSerializer(
-            data=request.data,
-            context={'request': request}
+        serializer = (
+            ManagerBankTransferSerializer(
+                data=request.data,
+                context={
+                    'request': request
+                }
+            )
         )
 
         serializer.is_valid(
@@ -7682,112 +7783,59 @@ class ManagerBankTransferListCreateView(APIView):
 
         data = serializer.validated_data
 
-        # ---------------------------------------------------------
-        # دریافت ID بانک‌های مبدأ و مقصد
-        # ---------------------------------------------------------
+        from_bank = data.get(
+            'from_bank_obj'
+        )
 
-        from_bank_id = data['from_bank']
-        to_bank_id = data['to_bank']
+        to_bank = data.get(
+            'to_bank_obj'
+        )
 
-        # اگر serializer آبجکت Bank برگرداند،
-        # این بخش همچنان درست کار می‌کند.
-        if isinstance(from_bank_id, Bank):
-            from_bank_id = from_bank_id.id
-
-        if isinstance(to_bank_id, Bank):
-            to_bank_id = to_bank_id.id
-
-        # ---------------------------------------------------------
-        # بانک‌های قابل دسترسی مدیر
-        # ---------------------------------------------------------
-
-        accessible_banks = self.get_user_banks(user)
-
-        try:
-
-            from_bank = accessible_banks.get(
-                pk=from_bank_id
-            )
-
-        except Bank.DoesNotExist:
+        if not from_bank or not to_bank:
 
             return Response(
                 {
                     'detail':
-                        'حساب بانکی مبدأ معتبر نیست یا دسترسی به آن ندارید.'
+                        'حساب‌های بانکی معتبر نیستند.'
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        try:
-
-            to_bank = accessible_banks.get(
-                pk=to_bank_id
-            )
-
-        except Bank.DoesNotExist:
-
-            return Response(
-                {
-                    'detail':
-                        'حساب بانکی مقصد معتبر نیست یا دسترسی به آن ندارید.'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # ---------------------------------------------------------
-        # مبدأ و مقصد نباید یکی باشند
-        # ---------------------------------------------------------
-
-        if from_bank.id == to_bank.id:
-
-            return Response(
-                {
-                    'detail':
-                        'حساب مبدأ و مقصد نمی‌توانند یکسان باشند.'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        amount = data['amount']
-
-        # ---------------------------------------------------------
-        # شرح انتقال - اختیاری
-        #
-        # توجه:
-        # نام فیلد Serializer برابر description است.
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # شرح انتقال
+        # -------------------------------------------------
 
         payment_description = (
             data.get('description') or ''
         ).strip()
 
-        # ---------------------------------------------------------
-        # انجام انتقال
-        # ---------------------------------------------------------
+        # -------------------------------------------------
+        # انتقال
+        # -------------------------------------------------
 
         try:
 
             BankTransactionService.transfer(
+
                 user=user,
 
                 from_bank=from_bank,
 
                 to_bank=to_bank,
 
-                amount=amount,
+                amount=data['amount'],
 
                 unit=None,
 
-                # شرحی که مدیر وارد کرده
-                # اگر خالی باشد، خالی ذخیره می‌شود.
                 description=payment_description,
 
                 transaction_no=data.get(
                     'transaction_reference'
                 ),
 
-                payment_date=data['payment_date'],
+                payment_date=data[
+                    'payment_date'
+                ],
 
                 house=from_bank.house,
             )
@@ -7796,7 +7844,8 @@ class ManagerBankTransferListCreateView(APIView):
 
             return Response(
                 {
-                    'detail': str(e)
+                    'detail':
+                        str(e)
                 },
                 status=status.HTTP_400_BAD_REQUEST
             )
@@ -7808,11 +7857,6 @@ class ManagerBankTransferListCreateView(APIView):
             },
             status=status.HTTP_201_CREATED
         )
-
-
-# ============================================================
-# ================= Cancel Bank Transfer ====================
-# ============================================================
 
 
 class ManagerBankTransferDeleteView(APIView):
@@ -7925,6 +7969,584 @@ class ManagerBankTransferDeleteView(APIView):
         return Response(
             {
                 'detail': 'انتقال با موفقیت لغو شد.'
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# =================== Polls =========================
+# ============================================================
+class ManagerPollBaseView(APIView):
+
+    authentication_classes = [
+        JWTAuthentication
+    ]
+
+    permission_classes = [
+        IsAuthenticated
+    ]
+
+    def get_house(self, user):
+        return MyHouse.objects.filter(
+            user=user,
+            is_active=True
+        ).first()
+
+    def get_poll(self, user, poll_id):
+        house = self.get_house(user)
+
+        if not house:
+            return None
+
+        return (
+            Poll.objects
+            .filter(
+                id=poll_id,
+                house=house
+            )
+            .prefetch_related(
+                'questions__choices'
+            )
+            .first()
+        )
+
+    def check_manager(self, request):
+
+        if not request.user.is_authenticated:
+            return False
+
+        if not request.user.is_middle_admin:
+            return False
+
+        return True
+
+
+# ============================================================
+# LIST + CREATE
+# ============================================================
+
+class ManagerPollListCreateView(
+    ManagerPollBaseView
+):
+
+    def get(self, request):
+
+        if not self.check_manager(request):
+            return Response(
+                {
+                    'detail':
+                        'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        house = self.get_house(
+            request.user
+        )
+
+        if not house:
+            return Response(
+                {
+                    'detail':
+                        'ساختمان فعال پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        polls = (
+            Poll.objects
+            .filter(
+                house=house
+            )
+            .order_by('-created_at')
+        )
+
+        search = (
+            request.GET.get(
+                'search',
+                ''
+            ).strip()
+        )
+
+        if search:
+            polls = polls.filter(
+                Q(title__icontains=search)
+                |
+                Q(description__icontains=search)
+            )
+
+        serializer = ManagerPollListSerializer(
+            polls,
+            many=True
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
+
+    @transaction.atomic
+    def post(self, request):
+
+        if not self.check_manager(request):
+            return Response(
+                {
+                    'detail':
+                        'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        serializer = ManagerPollWriteSerializer(
+            data=request.data,
+            context={
+                'request': request
+            }
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        poll = serializer.save()
+
+        result_serializer = (
+            ManagerPollDetailSerializer(
+                poll
+            )
+        )
+
+        return Response(
+            result_serializer.data,
+            status=status.HTTP_201_CREATED
+        )
+
+
+# ============================================================
+# DETAIL + UPDATE + DELETE
+# ============================================================
+
+class ManagerPollDetailView(
+    ManagerPollBaseView
+):
+
+    def get(self, request, poll_id):
+
+        if not self.check_manager(request):
+            return Response(
+                {
+                    'detail':
+                        'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        poll = self.get_poll(
+            request.user,
+            poll_id
+        )
+
+        if not poll:
+            return Response(
+                {
+                    'detail':
+                        'نظرسنجی پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = ManagerPollDetailSerializer(
+            poll
+        )
+
+        return Response(
+            serializer.data,
+            status=status.HTTP_200_OK
+        )
+
+    @transaction.atomic
+    def put(self, request, poll_id):
+
+        return self._update(
+            request,
+            poll_id,
+            partial=False
+        )
+
+    @transaction.atomic
+    def patch(self, request, poll_id):
+
+        return self._update(
+            request,
+            poll_id,
+            partial=True
+        )
+
+    def _update(
+        self,
+        request,
+        poll_id,
+        partial=False
+    ):
+
+        if not self.check_manager(request):
+            return Response(
+                {
+                    'detail':
+                        'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        poll = self.get_poll(
+            request.user,
+            poll_id
+        )
+
+        if not poll:
+            return Response(
+                {
+                    'detail':
+                        'نظرسنجی پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # ====================================================
+        # قانون اصلی:
+        # نظرسنجی دارای پاسخ قابل ویرایش نیست.
+        # ====================================================
+
+        has_votes = Vote.objects.filter(
+            poll=poll
+        ).exists()
+
+        if has_votes:
+            return Response(
+                {
+                    'detail':
+                        'این نظرسنجی دارای پاسخ است و قابل ویرایش نیست.',
+                    'has_votes': True,
+                    'can_edit': False,
+                    'can_delete': False,
+                    'can_deactivate': True,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = ManagerPollWriteSerializer(
+            poll,
+            data=request.data,
+            partial=partial,
+            context={
+                'request': request
+            }
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        poll = serializer.save()
+
+        result_serializer = (
+            ManagerPollDetailSerializer(
+                poll
+            )
+        )
+
+        return Response(
+            result_serializer.data,
+            status=status.HTTP_200_OK
+        )
+
+    # ========================================================
+    # DELETE
+    # ========================================================
+
+    @transaction.atomic
+    def delete(self, request, poll_id):
+
+        if not self.check_manager(request):
+            return Response(
+                {
+                    'detail':
+                        'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        poll = self.get_poll(
+            request.user,
+            poll_id
+        )
+
+        if not poll:
+            return Response(
+                {
+                    'detail':
+                        'نظرسنجی پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        has_votes = Vote.objects.filter(
+            poll=poll
+        ).exists()
+
+        if has_votes:
+            return Response(
+                {
+                    'detail':
+                        'این نظرسنجی دارای پاسخ است و حذف آن امکان‌پذیر نیست.',
+                    'has_votes': True,
+                    'can_edit': False,
+                    'can_delete': False,
+                    'can_deactivate': True,
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        poll.delete()
+
+        return Response(
+            {
+                'detail':
+                    'نظرسنجی با موفقیت حذف شد.'
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# ACTIVATE / DEACTIVATE
+# ============================================================
+
+class ManagerPollToggleActiveView(
+    ManagerPollBaseView
+):
+
+    @transaction.atomic
+    def patch(self, request, poll_id):
+
+        if not self.check_manager(request):
+            return Response(
+                {
+                    'detail':
+                        'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        poll = self.get_poll(
+            request.user,
+            poll_id
+        )
+
+        if not poll:
+            return Response(
+                {
+                    'detail':
+                        'نظرسنجی پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        is_active = request.data.get(
+            'is_active'
+        )
+
+        if is_active is None:
+            return Response(
+                {
+                    'detail':
+                        'مقدار is_active ارسال نشده است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not isinstance(
+            is_active,
+            bool
+        ):
+            return Response(
+                {
+                    'detail':
+                        'مقدار is_active باید true یا false باشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        poll.is_active = is_active
+        poll.save(
+            update_fields=[
+                'is_active'
+            ]
+        )
+
+        return Response(
+            {
+                'detail':
+                    (
+                        'نظرسنجی فعال شد.'
+                        if is_active
+                        else
+                        'نظرسنجی غیرفعال شد.'
+                    ),
+                'is_active':
+                    poll.is_active,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# ============================================================
+# RESULTS
+# ============================================================
+
+class ManagerPollResultsView(
+    ManagerPollBaseView
+):
+
+    def get(self, request, poll_id):
+
+        if not self.check_manager(request):
+            return Response(
+                {
+                    'detail':
+                        'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        poll = self.get_poll(
+            request.user,
+            poll_id
+        )
+
+        if not poll:
+            return Response(
+                {
+                    'detail':
+                        'نظرسنجی پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        eligible_users = User.objects.filter(
+            manager=request.user,
+            is_active=True
+        ).count()
+
+        participants = Vote.objects.filter(
+            poll=poll
+        ).values(
+            'user'
+        ).distinct().count()
+
+        not_participated = max(
+            eligible_users - participants,
+            0
+        )
+
+        if eligible_users:
+            participation_percentage = round(
+                (
+                    participants
+                    / eligible_users
+                ) * 100,
+                1
+            )
+        else:
+            participation_percentage = 0
+
+        questions_result = []
+
+        questions = (
+            poll.questions
+            .prefetch_related('choices')
+            .order_by('order')
+        )
+
+        for question in questions:
+
+            question_participants = Vote.objects.filter(
+                question=question
+            ).values(
+                'user'
+            ).distinct().count()
+
+            choices_result = []
+
+            for choice in question.choices.all():
+
+                vote_count = Vote.objects.filter(
+                    choice=choice
+                ).count()
+
+                if question_participants:
+                    percentage = round(
+                        (
+                            vote_count
+                            / question_participants
+                        ) * 100,
+                        1
+                    )
+                else:
+                    percentage = 0
+
+                choices_result.append({
+                    'id': choice.id,
+                    'title': choice.title,
+                    'vote_count': vote_count,
+                    'percentage': percentage,
+                })
+
+            questions_result.append({
+                'id': question.id,
+                'title': question.title,
+                'question_type':
+                    question.question_type,
+                'order':
+                    question.order,
+                'participant_count':
+                    question_participants,
+                'choices':
+                    choices_result,
+            })
+
+        return Response(
+            {
+                'poll': {
+                    'id': poll.id,
+                    'title': poll.title,
+                    'description':
+                        poll.description,
+                    'start_date':
+                        poll.start_date,
+                    'end_date':
+                        poll.end_date,
+                    'is_active':
+                        poll.is_active,
+                },
+
+                'participation': {
+                    'eligible_count':
+                        eligible_users,
+
+                    'participant_count':
+                        participants,
+
+                    'not_participated_count':
+                        not_participated,
+
+                    'percentage':
+                        participation_percentage,
+                },
+
+                'questions':
+                    questions_result,
             },
             status=status.HTTP_200_OK
         )

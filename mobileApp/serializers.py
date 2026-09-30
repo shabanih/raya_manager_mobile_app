@@ -1764,10 +1764,6 @@ class ManagerBankTransferSerializer(serializers.Serializer):
         max_length=15
     )
 
-    # --------------------------------------------------------
-    # شرح انتقال - اختیاری
-    # --------------------------------------------------------
-
     description = serializers.CharField(
         required=False,
         allow_blank=True,
@@ -1786,112 +1782,126 @@ class ManagerBankTransferSerializer(serializers.Serializer):
 
         user = request.user
 
+        # -------------------------------------------------
+        # فقط مدیر ساختمان
+        # -------------------------------------------------
         if not user.is_middle_admin:
-
             raise serializers.ValidationError(
                 'دسترسی فقط برای مدیر ساختمان مجاز است.'
             )
 
-        from_bank = Bank.objects.filter(
-            id=attrs['from_bank'],
-            user=user,
-            is_active=True
-        ).select_related(
-            'house'
-        ).first()
+        # -------------------------------------------------
+        # حساب مبدأ
+        # -------------------------------------------------
+        from_bank = (
+            Bank.objects
+            .filter(
+                id=attrs['from_bank'],
+                user=user,
+                is_active=True
+            )
+            .select_related('house')
+            .first()
+        )
 
         if not from_bank:
-
             raise serializers.ValidationError({
                 'from_bank':
                     'حساب مبدا معتبر نیست.'
             })
 
-        to_bank = Bank.objects.filter(
-            id=attrs['to_bank'],
-            user=user,
-            is_active=True
-        ).select_related(
-            'house'
-        ).first()
+        # -------------------------------------------------
+        # حساب مقصد
+        # -------------------------------------------------
+        to_bank = (
+            Bank.objects
+            .filter(
+                id=attrs['to_bank'],
+                user=user,
+                is_active=True
+            )
+            .select_related('house')
+            .first()
+        )
 
         if not to_bank:
-
             raise serializers.ValidationError({
                 'to_bank':
                     'حساب مقصد معتبر نیست.'
             })
 
+        # -------------------------------------------------
+        # مبدأ و مقصد نباید یکی باشند
+        # -------------------------------------------------
         if from_bank.id == to_bank.id:
-
             raise serializers.ValidationError(
                 'بانک مبدا و مقصد نمی‌تواند یکسان باشد.'
             )
 
-        # --------------------------------------------------------
-        # ساختمان
-        # --------------------------------------------------------
-
+        # -------------------------------------------------
+        # دو حساب باید مربوط به یک ساختمان باشند
+        # -------------------------------------------------
         if (
             from_bank.house_id
             and to_bank.house_id
             and from_bank.house_id != to_bank.house_id
         ):
-
             raise serializers.ValidationError(
-                'حساب‌های مبدا و مقصد باید متعلق به یک ساختمان باشند.'
+                'حساب‌های مبدا و مقصد باید متعلق '
+                'به یک ساختمان باشند.'
             )
 
+        # -------------------------------------------------
+        # بررسی موجودی
+        # -------------------------------------------------
         amount = attrs['amount']
 
-        # --------------------------------------------------------
-        # بررسی موجودی
-        # --------------------------------------------------------
-
         if from_bank.current_balance < amount:
-
             raise serializers.ValidationError({
                 'amount':
                     f'موجودی حساب مبدا کافی نیست. '
-                    f'(موجودی فعلی: {from_bank.current_balance:,})'
+                    f'(موجودی فعلی: '
+                    f'{from_bank.current_balance:,})'
             })
 
+        # -------------------------------------------------
+        # بررسی تاریخ مبدأ
+        # -------------------------------------------------
         payment_date = attrs['payment_date']
-
-        # --------------------------------------------------------
-        # تاریخ افتتاح بانک مبدا
-        # --------------------------------------------------------
 
         if (
             from_bank.create_at
             and payment_date < from_bank.create_at
         ):
-
             raise serializers.ValidationError({
                 'payment_date':
-                    'تاریخ انتقال نمی‌تواند قبل از تاریخ افتتاح '
-                    'حساب مبدا باشد.'
+                    'تاریخ انتقال نمی‌تواند قبل از '
+                    'تاریخ افتتاح حساب مبدا باشد.'
             })
 
-        # --------------------------------------------------------
-        # تاریخ افتتاح بانک مقصد
-        # --------------------------------------------------------
-
+        # -------------------------------------------------
+        # بررسی تاریخ مقصد
+        # -------------------------------------------------
         if (
             to_bank.create_at
             and payment_date < to_bank.create_at
         ):
-
             raise serializers.ValidationError({
                 'payment_date':
-                    'تاریخ انتقال نمی‌تواند قبل از تاریخ افتتاح '
-                    'حساب مقصد باشد.'
+                    'تاریخ انتقال نمی‌تواند قبل از '
+                    'تاریخ افتتاح حساب مقصد باشد.'
             })
 
-        # --------------------------------------------------------
-        # بانک‌ها
-        # --------------------------------------------------------
+        # -------------------------------------------------
+        # نرمال‌سازی شرح
+        # -------------------------------------------------
+        attrs['description'] = (
+            attrs.get('description') or ''
+        ).strip()
 
+        # -------------------------------------------------
+        # ذخیره آبجکت‌های بانک برای استفاده View
+        # -------------------------------------------------
         attrs['from_bank_obj'] = from_bank
         attrs['to_bank_obj'] = to_bank
 
@@ -1903,9 +1913,11 @@ class ManagerBankTransferListSerializer(
 ):
 
     from_bank_id = serializers.SerializerMethodField()
+
     from_bank_name = serializers.SerializerMethodField()
 
     to_bank_id = serializers.SerializerMethodField()
+
     to_bank_name = serializers.SerializerMethodField()
 
     transfer_amount = serializers.SerializerMethodField()
@@ -1916,17 +1928,20 @@ class ManagerBankTransferListSerializer(
 
     payment_date = serializers.SerializerMethodField()
 
-    financial_document_number = serializers.SerializerMethodField()
+    financial_document_number = (
+        serializers.SerializerMethodField()
+    )
 
-    transfer_group_id = serializers.SerializerMethodField()
+    transfer_group_id = (
+        serializers.SerializerMethodField()
+    )
 
     class Meta:
+
         model = BankFund
 
         fields = [
-
             'id',
-
             'transfer_group_id',
 
             'from_bank_id',
@@ -1948,6 +1963,10 @@ class ManagerBankTransferListSerializer(
             'created_at',
         ]
 
+    # =====================================================
+    # بانک مبدأ
+    # =====================================================
+
     def get_from_bank_id(self, obj):
 
         group_id = obj.transfer_group_id
@@ -1955,12 +1974,15 @@ class ManagerBankTransferListSerializer(
         if not group_id:
             return None
 
-        record = BankFund.objects.filter(
-            transfer_group_id=group_id,
-            transaction_type='withdraw'
-        ).select_related(
-            'bank'
-        ).first()
+        record = (
+            BankFund.objects
+            .filter(
+                transfer_group_id=group_id,
+                transaction_type='withdraw'
+            )
+            .select_related('bank')
+            .first()
+        )
 
         if record and record.bank:
             return record.bank.id
@@ -1974,17 +1996,24 @@ class ManagerBankTransferListSerializer(
         if not group_id:
             return None
 
-        record = BankFund.objects.filter(
-            transfer_group_id=group_id,
-            transaction_type='withdraw'
-        ).select_related(
-            'bank'
-        ).first()
+        record = (
+            BankFund.objects
+            .filter(
+                transfer_group_id=group_id,
+                transaction_type='withdraw'
+            )
+            .select_related('bank')
+            .first()
+        )
 
         if record and record.bank:
             return record.bank.bank_name
 
         return None
+
+    # =====================================================
+    # بانک مقصد
+    # =====================================================
 
     def get_to_bank_id(self, obj):
 
@@ -1993,12 +2022,15 @@ class ManagerBankTransferListSerializer(
         if not group_id:
             return None
 
-        record = BankFund.objects.filter(
-            transfer_group_id=group_id,
-            transaction_type='deposit'
-        ).select_related(
-            'bank'
-        ).first()
+        record = (
+            BankFund.objects
+            .filter(
+                transfer_group_id=group_id,
+                transaction_type='deposit'
+            )
+            .select_related('bank')
+            .first()
+        )
 
         if record and record.bank:
             return record.bank.id
@@ -2012,41 +2044,64 @@ class ManagerBankTransferListSerializer(
         if not group_id:
             return None
 
-        record = BankFund.objects.filter(
-            transfer_group_id=group_id,
-            transaction_type='deposit'
-        ).select_related(
-            'bank'
-        ).first()
+        record = (
+            BankFund.objects
+            .filter(
+                transfer_group_id=group_id,
+                transaction_type='deposit'
+            )
+            .select_related('bank')
+            .first()
+        )
 
         if record and record.bank:
             return record.bank.bank_name
 
         return None
 
+    # =====================================================
+    # مبلغ انتقال
+    # =====================================================
+
     def get_transfer_amount(self, obj):
 
         return obj.amount or 0
+
+    # =====================================================
+    # شماره تراکنش
+    # =====================================================
 
     def get_transaction_reference(self, obj):
 
         return obj.transaction_no
 
+    # =====================================================
+    # شرح انتقال
+    # =====================================================
+
     def get_description(self, obj):
 
-        # --------------------------------------------------------
-        # شرح واقعی انتقال که توسط مدیر وارد شده
-        # --------------------------------------------------------
-
         return obj.payment_description or ''
+
+    # =====================================================
+    # تاریخ پرداخت
+    # =====================================================
 
     def get_payment_date(self, obj):
 
         return obj.payment_date
 
+    # =====================================================
+    # شماره سند مالی
+    # =====================================================
+
     def get_financial_document_number(self, obj):
 
         return obj.financial_document_number
+
+    # =====================================================
+    # گروه انتقال
+    # =====================================================
 
     def get_transfer_group_id(self, obj):
 
@@ -2056,3 +2111,420 @@ class ManagerBankTransferListSerializer(
             )
 
         return None
+
+# ============================================================
+# POLL/Choice
+# ============================================================
+
+class ManagerPollChoiceSerializer(serializers.ModelSerializer):
+    vote_count = serializers.SerializerMethodField()
+    percentage = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Choice
+        fields = [
+            'id',
+            'title',
+            'vote_count',
+            'percentage',
+        ]
+        read_only_fields = [
+            'id',
+            'vote_count',
+            'percentage',
+        ]
+
+    def get_vote_count(self, obj):
+        return Vote.objects.filter(
+            choice=obj
+        ).count()
+
+    def get_percentage(self, obj):
+        total = Vote.objects.filter(
+            question=obj.question
+        ).values('user').distinct().count()
+
+        if total == 0:
+            return 0
+
+        count = Vote.objects.filter(
+            choice=obj
+        ).count()
+
+        return round((count / total) * 100, 1)
+
+
+# ============================================================
+# Question
+# ============================================================
+
+class ManagerPollQuestionSerializer(serializers.ModelSerializer):
+    choices = ManagerPollChoiceSerializer(
+        many=True,
+        required=False
+    )
+
+    class Meta:
+        model = Question
+        fields = [
+            'id',
+            'title',
+            'question_type',
+            'order',
+            'choices',
+        ]
+        read_only_fields = [
+            'id',
+        ]
+
+    def validate_question_type(self, value):
+        allowed = ['yesno', 'single', 'multi']
+
+        if value not in allowed:
+            raise serializers.ValidationError(
+                'نوع سؤال نامعتبر است.'
+            )
+
+        return value
+
+    def validate(self, attrs):
+        question_type = attrs.get(
+            'question_type',
+            getattr(self.instance, 'question_type', None)
+        )
+
+        choices = attrs.get('choices', None)
+
+        # برای yes/no نیازی به ارسال گزینه از Flutter نیست.
+        if question_type in ['single', 'multi']:
+            if choices is not None and len(choices) == 0:
+                raise serializers.ValidationError({
+                    'choices': 'برای این نوع سؤال حداقل یک گزینه لازم است.'
+                })
+
+        return attrs
+
+
+# ============================================================
+# Poll List
+# ============================================================
+
+class ManagerPollListSerializer(serializers.ModelSerializer):
+    question_count = serializers.SerializerMethodField()
+    has_votes = serializers.SerializerMethodField()
+    participant_count = serializers.SerializerMethodField()
+    eligible_user_count = serializers.SerializerMethodField()
+    participation_percentage = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Poll
+        fields = [
+            'id',
+            'title',
+            'description',
+            'start_date',
+            'end_date',
+            'is_active',
+            'created_at',
+
+            'question_count',
+            'has_votes',
+
+            'eligible_user_count',
+            'participant_count',
+            'participation_percentage',
+        ]
+
+    def get_question_count(self, obj):
+        return obj.questions.count()
+
+    def get_has_votes(self, obj):
+        return Vote.objects.filter(
+            poll=obj
+        ).exists()
+
+    def get_eligible_user_count(self, obj):
+        return User.objects.filter(
+            manager=obj.created_by,
+            is_active=True
+        ).count()
+
+    def get_participant_count(self, obj):
+        return Vote.objects.filter(
+            poll=obj
+        ).values('user').distinct().count()
+
+    def get_participation_percentage(self, obj):
+        eligible = self.get_eligible_user_count(obj)
+
+        if eligible == 0:
+            return 0
+
+        participants = self.get_participant_count(obj)
+
+        return round(
+            (participants / eligible) * 100,
+            1
+        )
+
+
+# ============================================================
+# Poll Detail
+# ============================================================
+
+class ManagerPollDetailSerializer(serializers.ModelSerializer):
+    questions = ManagerPollQuestionSerializer(
+        many=True,
+        read_only=True
+    )
+
+    has_votes = serializers.SerializerMethodField()
+    participant_count = serializers.SerializerMethodField()
+    eligible_user_count = serializers.SerializerMethodField()
+    participation_percentage = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Poll
+        fields = [
+            'id',
+            'title',
+            'description',
+            'house',
+            'start_date',
+            'end_date',
+            'is_active',
+            'created_at',
+            'created_by',
+
+            'has_votes',
+            'eligible_user_count',
+            'participant_count',
+            'participation_percentage',
+
+            'questions',
+        ]
+
+        read_only_fields = [
+            'id',
+            'house',
+            'created_by',
+            'created_at',
+            'has_votes',
+            'eligible_user_count',
+            'participant_count',
+            'participation_percentage',
+            'questions',
+        ]
+
+    def get_has_votes(self, obj):
+        return Vote.objects.filter(
+            poll=obj
+        ).exists()
+
+    def get_eligible_user_count(self, obj):
+        return User.objects.filter(
+            manager=obj.created_by,
+            is_active=True
+        ).count()
+
+    def get_participant_count(self, obj):
+        return Vote.objects.filter(
+            poll=obj
+        ).values('user').distinct().count()
+
+    def get_participation_percentage(self, obj):
+        eligible = self.get_eligible_user_count(obj)
+
+        if eligible == 0:
+            return 0
+
+        participants = self.get_participant_count(obj)
+
+        return round(
+            (participants / eligible) * 100,
+            1
+        )
+
+
+# ============================================================
+# Create / Update Poll
+# ============================================================
+
+class ManagerPollWriteSerializer(serializers.ModelSerializer):
+    questions = ManagerPollQuestionSerializer(
+        many=True,
+        required=False
+    )
+
+    class Meta:
+        model = Poll
+        fields = [
+            'id',
+            'title',
+            'description',
+            'start_date',
+            'end_date',
+            'is_active',
+            'questions',
+        ]
+
+        read_only_fields = [
+            'id',
+        ]
+
+    def validate(self, attrs):
+        start_date = attrs.get('start_date')
+        end_date = attrs.get('end_date')
+
+        if start_date and end_date:
+            if end_date <= start_date:
+                raise serializers.ValidationError({
+                    'end_date':
+                        'تاریخ پایان باید بعد از تاریخ شروع باشد.'
+                })
+
+        return attrs
+
+    def create(self, validated_data):
+        questions_data = validated_data.pop(
+            'questions',
+            []
+        )
+
+        request = self.context['request']
+
+        user = request.user
+
+        house = (
+            Poll.objects
+            .filter(created_by=user)
+            .values_list('house', flat=True)
+            .first()
+        )
+
+        if house:
+            from .models import MyHouse
+
+            house_obj = MyHouse.objects.filter(
+                id=house
+            ).first()
+        else:
+            from .models import MyHouse
+
+            house_obj = MyHouse.objects.filter(
+                user=user
+            ).first()
+
+        if not house_obj:
+            raise serializers.ValidationError(
+                'ساختمان مرتبط با مدیر پیدا نشد.'
+            )
+
+        poll = Poll.objects.create(
+            house=house_obj,
+            created_by=user,
+            **validated_data
+        )
+
+        self._create_questions(
+            poll,
+            questions_data
+        )
+
+        return poll
+
+    def update(self, instance, validated_data):
+        # ====================================================
+        # مهم:
+        # اگر حتی یک رأی وجود داشته باشد، ویرایش ممنوع است.
+        # ====================================================
+
+        has_votes = Vote.objects.filter(
+            poll=instance
+        ).exists()
+
+        if has_votes:
+            raise serializers.ValidationError({
+                'detail':
+                    'این نظرسنجی دارای پاسخ است و دیگر قابل ویرایش نیست. '
+                    'فقط می‌توانید آن را غیرفعال کنید.'
+            })
+
+        questions_data = validated_data.pop(
+            'questions',
+            None
+        )
+
+        for attr, value in validated_data.items():
+            setattr(instance, attr, value)
+
+        instance.save()
+
+        # اگر questions ارسال شده باشد،
+        # کل ساختار سؤال‌ها دوباره ساخته می‌شود.
+        if questions_data is not None:
+
+            instance.questions.all().delete()
+
+            self._create_questions(
+                instance,
+                questions_data
+            )
+
+        return instance
+
+    def _create_questions(self, poll, questions_data):
+
+        for index, question_data in enumerate(
+            questions_data,
+            start=1
+        ):
+            choices_data = question_data.pop(
+                'choices',
+                []
+            )
+
+            question = Question.objects.create(
+                poll=poll,
+                title=question_data.get('title'),
+                question_type=question_data.get(
+                    'question_type'
+                ),
+                order=question_data.get(
+                    'order',
+                    index
+                )
+            )
+
+            # yes/no
+            if question.question_type == 'yesno':
+
+                Choice.objects.create(
+                    question=question,
+                    title='بله'
+                )
+
+                Choice.objects.create(
+                    question=question,
+                    title='خیر'
+                )
+
+            else:
+
+                for choice_data in choices_data:
+
+                    title = (
+                        choice_data.get('title')
+                        if isinstance(
+                            choice_data,
+                            dict
+                        )
+                        else choice_data
+                    )
+
+                    if title and str(title).strip():
+
+                        Choice.objects.create(
+                            question=question,
+                            title=str(title).strip()
+                        )
