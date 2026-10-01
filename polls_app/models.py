@@ -1,21 +1,86 @@
 from django.db import models
-from user_app.models import User, Unit, MyHouse
+from user_app.models import User, Unit, MyHouse, Renter
 
 
 class Poll(models.Model):
-    house = models.ForeignKey(MyHouse, on_delete=models.CASCADE, related_name="polls")
-    title = models.CharField(max_length=255)
-    description = models.TextField(blank=True, null=True)
 
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
+    PARTICIPANT_TYPE = (
+        ('all', 'همه'),
+        ('owners', 'فقط مالکین'),
+        ('renters', 'فقط مستاجرین'),
+    )
+
+    house = models.ForeignKey(
+        MyHouse,
+        on_delete=models.CASCADE,
+        related_name="polls"
+    )
+
+    title = models.CharField(
+        max_length=255
+    )
+
+    description = models.TextField(
+        blank=True,
+        null=True
+    )
+
+    created_by = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+
     start_date = models.DateTimeField()
+
     end_date = models.DateTimeField()
 
-    is_active = models.BooleanField(default=True)
-    created_at = models.DateTimeField(auto_now_add=True)
+    # -----------------------------------------
+    # افراد مجاز به شرکت
+    # -----------------------------------------
+    participant_type = models.CharField(
+        max_length=10,
+        choices=PARTICIPANT_TYPE,
+        default='all'
+    )
+
+    is_active = models.BooleanField(
+        default=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
 
     def __str__(self):
         return self.title
+
+    @property
+    def active_owner_count(self):
+        return self.house.units.filter(
+            is_active=True
+        ).count()
+
+    @property
+    def active_renter_count(self):
+        return Renter.objects.filter(
+            unit__myhouse=self.house,
+            unit__is_active=True,
+            renter_is_active=True
+        ).count()
+
+    @property
+    def eligible_participant_count(self):
+
+        if self.participant_type == 'owners':
+            return self.active_owner_count
+
+        if self.participant_type == 'renters':
+            return self.active_renter_count
+
+        return (
+                self.active_owner_count +
+                self.active_renter_count
+        )
 
 
 class Question(models.Model):

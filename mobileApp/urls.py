@@ -11,7 +11,10 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerAnnouncementListCreateView, ManagerAnnouncementDetailView, ManagerMessageUnitsAPIView, \
     ManagerMessageListCreateAPIView, ManagerMessageDetailAPIView, ManagerMessageSendAPIView, ManagerBankListCreateView, \
     ManagerBankDetailView, ManagerBankTransferListCreateView, ManagerBankTransferDeleteView, ManagerHouseListView, \
-    ManagerPollListCreateView, ManagerPollDetailView, ManagerPollToggleActiveView, ManagerPollResultsView
+    ManagerPollListCreateView, ManagerPollDetailView, ManagerPollToggleActiveView, ManagerPollResultsView, \
+    MobileSupportTicketListView, MobileSupportTicketCreateView, MobileSupportTicketDetailView, \
+    MobileSupportTicketMessageView, MobileSupportTicketCloseView, ManagerSupportTicketListView, \
+    ManagerSupportTicketDetailView, ManagerSupportTicketMessageView, ManagerSupportTicketCloseView
 
 urlpatterns = [
     path(
@@ -305,5 +308,66 @@ urlpatterns = [
         'manager/polls/<int:poll_id>/results/',
         ManagerPollResultsView.as_view(),
         name='manager_poll_results'
+    ),
+    # -------------------------------------------------
+    # TICKET /User
+    # -------------------------------------------------
+
+    path(
+        'support/tickets/',
+        MobileSupportTicketListView.as_view(),
+        name='mobile_support_ticket_list',
+    ),
+
+    path(
+        'support/tickets/create/',
+        MobileSupportTicketCreateView.as_view(),
+        name='mobile_support_ticket_create',
+    ),
+
+    path(
+        'support/tickets/<int:ticket_id>/',
+        MobileSupportTicketDetailView.as_view(),
+        name='mobile_support_ticket_detail',
+    ),
+
+    path(
+        'support/tickets/<int:ticket_id>/messages/',
+        MobileSupportTicketMessageView.as_view(),
+        name='mobile_support_ticket_message',
+    ),
+
+    path(
+        'support/tickets/<int:ticket_id>/close/',
+        MobileSupportTicketCloseView.as_view(),
+        name='mobile_support_ticket_close',
+    ),
+
+    # -------------------------------------------------
+    # TICKET/Manager
+    # -------------------------------------------------
+
+    path(
+        'manager/support/tickets/',
+        ManagerSupportTicketListView.as_view(),
+        name='manager_support_ticket_list',
+    ),
+
+    path(
+        'manager/support/tickets/<int:ticket_id>/',
+        ManagerSupportTicketDetailView.as_view(),
+        name='manager_support_ticket_detail',
+    ),
+
+    path(
+        'manager/support/tickets/<int:ticket_id>/messages/',
+        ManagerSupportTicketMessageView.as_view(),
+        name='manager_support_ticket_message',
+    ),
+
+    path(
+        'manager/support/tickets/<int:ticket_id>/close/',
+        ManagerSupportTicketCloseView.as_view(),
+        name='manager_support_ticket_close',
     ),
 ]

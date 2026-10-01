@@ -3,6 +3,7 @@ from rest_framework import serializers
 
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageInstallment, \
     SewageManage, MessageToUser, AnnouncementDocument, BankFund
+from notifications.models import SupportFile, SupportMessage, SupportUser
 from polls_app.models import Choice, Question, Poll, Vote
 from user_app.models import Unit, MyHouse, User, Bank, UserPayMoney, Renter
 
@@ -378,7 +379,7 @@ class MobilePaymentHistorySerializer(serializers.ModelSerializer):
                 return 'renter'
 
         return 'owner'
-        
+
 
 class MobileAnnouncementDocumentSerializer(serializers.ModelSerializer):
     url = serializers.SerializerMethodField()
@@ -461,6 +462,32 @@ class QuestionSerializer(serializers.ModelSerializer):
 class PollListSerializer(serializers.ModelSerializer):
     has_voted = serializers.SerializerMethodField()
 
+    # =====================================================
+    # نوع شرکت‌کنندگان
+    # =====================================================
+
+    participant_type = serializers.CharField(
+        read_only=True
+    )
+
+    # =====================================================
+    # تعداد مالکین فعال
+    # =====================================================
+
+    owner_count = serializers.SerializerMethodField()
+
+    # =====================================================
+    # تعداد مستأجرین فعال
+    # =====================================================
+
+    renter_count = serializers.SerializerMethodField()
+
+    # =====================================================
+    # تعداد افراد مجاز به شرکت
+    # =====================================================
+
+    eligible_user_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Poll
         fields = [
@@ -471,13 +498,75 @@ class PollListSerializer(serializers.ModelSerializer):
             'end_date',
             'is_active',
             'created_at',
+
+            # شرکت‌کنندگان
+            'participant_type',
+            'owner_count',
+            'renter_count',
+            'eligible_user_count',
+
+            # وضعیت رأی کاربر
             'has_voted',
         ]
 
-    def get_has_voted(self, obj):
-        request = self.context.get('request')
+    # =====================================================
+    # تعداد مالکین فعال
+    # =====================================================
 
-        if not request or not request.user.is_authenticated:
+    def get_owner_count(self, obj):
+
+        return obj.house.units.filter(
+            is_active=True
+        ).count()
+
+    # =====================================================
+    # تعداد مستأجرین فعال
+    # =====================================================
+
+    def get_renter_count(self, obj):
+
+        return Renter.objects.filter(
+            myhouse=obj.house,
+            unit__myhouse=obj.house,
+            unit__is_active=True,
+            renter_is_active=True,
+        ).count()
+
+    # =====================================================
+    # تعداد افراد مجاز
+    # =====================================================
+
+    def get_eligible_user_count(self, obj):
+
+        owner_count = self.get_owner_count(obj)
+        renter_count = self.get_renter_count(obj)
+
+        participant_type = (
+                obj.participant_type or 'all'
+        ).strip().lower()
+
+        if participant_type == 'owners':
+            return owner_count
+
+        if participant_type == 'renters':
+            return renter_count
+
+        return owner_count + renter_count
+
+    # =====================================================
+    # آیا کاربر رأی داده؟
+    # =====================================================
+
+    def get_has_voted(self, obj):
+
+        request = self.context.get(
+            'request'
+        )
+
+        if not request:
+            return False
+
+        if not request.user.is_authenticated:
             return False
 
         return Vote.objects.filter(
@@ -494,6 +583,32 @@ class PollDetailSerializer(serializers.ModelSerializer):
 
     has_voted = serializers.SerializerMethodField()
 
+    # =====================================================
+    # نوع شرکت‌کنندگان
+    # =====================================================
+
+    participant_type = serializers.CharField(
+        read_only=True
+    )
+
+    # =====================================================
+    # تعداد مالکین فعال
+    # =====================================================
+
+    owner_count = serializers.SerializerMethodField()
+
+    # =====================================================
+    # تعداد مستأجرین فعال
+    # =====================================================
+
+    renter_count = serializers.SerializerMethodField()
+
+    # =====================================================
+    # تعداد افراد مجاز
+    # =====================================================
+
+    eligible_user_count = serializers.SerializerMethodField()
+
     class Meta:
         model = Poll
         fields = [
@@ -504,12 +619,73 @@ class PollDetailSerializer(serializers.ModelSerializer):
             'end_date',
             'is_active',
             'created_at',
+
+            # شرکت‌کنندگان
+            'participant_type',
+            'owner_count',
+            'renter_count',
+            'eligible_user_count',
+
+            # سؤالات
             'questions',
+
+            # وضعیت رأی
             'has_voted',
         ]
 
+    # =====================================================
+    # تعداد مالکین فعال
+    # =====================================================
+
+    def get_owner_count(self, obj):
+
+        return obj.house.units.filter(
+            is_active=True
+        ).count()
+
+    # =====================================================
+    # تعداد مستأجرین فعال
+    # =====================================================
+
+    def get_renter_count(self, obj):
+
+        return Renter.objects.filter(
+            myhouse=obj.house,
+            unit__myhouse=obj.house,
+            unit__is_active=True,
+            renter_is_active=True,
+        ).count()
+
+    # =====================================================
+    # تعداد افراد مجاز
+    # =====================================================
+
+    def get_eligible_user_count(self, obj):
+
+        owner_count = self.get_owner_count(obj)
+        renter_count = self.get_renter_count(obj)
+
+        participant_type = (
+                obj.participant_type or 'all'
+        ).strip().lower()
+
+        if participant_type == 'owners':
+            return owner_count
+
+        if participant_type == 'renters':
+            return renter_count
+
+        return owner_count + renter_count
+
+    # =====================================================
+    # آیا کاربر رأی داده؟
+    # =====================================================
+
     def get_has_voted(self, obj):
-        request = self.context.get('request')
+
+        request = self.context.get(
+            'request'
+        )
 
         if not request:
             return False
@@ -523,7 +699,7 @@ class PollDetailSerializer(serializers.ModelSerializer):
         ).exists()
 
 
-# Civil
+# ==================# Civil=================================
 class ManualCivilPaymentSerializer(serializers.Serializer):
     transaction_reference = serializers.CharField(
         max_length=20,
@@ -676,7 +852,7 @@ class CivilInstallmentSerializer(serializers.ModelSerializer):
         ]
 
 
-# Sewage
+# ================# Sewage==========================================
 class ManualSewagePaymentSerializer(serializers.Serializer):
     transaction_reference = serializers.CharField(
         max_length=20,
@@ -829,7 +1005,7 @@ class SewageInstallmentSerializer(serializers.ModelSerializer):
         ]
 
 
-
+# =====================MessageToUser=====================================
 class MessageToUserSerializer(serializers.ModelSerializer):
     is_read = serializers.SerializerMethodField()
     read_at = serializers.SerializerMethodField()
@@ -863,7 +1039,7 @@ class MessageToUserSerializer(serializers.ModelSerializer):
         )
 
 
-# pay money
+# =================# pay money=============================================
 
 class UserPayMoneySerializer(serializers.ModelSerializer):
     unit_number = serializers.SerializerMethodField()
@@ -964,7 +1140,6 @@ class UserPayMoneySerializer(serializers.ModelSerializer):
 
 
 class CreateUserPayMoneySerializer(serializers.Serializer):
-
     amount = serializers.IntegerField(
         required=True,
         min_value=1,
@@ -1052,7 +1227,7 @@ class ManualUserPayMoneyPaymentSerializer(serializers.Serializer):
         # =====================================================
 
         is_owner = (
-            payment.unit.user_id == user.id
+                payment.unit.user_id == user.id
         )
 
         is_active_renter = Renter.objects.filter(
@@ -1135,12 +1310,11 @@ class ManagerAnnouncementSerializer(serializers.ModelSerializer):
             'documents',
         ]
 
-# -------------------------------------------
+
 # ===================== Manager Messages =========================
 
 
 class ManagerMessageUnitSerializer(serializers.ModelSerializer):
-
     unit_id = serializers.IntegerField(
         source='id',
         read_only=True
@@ -1211,22 +1385,21 @@ class ManagerMessageUnitSerializer(serializers.ModelSerializer):
         # =====================================================
 
         if renter:
-
             renter_user = renter.user
 
             return (
-                renter.renter_name
-                or (
-                    renter_user.full_name
-                    if renter_user
-                    else ''
-                )
-                or (
-                    renter_user.username
-                    if renter_user
-                    else ''
-                )
-                or ''
+                    renter.renter_name
+                    or (
+                        renter_user.full_name
+                        if renter_user
+                        else ''
+                    )
+                    or (
+                        renter_user.username
+                        if renter_user
+                        else ''
+                    )
+                    or ''
             )
 
         # =====================================================
@@ -1236,18 +1409,18 @@ class ManagerMessageUnitSerializer(serializers.ModelSerializer):
         owner_user = obj.user
 
         return (
-            obj.owner_name
-            or (
-                owner_user.full_name
-                if owner_user
-                else ''
-            )
-            or (
-                owner_user.username
-                if owner_user
-                else ''
-            )
-            or ''
+                obj.owner_name
+                or (
+                    owner_user.full_name
+                    if owner_user
+                    else ''
+                )
+                or (
+                    owner_user.username
+                    if owner_user
+                    else ''
+                )
+                or ''
         )
 
     def get_mobile(self, obj):
@@ -1259,17 +1432,16 @@ class ManagerMessageUnitSerializer(serializers.ModelSerializer):
         # =====================================================
 
         if renter:
-
             renter_user = renter.user
 
             return (
-                renter.renter_mobile
-                or (
-                    renter_user.mobile
-                    if renter_user
-                    else ''
-                )
-                or ''
+                    renter.renter_mobile
+                    or (
+                        renter_user.mobile
+                        if renter_user
+                        else ''
+                    )
+                    or ''
             )
 
         # =====================================================
@@ -1279,13 +1451,13 @@ class ManagerMessageUnitSerializer(serializers.ModelSerializer):
         owner_user = obj.user
 
         return (
-            obj.owner_mobile
-            or (
-                owner_user.mobile
-                if owner_user
-                else ''
-            )
-            or ''
+                obj.owner_mobile
+                or (
+                    owner_user.mobile
+                    if owner_user
+                    else ''
+                )
+                or ''
         )
 
     def get_has_mobile(self, obj):
@@ -1315,7 +1487,6 @@ class ManagerMessageListSerializer(
     unread_count = serializers.SerializerMethodField()
 
     class Meta:
-
         model = MessageToUser
 
         fields = [
@@ -1335,10 +1506,9 @@ class ManagerMessageListSerializer(
     # =========================================================
 
     def get_recipient_count(
-        self,
-        obj
+            self,
+            obj
     ):
-
         return (
             obj.read_statuses
             .values(
@@ -1353,10 +1523,9 @@ class ManagerMessageListSerializer(
     # =========================================================
 
     def get_read_count(
-        self,
-        obj
+            self,
+            obj
     ):
-
         return (
             obj.read_statuses
             .filter(
@@ -1374,10 +1543,9 @@ class ManagerMessageListSerializer(
     # =========================================================
 
     def get_unread_count(
-        self,
-        obj
+            self,
+            obj
     ):
-
         return (
             obj.read_statuses
             .filter(
@@ -1488,7 +1656,6 @@ class ManagerMessageDetailSerializer(serializers.ModelSerializer):
             # =================================================
 
             if unit.user_id == recipient.id:
-
                 result.append({
                     'unit_id': unit.id,
                     'unit': unit.unit,
@@ -1496,27 +1663,27 @@ class ManagerMessageDetailSerializer(serializers.ModelSerializer):
                     'recipient_type': 'owner',
 
                     'name': (
-                        unit.owner_name
-                        or getattr(
-                            recipient,
-                            'full_name',
-                            ''
-                        )
-                        or getattr(
-                            recipient,
-                            'username',
-                            ''
-                        )
+                            unit.owner_name
+                            or getattr(
+                        recipient,
+                        'full_name',
+                        ''
+                    )
+                            or getattr(
+                        recipient,
+                        'username',
+                        ''
+                    )
                     ),
 
                     'mobile': (
-                        unit.owner_mobile
-                        or getattr(
-                            recipient,
-                            'mobile',
-                            ''
-                        )
-                        or ''
+                            unit.owner_mobile
+                            or getattr(
+                        recipient,
+                        'mobile',
+                        ''
+                    )
+                            or ''
                     ),
 
                     'is_read': status.is_read,
@@ -1539,7 +1706,6 @@ class ManagerMessageDetailSerializer(serializers.ModelSerializer):
             )
 
             if renter:
-
                 result.append({
                     'unit_id': unit.id,
                     'unit': unit.unit,
@@ -1547,27 +1713,27 @@ class ManagerMessageDetailSerializer(serializers.ModelSerializer):
                     'recipient_type': 'renter',
 
                     'name': (
-                        renter.renter_name
-                        or getattr(
-                            recipient,
-                            'full_name',
-                            ''
-                        )
-                        or getattr(
-                            recipient,
-                            'username',
-                            ''
-                        )
+                            renter.renter_name
+                            or getattr(
+                        recipient,
+                        'full_name',
+                        ''
+                    )
+                            or getattr(
+                        recipient,
+                        'username',
+                        ''
+                    )
                     ),
 
                     'mobile': (
-                        renter.renter_mobile
-                        or getattr(
-                            recipient,
-                            'mobile',
-                            ''
-                        )
-                        or ''
+                            renter.renter_mobile
+                            or getattr(
+                        recipient,
+                        'mobile',
+                        ''
+                    )
+                            or ''
                     ),
 
                     'is_read': status.is_read,
@@ -1583,7 +1749,6 @@ class ManagerMessageDetailSerializer(serializers.ModelSerializer):
 
 
 class ManagerBankSerializer(serializers.ModelSerializer):
-
     house_name = serializers.SerializerMethodField()
 
     class Meta:
@@ -1665,26 +1830,23 @@ class ManagerBankSerializer(serializers.ModelSerializer):
     def validate_sheba_number(self, value):
 
         value = (
-            value or ''
+                value or ''
         ).replace(
             ' ',
             ''
         ).strip().upper()
 
         if not value.startswith('IR'):
-
             raise serializers.ValidationError(
                 'شماره شبا باید با IR شروع شود.'
             )
 
         if len(value) != 26:
-
             raise serializers.ValidationError(
                 'شماره شبا باید ۲۶ کاراکتر باشد.'
             )
 
         if not value[2:].isdigit():
-
             raise serializers.ValidationError(
                 'بعد از IR باید دقیقاً ۲۴ رقم وارد شود.'
             )
@@ -1700,13 +1862,11 @@ class ManagerBankSerializer(serializers.ModelSerializer):
         )
 
         if len(value) != 16:
-
             raise serializers.ValidationError(
                 'شماره کارت باید ۱۶ رقم باشد.'
             )
 
         if not value.isdigit():
-
             raise serializers.ValidationError(
                 'شماره کارت باید فقط شامل اعداد باشد.'
             )
@@ -1728,7 +1888,6 @@ class ManagerBankSerializer(serializers.ModelSerializer):
             return 0
 
         if value < 0:
-
             raise serializers.ValidationError(
                 'موجودی اولیه نمی‌تواند منفی باشد.'
             )
@@ -1737,7 +1896,6 @@ class ManagerBankSerializer(serializers.ModelSerializer):
 
 
 class ManagerBankTransferSerializer(serializers.Serializer):
-
     from_bank = serializers.IntegerField(
         required=True
     )
@@ -1842,9 +2000,9 @@ class ManagerBankTransferSerializer(serializers.Serializer):
         # دو حساب باید مربوط به یک ساختمان باشند
         # -------------------------------------------------
         if (
-            from_bank.house_id
-            and to_bank.house_id
-            and from_bank.house_id != to_bank.house_id
+                from_bank.house_id
+                and to_bank.house_id
+                and from_bank.house_id != to_bank.house_id
         ):
             raise serializers.ValidationError(
                 'حساب‌های مبدا و مقصد باید متعلق '
@@ -1870,8 +2028,8 @@ class ManagerBankTransferSerializer(serializers.Serializer):
         payment_date = attrs['payment_date']
 
         if (
-            from_bank.create_at
-            and payment_date < from_bank.create_at
+                from_bank.create_at
+                and payment_date < from_bank.create_at
         ):
             raise serializers.ValidationError({
                 'payment_date':
@@ -1883,8 +2041,8 @@ class ManagerBankTransferSerializer(serializers.Serializer):
         # بررسی تاریخ مقصد
         # -------------------------------------------------
         if (
-            to_bank.create_at
-            and payment_date < to_bank.create_at
+                to_bank.create_at
+                and payment_date < to_bank.create_at
         ):
             raise serializers.ValidationError({
                 'payment_date':
@@ -1896,7 +2054,7 @@ class ManagerBankTransferSerializer(serializers.Serializer):
         # نرمال‌سازی شرح
         # -------------------------------------------------
         attrs['description'] = (
-            attrs.get('description') or ''
+                attrs.get('description') or ''
         ).strip()
 
         # -------------------------------------------------
@@ -1911,7 +2069,6 @@ class ManagerBankTransferSerializer(serializers.Serializer):
 class ManagerBankTransferListSerializer(
     serializers.ModelSerializer
 ):
-
     from_bank_id = serializers.SerializerMethodField()
 
     from_bank_name = serializers.SerializerMethodField()
@@ -2112,22 +2269,27 @@ class ManagerBankTransferListSerializer(
 
         return None
 
+
 # ============================================================
-# POLL/Choice
+# POLL / Choice
 # ============================================================
 
-class ManagerPollChoiceSerializer(serializers.ModelSerializer):
+class ManagerPollChoiceSerializer(
+    serializers.ModelSerializer
+):
     vote_count = serializers.SerializerMethodField()
     percentage = serializers.SerializerMethodField()
 
     class Meta:
         model = Choice
+
         fields = [
             'id',
             'title',
             'vote_count',
             'percentage',
         ]
+
         read_only_fields = [
             'id',
             'vote_count',
@@ -2140,25 +2302,42 @@ class ManagerPollChoiceSerializer(serializers.ModelSerializer):
         ).count()
 
     def get_percentage(self, obj):
-        total = Vote.objects.filter(
-            question=obj.question
-        ).values('user').distinct().count()
+        total = (
+            Vote.objects
+            .filter(
+                question=obj.question
+            )
+            .values(
+                'user'
+            )
+            .distinct()
+            .count()
+        )
 
         if total == 0:
             return 0
 
-        count = Vote.objects.filter(
-            choice=obj
-        ).count()
+        count = (
+            Vote.objects
+            .filter(
+                choice=obj
+            )
+            .count()
+        )
 
-        return round((count / total) * 100, 1)
+        return round(
+            (count / total) * 100,
+            1
+        )
 
 
 # ============================================================
 # Question
 # ============================================================
 
-class ManagerPollQuestionSerializer(serializers.ModelSerializer):
+class ManagerPollQuestionSerializer(
+    serializers.ModelSerializer
+):
     choices = ManagerPollChoiceSerializer(
         many=True,
         required=False
@@ -2166,6 +2345,7 @@ class ManagerPollQuestionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Question
+
         fields = [
             'id',
             'title',
@@ -2173,12 +2353,21 @@ class ManagerPollQuestionSerializer(serializers.ModelSerializer):
             'order',
             'choices',
         ]
+
         read_only_fields = [
             'id',
         ]
 
-    def validate_question_type(self, value):
-        allowed = ['yesno', 'single', 'multi']
+    def validate_question_type(
+            self,
+            value
+    ):
+
+        allowed = [
+            'yesno',
+            'single',
+            'multi'
+        ]
 
         if value not in allowed:
             raise serializers.ValidationError(
@@ -2188,19 +2377,46 @@ class ManagerPollQuestionSerializer(serializers.ModelSerializer):
         return value
 
     def validate(self, attrs):
+
         question_type = attrs.get(
             'question_type',
-            getattr(self.instance, 'question_type', None)
+            getattr(
+                self.instance,
+                'question_type',
+                None
+            )
         )
 
-        choices = attrs.get('choices', None)
+        choices = attrs.get(
+            'choices',
+            None
+        )
 
-        # برای yes/no نیازی به ارسال گزینه از Flutter نیست.
-        if question_type in ['single', 'multi']:
-            if choices is not None and len(choices) == 0:
-                raise serializers.ValidationError({
-                    'choices': 'برای این نوع سؤال حداقل یک گزینه لازم است.'
-                })
+        # ----------------------------------------------------
+        # yes/no
+        # ----------------------------------------------------
+
+        if question_type == 'yesno':
+
+            # برای yes/no گزینه‌ها توسط Backend ساخته می‌شوند.
+            pass
+
+        # ----------------------------------------------------
+        # single / multi
+        # ----------------------------------------------------
+
+        elif question_type in [
+            'single',
+            'multi'
+        ]:
+
+            if choices is not None:
+
+                if len(choices) == 0:
+                    raise serializers.ValidationError({
+                        'choices':
+                            'برای این نوع سؤال حداقل یک گزینه لازم است.'
+                    })
 
         return attrs
 
@@ -2209,15 +2425,28 @@ class ManagerPollQuestionSerializer(serializers.ModelSerializer):
 # Poll List
 # ============================================================
 
-class ManagerPollListSerializer(serializers.ModelSerializer):
+class ManagerPollListSerializer(
+    serializers.ModelSerializer
+):
     question_count = serializers.SerializerMethodField()
+
     has_votes = serializers.SerializerMethodField()
+
     participant_count = serializers.SerializerMethodField()
+
     eligible_user_count = serializers.SerializerMethodField()
-    participation_percentage = serializers.SerializerMethodField()
+
+    owner_count = serializers.SerializerMethodField()
+
+    renter_count = serializers.SerializerMethodField()
+
+    participation_percentage = (
+        serializers.SerializerMethodField()
+    )
 
     class Meta:
         model = Poll
+
         fields = [
             'id',
             'title',
@@ -2227,43 +2456,151 @@ class ManagerPollListSerializer(serializers.ModelSerializer):
             'is_active',
             'created_at',
 
+            # نوع افراد مجاز
+            'participant_type',
+
             'question_count',
             'has_votes',
 
+            # تعداد افراد
+            'owner_count',
+            'renter_count',
             'eligible_user_count',
+
             'participant_count',
             'participation_percentage',
         ]
 
-    def get_question_count(self, obj):
+    # ========================================================
+    # تعداد سوالات
+    # ========================================================
+
+    def get_question_count(
+            self,
+            obj
+    ):
+
         return obj.questions.count()
 
-    def get_has_votes(self, obj):
+    # ========================================================
+    # آیا رأی دارد؟
+    # ========================================================
+
+    def get_has_votes(
+            self,
+            obj
+    ):
+
         return Vote.objects.filter(
             poll=obj
         ).exists()
 
-    def get_eligible_user_count(self, obj):
-        return User.objects.filter(
-            manager=obj.created_by,
+    # ========================================================
+    # تعداد مالکین فعال
+    # ========================================================
+
+    def get_owner_count(
+            self,
+            obj
+    ):
+
+        return obj.house.units.filter(
             is_active=True
         ).count()
 
-    def get_participant_count(self, obj):
-        return Vote.objects.filter(
-            poll=obj
-        ).values('user').distinct().count()
+    # ========================================================
+    # تعداد مستاجرین فعال
+    # ========================================================
 
-    def get_participation_percentage(self, obj):
-        eligible = self.get_eligible_user_count(obj)
+    def get_renter_count(
+            self,
+            obj
+    ):
+
+        return Renter.objects.filter(
+            unit__myhouse=obj.house,
+            unit__is_active=True,
+            renter_is_active=True
+        ).count()
+
+    # ========================================================
+    # تعداد افراد مجاز
+    # ========================================================
+
+    def get_eligible_user_count(
+            self,
+            obj
+    ):
+
+        owner_count = self.get_owner_count(
+            obj
+        )
+
+        renter_count = self.get_renter_count(
+            obj
+        )
+
+        if obj.participant_type == 'owners':
+            return owner_count
+
+        if obj.participant_type == 'renters':
+            return renter_count
+
+        return (
+                owner_count +
+                renter_count
+        )
+
+    # ========================================================
+    # تعداد شرکت کنندگان
+    # ========================================================
+
+    def get_participant_count(
+            self,
+            obj
+    ):
+
+        return (
+            Vote.objects
+            .filter(
+                poll=obj
+            )
+            .values(
+                'user'
+            )
+            .distinct()
+            .count()
+        )
+
+    # ========================================================
+    # درصد مشارکت
+    # ========================================================
+
+    def get_participation_percentage(
+            self,
+            obj
+    ):
+
+        eligible = (
+            self.get_eligible_user_count(
+                obj
+            )
+        )
 
         if eligible == 0:
             return 0
 
-        participants = self.get_participant_count(obj)
+        participants = (
+            self.get_participant_count(
+                obj
+            )
+        )
 
         return round(
-            (participants / eligible) * 100,
+            (
+                    participants /
+                    eligible
+            ) * 100,
             1
         )
 
@@ -2272,19 +2609,40 @@ class ManagerPollListSerializer(serializers.ModelSerializer):
 # Poll Detail
 # ============================================================
 
-class ManagerPollDetailSerializer(serializers.ModelSerializer):
+class ManagerPollDetailSerializer(
+    serializers.ModelSerializer
+):
     questions = ManagerPollQuestionSerializer(
         many=True,
         read_only=True
     )
 
     has_votes = serializers.SerializerMethodField()
-    participant_count = serializers.SerializerMethodField()
-    eligible_user_count = serializers.SerializerMethodField()
-    participation_percentage = serializers.SerializerMethodField()
+
+    participant_count = (
+        serializers.SerializerMethodField()
+    )
+
+    eligible_user_count = (
+        serializers.SerializerMethodField()
+    )
+
+    owner_count = (
+        serializers.SerializerMethodField()
+    )
+
+    renter_count = (
+        serializers.SerializerMethodField()
+    )
+
+    participation_percentage = (
+        serializers.SerializerMethodField()
+    )
 
     class Meta:
+
         model = Poll
+
         fields = [
             'id',
             'title',
@@ -2296,8 +2654,16 @@ class ManagerPollDetailSerializer(serializers.ModelSerializer):
             'created_at',
             'created_by',
 
+            # نوع افراد مجاز
+            'participant_type',
+
             'has_votes',
+
+            # تعداد افراد
+            'owner_count',
+            'renter_count',
             'eligible_user_count',
+
             'participant_count',
             'participation_percentage',
 
@@ -2309,39 +2675,142 @@ class ManagerPollDetailSerializer(serializers.ModelSerializer):
             'house',
             'created_by',
             'created_at',
+
             'has_votes',
+
+            'owner_count',
+            'renter_count',
             'eligible_user_count',
+
             'participant_count',
             'participation_percentage',
+
             'questions',
         ]
 
-    def get_has_votes(self, obj):
+    # ========================================================
+    # آیا رأی دارد؟
+    # ========================================================
+
+    def get_has_votes(
+            self,
+            obj
+    ):
+
         return Vote.objects.filter(
             poll=obj
         ).exists()
 
-    def get_eligible_user_count(self, obj):
-        return User.objects.filter(
-            manager=obj.created_by,
+    # ========================================================
+    # تعداد مالکین فعال
+    # ========================================================
+
+    def get_owner_count(
+            self,
+            obj
+    ):
+
+        return obj.house.units.filter(
             is_active=True
         ).count()
 
-    def get_participant_count(self, obj):
-        return Vote.objects.filter(
-            poll=obj
-        ).values('user').distinct().count()
+    # ========================================================
+    # تعداد مستاجرین فعال
+    # ========================================================
 
-    def get_participation_percentage(self, obj):
-        eligible = self.get_eligible_user_count(obj)
+    def get_renter_count(
+            self,
+            obj
+    ):
+
+        return Renter.objects.filter(
+            unit__myhouse=obj.house,
+            unit__is_active=True,
+            renter_is_active=True
+        ).count()
+
+    # ========================================================
+    # تعداد افراد مجاز
+    # ========================================================
+
+    def get_eligible_user_count(
+            self,
+            obj
+    ):
+
+        owner_count = (
+            self.get_owner_count(
+                obj
+            )
+        )
+
+        renter_count = (
+            self.get_renter_count(
+                obj
+            )
+        )
+
+        if obj.participant_type == 'owners':
+            return owner_count
+
+        if obj.participant_type == 'renters':
+            return renter_count
+
+        return (
+                owner_count +
+                renter_count
+        )
+
+    # ========================================================
+    # تعداد شرکت کنندگان
+    # ========================================================
+
+    def get_participant_count(
+            self,
+            obj
+    ):
+
+        return (
+            Vote.objects
+            .filter(
+                poll=obj
+            )
+            .values(
+                'user'
+            )
+            .distinct()
+            .count()
+        )
+
+    # ========================================================
+    # درصد مشارکت
+    # ========================================================
+
+    def get_participation_percentage(
+            self,
+            obj
+    ):
+
+        eligible = (
+            self.get_eligible_user_count(
+                obj
+            )
+        )
 
         if eligible == 0:
             return 0
 
-        participants = self.get_participant_count(obj)
+        participants = (
+            self.get_participant_count(
+                obj
+            )
+        )
 
         return round(
-            (participants / eligible) * 100,
+            (
+                    participants /
+                    eligible
+            ) * 100,
             1
         )
 
@@ -2350,14 +2819,18 @@ class ManagerPollDetailSerializer(serializers.ModelSerializer):
 # Create / Update Poll
 # ============================================================
 
-class ManagerPollWriteSerializer(serializers.ModelSerializer):
+class ManagerPollWriteSerializer(
+    serializers.ModelSerializer
+):
     questions = ManagerPollQuestionSerializer(
         many=True,
         required=False
     )
 
     class Meta:
+
         model = Poll
+
         fields = [
             'id',
             'title',
@@ -2365,6 +2838,10 @@ class ManagerPollWriteSerializer(serializers.ModelSerializer):
             'start_date',
             'end_date',
             'is_active',
+
+            # افراد مجاز
+            'participant_type',
+
             'questions',
         ]
 
@@ -2372,59 +2849,106 @@ class ManagerPollWriteSerializer(serializers.ModelSerializer):
             'id',
         ]
 
-    def validate(self, attrs):
-        start_date = attrs.get('start_date')
-        end_date = attrs.get('end_date')
+    # ========================================================
+    # Validate
+    # ========================================================
+
+    def validate(
+            self,
+            attrs
+    ):
+
+        start_date = attrs.get(
+            'start_date'
+        )
+
+        end_date = attrs.get(
+            'end_date'
+        )
 
         if start_date and end_date:
+
             if end_date <= start_date:
                 raise serializers.ValidationError({
                     'end_date':
                         'تاریخ پایان باید بعد از تاریخ شروع باشد.'
                 })
 
+        # ----------------------------------------------------
+        # participant_type
+        # ----------------------------------------------------
+
+        participant_type = attrs.get(
+            'participant_type'
+        )
+
+        if participant_type is not None:
+
+            allowed = [
+                'all',
+                'owners',
+                'renters',
+            ]
+
+            if participant_type not in allowed:
+                raise serializers.ValidationError({
+                    'participant_type':
+                        'نوع افراد مجاز نامعتبر است.'
+                })
+
         return attrs
 
-    def create(self, validated_data):
+    # ========================================================
+    # CREATE
+    # ========================================================
+
+    def create(
+            self,
+            validated_data
+    ):
+
         questions_data = validated_data.pop(
             'questions',
             []
         )
 
-        request = self.context['request']
+        request = self.context[
+            'request'
+        ]
 
         user = request.user
 
-        house = (
-            Poll.objects
-            .filter(created_by=user)
-            .values_list('house', flat=True)
+        # ----------------------------------------------------
+        # ساختمان مدیر
+        # ----------------------------------------------------
+
+        house_obj = (
+            MyHouse.objects
+            .filter(
+                user=user,
+                is_active=True
+            )
             .first()
         )
 
-        if house:
-            from .models import MyHouse
-
-            house_obj = MyHouse.objects.filter(
-                id=house
-            ).first()
-        else:
-            from .models import MyHouse
-
-            house_obj = MyHouse.objects.filter(
-                user=user
-            ).first()
-
         if not house_obj:
             raise serializers.ValidationError(
-                'ساختمان مرتبط با مدیر پیدا نشد.'
+                'ساختمان فعال مرتبط با مدیر پیدا نشد.'
             )
+
+        # ----------------------------------------------------
+        # ایجاد Poll
+        # ----------------------------------------------------
 
         poll = Poll.objects.create(
             house=house_obj,
             created_by=user,
             **validated_data
         )
+
+        # ----------------------------------------------------
+        # ایجاد سوالات
+        # ----------------------------------------------------
 
         self._create_questions(
             poll,
@@ -2433,11 +2957,19 @@ class ManagerPollWriteSerializer(serializers.ModelSerializer):
 
         return poll
 
-    def update(self, instance, validated_data):
-        # ====================================================
-        # مهم:
-        # اگر حتی یک رأی وجود داشته باشد، ویرایش ممنوع است.
-        # ====================================================
+    # ========================================================
+    # UPDATE
+    # ========================================================
+
+    def update(
+            self,
+            instance,
+            validated_data
+    ):
+
+        # ----------------------------------------------------
+        # اگر رأی وجود داشته باشد ویرایش ممنوع
+        # ----------------------------------------------------
 
         has_votes = Vote.objects.filter(
             poll=instance
@@ -2450,20 +2982,31 @@ class ManagerPollWriteSerializer(serializers.ModelSerializer):
                     'فقط می‌توانید آن را غیرفعال کنید.'
             })
 
-        questions_data = validated_data.pop(
-            'questions',
-            None
+        questions_data = (
+            validated_data.pop(
+                'questions',
+                None
+            )
         )
 
+        # ----------------------------------------------------
+        # بروزرسانی فیلدهای Poll
+        # ----------------------------------------------------
+
         for attr, value in validated_data.items():
-            setattr(instance, attr, value)
+            setattr(
+                instance,
+                attr,
+                value
+            )
 
         instance.save()
 
-        # اگر questions ارسال شده باشد،
-        # کل ساختار سؤال‌ها دوباره ساخته می‌شود.
-        if questions_data is not None:
+        # ----------------------------------------------------
+        # بروزرسانی سوالات
+        # ----------------------------------------------------
 
+        if questions_data is not None:
             instance.questions.all().delete()
 
             self._create_questions(
@@ -2473,30 +3016,61 @@ class ManagerPollWriteSerializer(serializers.ModelSerializer):
 
         return instance
 
-    def _create_questions(self, poll, questions_data):
+    # ========================================================
+    # CREATE QUESTIONS
+    # ========================================================
+
+    def _create_questions(
+            self,
+            poll,
+            questions_data
+    ):
 
         for index, question_data in enumerate(
-            questions_data,
-            start=1
+                questions_data,
+                start=1
         ):
-            choices_data = question_data.pop(
-                'choices',
-                []
+
+            # ------------------------------------------------
+            # کپی داده‌ها
+            # ------------------------------------------------
+
+            question_data = dict(
+                question_data
             )
+
+            choices_data = (
+                question_data.pop(
+                    'choices',
+                    []
+                )
+            )
+
+            # ------------------------------------------------
+            # ایجاد سؤال
+            # ------------------------------------------------
 
             question = Question.objects.create(
                 poll=poll,
-                title=question_data.get('title'),
+
+                title=question_data.get(
+                    'title'
+                ),
+
                 question_type=question_data.get(
                     'question_type'
                 ),
+
                 order=question_data.get(
                     'order',
                     index
                 )
             )
 
-            # yes/no
+            # ------------------------------------------------
+            # yes / no
+            # ------------------------------------------------
+
             if question.question_type == 'yesno':
 
                 Choice.objects.create(
@@ -2509,22 +3083,227 @@ class ManagerPollWriteSerializer(serializers.ModelSerializer):
                     title='خیر'
                 )
 
+            # ------------------------------------------------
+            # single / multi
+            # ------------------------------------------------
+
             else:
 
                 for choice_data in choices_data:
 
-                    title = (
-                        choice_data.get('title')
-                        if isinstance(
+                    if isinstance(
                             choice_data,
                             dict
+                    ):
+
+                        title = (
+                            choice_data.get(
+                                'title'
+                            )
                         )
-                        else choice_data
-                    )
 
-                    if title and str(title).strip():
+                    else:
 
+                        title = choice_data
+
+                    if (
+                            title is not None
+                            and
+                            str(title).strip()
+                    ):
                         Choice.objects.create(
                             question=question,
-                            title=str(title).strip()
+                            title=str(
+                                title
+                            ).strip()
                         )
+
+        return poll
+
+
+# ====================Ticket To user ====================
+
+class SupportFileSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportFile
+        fields = [
+            'id',
+            'url',
+            'uploaded_at',
+        ]
+
+    def get_url(self, obj):
+        request = self.context.get('request')
+
+        if not obj.file:
+            return None
+
+        url = obj.file.url
+
+        if request:
+            return request.build_absolute_uri(url)
+
+        return url
+
+
+class SupportMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+    sender_role = serializers.SerializerMethodField()
+    attachments = SupportFileSerializer(
+        many=True,
+        read_only=True
+    )
+
+    class Meta:
+        model = SupportMessage
+        fields = [
+            'id',
+            'sender',
+            'sender_name',
+            'sender_role',
+            'message',
+            'attachments',
+            'created_at',
+            'is_read',
+        ]
+
+    def get_sender_name(self, obj):
+        return str(obj.sender)
+
+    def get_sender_role(self, obj):
+        if obj.sender.is_superuser:
+            return 'ادمین'
+
+        if obj.sender.is_middle_admin:
+            return 'مدیر ساختمان'
+
+        return 'ساکن'
+
+
+class SupportTicketListSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    user_mobile = serializers.SerializerMethodField()
+    unread_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportUser
+        fields = [
+            'id',
+            'ticket_no',
+            'subject',
+            'is_sent',
+            'is_read',
+            'is_call',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'user_name',
+            'user_mobile',
+            'unread_count',
+            'last_message',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_user_name(self, obj):
+        return str(obj.user)
+
+    def get_user_mobile(self, obj):
+        if not obj.is_call:
+            return None
+
+        return getattr(obj.user, 'mobile', None)
+
+    def get_unread_count(self, obj):
+        request = self.context.get('request')
+
+        if not request or not request.user.is_authenticated:
+            return 0
+
+        return obj.messages.filter(
+            is_read=False
+        ).exclude(
+            sender=request.user
+        ).count()
+
+    def get_last_message(self, obj):
+        message = obj.messages.order_by('-created_at').first()
+
+        if not message:
+            return None
+
+        return {
+            'id': message.id,
+            'message': message.message,
+            'sender_name': str(message.sender),
+            'sender_role': (
+                'ادمین'
+                if message.sender.is_superuser
+                else 'مدیر ساختمان'
+                if message.sender.is_middle_admin
+                else 'ساکن'
+            ),
+            'created_at': message.created_at,
+            'is_read': message.is_read,
+        }
+
+
+class SupportTicketDetailSerializer(serializers.ModelSerializer):
+    user_name = serializers.SerializerMethodField()
+    user_mobile = serializers.SerializerMethodField()
+    messages = serializers.SerializerMethodField()
+    files = SupportFileSerializer(
+        many=True,
+        read_only=True
+    )
+
+    class Meta:
+        model = SupportUser
+        fields = [
+            'id',
+            'ticket_no',
+            'subject',
+            'message',
+            'answer_message',
+            'is_sent',
+            'is_read',
+            'is_call',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'user_name',
+            'user_mobile',
+            'files',
+            'messages',
+            'created_at',
+            'updated_at',
+        ]
+
+    def get_user_name(self, obj):
+        return str(obj.user)
+
+    def get_user_mobile(self, obj):
+        if not obj.is_call:
+            return None
+
+        return getattr(obj.user, 'mobile', None)
+
+    def get_messages(self, obj):
+        request = self.context.get('request')
+
+        queryset = obj.messages.select_related(
+            'sender'
+        ).prefetch_related(
+            'attachments'
+        ).order_by('created_at')
+
+        return SupportMessageSerializer(
+            queryset,
+            many=True,
+            context={
+                'request': request
+            }
+        ).data

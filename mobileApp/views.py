@@ -30,6 +30,7 @@ from absharProject import settings
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageManage, \
     SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund
 from middleAdmin_panel.services.bank_services import BankTransactionService
+from notifications.models import SupportUser, SupportMessage, Notification
 from payment_app.views import CallbackURLCharge, ZP_API_REQUEST, ZP_API_STARTPAY
 from polls_app.models import Poll, Vote, Choice, Question
 from user_app.models import Unit, HousePaymentGateway, Renter, Bank, MyHouse, UserPayMoney
@@ -44,7 +45,7 @@ from .serializers import (
     CreateUserPayMoneySerializer, ManualUserPayMoneyPaymentSerializer, ManagerAnnouncementSerializer,
     ManagerMessageUnitSerializer, ManagerMessageListSerializer, ManagerMessageDetailSerializer,
     ManagerBankTransferListSerializer, ManagerBankTransferSerializer, ManagerBankSerializer, ManagerPollListSerializer,
-    ManagerPollWriteSerializer, ManagerPollDetailSerializer,
+    ManagerPollWriteSerializer, ManagerPollDetailSerializer, SupportTicketListSerializer, SupportTicketDetailSerializer,
 )
 
 User = get_user_model()
@@ -953,6 +954,7 @@ class ManagerDashboardView(APIView):
                 'latest_charge': latest_charge_data,
             }
         )
+
 
 class DashboardView(APIView):
     permission_classes = [IsAuthenticated]
@@ -2704,33 +2706,201 @@ class MobilePollListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        now = timezone.now()
+        print()
+        print("=============== MOBILE POLL LIST ===============")
 
-        user_house = request.user.house
+        user = request.user
+
+        print("USER:", user)
+        print("USER ID:", user.id)
+
+        # -------------------------------------------------
+        # مجتمع کاربر
+        # -------------------------------------------------
+
+        user_house = user.house
 
         if not user_house:
+            print("NO HOUSE")
+
             return Response({
                 'success': False,
                 'message': 'مجتمع کاربر مشخص نیست.',
                 'polls': [],
             })
 
+        print("HOUSE:", user_house)
+        print("HOUSE ID:", user_house.id)
+
+        # -------------------------------------------------
+        # بررسی مالک بودن
+        # -------------------------------------------------
+
+        is_owner = Unit.objects.filter(
+            myhouse=user_house,
+            user=user,
+            is_active=True,
+        ).exists()
+
+        # -------------------------------------------------
+        # بررسی مستاجر بودن
+        # -------------------------------------------------
+
+        is_renter = Renter.objects.filter(
+            unit__myhouse=user_house,
+            unit__is_active=True,
+            user=user,
+            renter_is_active=True,
+        ).exists()
+
+        print("IS OWNER:", is_owner)
+        print("IS RENTER:", is_renter)
+
+        # -------------------------------------------------
+        # اگر کاربر نه مالک است نه مستاجر
+        # -------------------------------------------------
+
+        if not is_owner and not is_renter:
+            print("USER IS NOT ELIGIBLE FOR ANY POLL")
+
+            return Response({
+                'success': True,
+                'count': 0,
+                'polls': [],
+            })
+
+        # -------------------------------------------------
+        # دریافت تمام نظرسنجی‌های فعال مجتمع
+        #
+        # نکته مهم:
+        # اینجا دیگر start_date و end_date فیلتر نمی‌شوند.
+        # بنابراین نظرسنجی آینده هم در لیست دیده می‌شود.
+        # -------------------------------------------------
+
         polls = Poll.objects.filter(
             house=user_house,
             is_active=True,
-            start_date__lte=now,
-            end_date__gte=now,
         ).order_by('-created_at')
 
+        print()
+        print("=============== ALL ACTIVE HOUSE POLLS ===============")
+
+        for poll in polls:
+            print(
+                "POLL ID:",
+                poll.id,
+                "| TITLE:",
+                poll.title,
+                "| TYPE:",
+                repr(poll.participant_type),
+                "| ACTIVE:",
+                poll.is_active,
+                "| START:",
+                poll.start_date,
+                "| END:",
+                poll.end_date,
+            )
+
+        print("=======================================================")
+
+        # -------------------------------------------------
+        # فیلتر بر اساس نوع شرکت‌کننده
+        # -------------------------------------------------
+
+        eligible_polls = []
+
+        for poll in polls:
+
+            participant_type = (
+                poll.participant_type or 'all'
+            ).strip().lower()
+
+            # ---------------------------------------------
+            # همه مالکین و مستاجرین
+            # ---------------------------------------------
+
+            if participant_type == 'all':
+
+                if is_owner or is_renter:
+                    eligible_polls.append(poll)
+
+            # ---------------------------------------------
+            # فقط مالکین
+            # ---------------------------------------------
+
+            elif participant_type == 'owners':
+
+                if is_owner:
+                    eligible_polls.append(poll)
+
+            # ---------------------------------------------
+            # فقط مستاجرین
+            # ---------------------------------------------
+
+            elif participant_type == 'renters':
+
+                if is_renter:
+                    eligible_polls.append(poll)
+
+            # ---------------------------------------------
+            # نوع نامعتبر
+            # ---------------------------------------------
+
+            else:
+                print(
+                    "INVALID PARTICIPANT TYPE:",
+                    poll.id,
+                    repr(poll.participant_type)
+                )
+
+        # -------------------------------------------------
+        # نمایش نظرسنجی‌های مجاز
+        # -------------------------------------------------
+
+        print()
+        print("=============== ELIGIBLE POLLS ===============")
+
+        for poll in eligible_polls:
+
+            participant_type = (
+                poll.participant_type or 'all'
+            ).strip().lower()
+
+            print(
+                "POLL ID:",
+                poll.id,
+                "| TITLE:",
+                poll.title,
+                "| TYPE:",
+                participant_type,
+                "| START:",
+                poll.start_date,
+                "| END:",
+                poll.end_date,
+            )
+
+        print(
+            "TOTAL ELIGIBLE POLLS:",
+            len(eligible_polls)
+        )
+
+        print("===============================================")
+
+        # -------------------------------------------------
+        # Serializer
+        # -------------------------------------------------
+
         serializer = PollListSerializer(
-            polls,
+            eligible_polls,
             many=True,
-            context={'request': request},
+            context={
+                'request': request,
+            },
         )
 
         return Response({
             'success': True,
-            'count': polls.count(),
+            'count': len(eligible_polls),
             'polls': serializer.data,
         })
 
@@ -2739,185 +2909,40 @@ class MobilePollDetailView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request, pk):
-        now = timezone.now()
-
-        # print("\n================ POLL DETAIL DEBUG ================")
-        # print("USER:", request.user)
-        # print("USER ID:", request.user.id)
-        # print("USER HOUSE:", request.user.house)
-        # print("USER HOUSE ID:", request.user.house_id)
-        # print("POLL ID:", pk)
-        # print("NOW:", now)
-
-        try:
-            poll = Poll.objects.select_related(
-                'house'
-            ).get(id=pk)
-
-        except Poll.DoesNotExist:
-            print("POLL FOUND: NO")
-
-            return Response(
-                {
-                    'success': False,
-                    'message': 'نظرسنجی پیدا نشد.'
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # print("POLL FOUND:", poll.id)
-        # print("POLL HOUSE:", poll.house)
-        # print("POLL HOUSE ID:", poll.house_id)
-        # print("ACTIVE:", poll.is_active)
-        # print("START:", poll.start_date)
-        # print("END:", poll.end_date)
-
-        # -----------------------------------------
-        # بررسی مجتمع
-        # -----------------------------------------
-
-        house_match = (
-                request.user.house_id == poll.house_id
-        )
-
-        print("HOUSE MATCH:", house_match)
-
-        if not house_match:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'این نظرسنجی برای مجتمع شما فعال نیست.'
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # -----------------------------------------
-        # بررسی فعال بودن
-        # -----------------------------------------
-
-        if not poll.is_active:
-            print("POLL ACTIVE: FALSE")
-
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'این نظرسنجی غیرفعال شده است.'
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # -----------------------------------------
-        # بررسی تاریخ شروع
-        # -----------------------------------------
-
-        start_ok = poll.start_date <= now
-
-        print("START OK:", start_ok)
-
-        if not start_ok:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'زمان شروع این نظرسنجی فرا نرسیده است.'
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # -----------------------------------------
-        # بررسی تاریخ پایان
-        # -----------------------------------------
-
-        end_ok = poll.end_date >= now
-
-        print("END OK:", end_ok)
-
-        if not end_ok:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'زمان این نظرسنجی به پایان رسیده است.'
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
-
-        # -----------------------------------------
-        # Serializer
-        # -----------------------------------------
-
-        serializer = PollDetailSerializer(
-            poll,
-            context={
-                'request': request,
-            }
-        )
-
-        print("POLL DETAIL SUCCESS")
-
-        return Response({
-            'success': True,
-            'poll': serializer.data,
-        })
-
-
-class MobilePollVoteView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    @transaction.atomic
-    def post(self, request, pk):
 
         now = timezone.now()
 
         print()
-        print("================ POLL VOTE DEBUG ================")
+        print("=============== MOBILE POLL DETAIL ===============")
         print("USER:", request.user)
         print("USER ID:", request.user.id)
-        print(
-            "USER HOUSE:",
-            request.user.house
-        )
-        print(
-            "USER HOUSE ID:",
-            request.user.house_id
-        )
-        print("REQUEST HOUSE:", getattr(request, 'house', None))
-        print(
-            "REQUEST HOUSE ID:",
-            getattr(
-                getattr(request, 'house', None),
-                'id',
-                None
-            )
-        )
         print("POLL ID:", pk)
-        print("NOW:", now)
 
         # =====================================================
         # مجتمع کاربر
         # =====================================================
 
-        house = request.user.house
+        user_house = request.user.house
 
-        if house is None:
+        if not user_house:
+
             return Response(
                 {
                     'success': False,
                     'message':
-                        'مجتمع کاربر مشخص نشده است.'
+                        'مجتمع کاربر مشخص نیست.'
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         print(
-            "FINAL HOUSE:",
-            house
+            "USER HOUSE:",
+            user_house
         )
+
         print(
-            "FINAL HOUSE ID:",
-            house.id
+            "USER HOUSE ID:",
+            user_house.id
         )
 
         # =====================================================
@@ -2926,13 +2951,15 @@ class MobilePollVoteView(APIView):
 
         try:
 
-            poll = Poll.objects.get(
+            poll = Poll.objects.select_related(
+                'house'
+            ).get(
                 id=pk
             )
 
         except Poll.DoesNotExist:
 
-            print("POLL NOT FOUND")
+            print("POLL FOUND: NO")
 
             return Response(
                 {
@@ -2947,32 +2974,28 @@ class MobilePollVoteView(APIView):
             "POLL FOUND:",
             poll.id
         )
-        print(
-            "POLL HOUSE:",
-            poll.house
-        )
+
         print(
             "POLL HOUSE ID:",
             poll.house_id
         )
+
         print(
             "POLL ACTIVE:",
             poll.is_active
         )
+
         print(
-            "POLL START:",
-            poll.start_date
-        )
-        print(
-            "POLL END:",
-            poll.end_date
+            "POLL PARTICIPANT TYPE:",
+            poll.participant_type
         )
 
         # =====================================================
         # بررسی مجتمع
         # =====================================================
 
-        if poll.house_id != house.id:
+        if poll.house_id != user_house.id:
+
             print(
                 "HOUSE MATCH: FALSE"
             )
@@ -2995,6 +3018,7 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if not poll.is_active:
+
             print(
                 "POLL ACTIVE: FALSE"
             )
@@ -3003,7 +3027,7 @@ class MobilePollVoteView(APIView):
                 {
                     'success': False,
                     'message':
-                        'این نظرسنجی غیرفعال است.'
+                        'این نظرسنجی غیرفعال شده است.'
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
@@ -3013,9 +3037,305 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if poll.start_date > now:
+
             print(
-                "START DATE: NOT STARTED"
+                "POLL NOT STARTED"
             )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'زمان شروع این نظرسنجی فرا نرسیده است.'
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # =====================================================
+        # بررسی تاریخ پایان
+        # =====================================================
+
+        if poll.end_date < now:
+
+            print(
+                "POLL EXPIRED"
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'زمان این نظرسنجی به پایان رسیده است.'
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # =====================================================
+        # تشخیص مالک فعال
+        # =====================================================
+
+        is_owner = Unit.objects.filter(
+            myhouse=user_house,
+            user=request.user,
+            is_active=True,
+        ).exists()
+
+        print(
+            "IS OWNER:",
+            is_owner
+        )
+
+        # =====================================================
+        # تشخیص مستأجر فعال
+        # =====================================================
+
+        is_renter = Renter.objects.filter(
+            myhouse=user_house,
+            unit__myhouse=user_house,
+            unit__is_active=True,
+            user=request.user,
+            renter_is_active=True,
+        ).exists()
+
+        print(
+            "IS RENTER:",
+            is_renter
+        )
+
+        # =====================================================
+        # کاربر باید مالک یا مستأجر فعال باشد
+        # =====================================================
+
+        if not is_owner and not is_renter:
+
+            print(
+                "USER IS NOT OWNER OR RENTER"
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'شما مالک یا مستأجر فعال این مجتمع نیستید.'
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # =====================================================
+        # بررسی participant_type
+        # =====================================================
+
+        participant_type = (
+            poll.participant_type or 'all'
+        ).strip().lower()
+
+        print(
+            "PARTICIPANT TYPE:",
+            participant_type
+        )
+
+        # =====================================================
+        # بررسی معتبر بودن participant_type
+        # =====================================================
+
+        if participant_type not in [
+            'all',
+            'owners',
+            'renters',
+        ]:
+
+            print(
+                "INVALID PARTICIPANT TYPE"
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'نوع شرکت‌کنندگان این نظرسنجی نامعتبر است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # =====================================================
+        # فقط مالکین
+        # =====================================================
+
+        if (
+            participant_type == 'owners'
+            and not is_owner
+        ):
+
+            print(
+                "ACCESS DENIED - OWNERS ONLY"
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'این نظرسنجی فقط برای مالکین فعال است.'
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # =====================================================
+        # فقط مستأجرین
+        # =====================================================
+
+        if (
+            participant_type == 'renters'
+            and not is_renter
+        ):
+
+            print(
+                "ACCESS DENIED - RENTERS ONLY"
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'این نظرسنجی فقط برای مستأجرین فعال است.'
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        print(
+            "PARTICIPANT ACCESS: OK"
+        )
+
+        # =====================================================
+        # Serializer
+        # =====================================================
+
+        serializer = PollDetailSerializer(
+            poll,
+            context={
+                'request': request,
+            }
+        )
+
+        print(
+            "POLL DETAIL SUCCESS"
+        )
+
+        print(
+            "================================================"
+        )
+
+        return Response({
+            'success': True,
+            'poll': serializer.data,
+        })
+
+
+class MobilePollVoteView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, pk):
+
+        now = timezone.now()
+
+        print()
+        print("================ POLL VOTE DEBUG ================")
+        print("USER:", request.user)
+        print("USER ID:", request.user.id)
+        print("USER HOUSE:", request.user.house)
+        print("USER HOUSE ID:", request.user.house_id)
+        print("POLL ID:", pk)
+        print("NOW:", now)
+
+        # =====================================================
+        # مجتمع کاربر
+        # =====================================================
+
+        house = request.user.house
+
+        if house is None:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'مجتمع کاربر مشخص نشده است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        print("FINAL HOUSE:", house)
+        print("FINAL HOUSE ID:", house.id)
+
+        # =====================================================
+        # پیدا کردن نظرسنجی
+        # =====================================================
+
+        try:
+            poll = Poll.objects.get(id=pk)
+
+        except Poll.DoesNotExist:
+
+            print("POLL NOT FOUND")
+
+            return Response(
+                {
+                    'success': False,
+                    'message': 'نظرسنجی پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        print("POLL FOUND:", poll.id)
+        print("POLL HOUSE:", poll.house)
+        print("POLL HOUSE ID:", poll.house_id)
+        print("POLL ACTIVE:", poll.is_active)
+        print("POLL START:", poll.start_date)
+        print("POLL END:", poll.end_date)
+        print(
+            "POLL PARTICIPANT TYPE:",
+            poll.participant_type
+        )
+
+        # =====================================================
+        # بررسی مجتمع
+        # =====================================================
+
+        if poll.house_id != house.id:
+
+            print("HOUSE MATCH: FALSE")
+
+            return Response(
+                {
+                    'success': False,
+                    'message': 'این نظرسنجی برای مجتمع شما فعال نیست.'
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        print("HOUSE MATCH: TRUE")
+
+        # =====================================================
+        # بررسی فعال بودن
+        # =====================================================
+
+        if not poll.is_active:
+
+            print("POLL ACTIVE: FALSE")
+
+            return Response(
+                {
+                    'success': False,
+                    'message': 'این نظرسنجی غیرفعال است.'
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # =====================================================
+        # بررسی تاریخ شروع
+        # =====================================================
+
+        if poll.start_date > now:
+
+            print("START DATE: NOT STARTED")
 
             return Response(
                 {
@@ -3031,9 +3351,8 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if poll.end_date < now:
-            print(
-                "END DATE: EXPIRED"
-            )
+
+            print("END DATE: EXPIRED")
 
             return Response(
                 {
@@ -3044,30 +3363,191 @@ class MobilePollVoteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        print("POLL DATE: OK")
+
+        # =====================================================
+        # تشخیص مالک بودن کاربر
+        # =====================================================
+
+        owner_unit = Unit.objects.filter(
+            myhouse=house,
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        is_owner = owner_unit is not None
+
+        print("IS OWNER:", is_owner)
         print(
-            "POLL DATE: OK"
+            "OWNER UNIT:",
+            owner_unit
+        )
+        print(
+            "OWNER UNIT ID:",
+            getattr(owner_unit, 'id', None)
         )
 
         # =====================================================
-        # پیدا کردن واحد کاربر
+        # تشخیص مستأجر بودن کاربر
         # =====================================================
 
-        unit = Unit.objects.filter(
-            Q(user=request.user) |
-            Q(renters__user=request.user, renters__renter_is_active=True
-              ), myhouse=house, is_active=True, ).distinct().first()
+        active_renter = Renter.objects.filter(
+            myhouse=house,
+            unit__myhouse=house,
+            unit__is_active=True,
+            user=request.user,
+            renter_is_active=True,
+        ).select_related(
+            'unit'
+        ).first()
 
+        is_renter = active_renter is not None
+
+        print("IS RENTER:", is_renter)
         print(
-            "USER UNIT:",
-            unit
+            "ACTIVE RENTER:",
+            active_renter
+        )
+        print(
+            "RENTER UNIT ID:",
+            getattr(
+                active_renter,
+                'unit_id',
+                None
+            )
         )
 
+        # =====================================================
+        # کاربر باید مالک یا مستأجر فعال باشد
+        # =====================================================
+
+        if not is_owner and not is_renter:
+
+            print("USER IS NOT OWNER OR RENTER")
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'شما در این مجتمع مالک یا مستأجر فعال نیستید.'
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # =====================================================
+        # بررسی نوع شرکت‌کنندگان نظرسنجی
+        # =====================================================
+
+        participant_type = (
+            poll.participant_type or 'all'
+        ).strip().lower()
+
         print(
-            "USER UNIT ID:",
-            getattr(unit, 'id', None)
+            "FINAL PARTICIPANT TYPE:",
+            participant_type
         )
+
+        # -----------------------------------------------------
+        # فقط مالکین
+        # -----------------------------------------------------
+
+        if participant_type == 'owners' and not is_owner:
+
+            print(
+                "ACCESS DENIED: POLL IS FOR OWNERS ONLY"
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'این نظرسنجی فقط برای مالکین فعال است.'
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -----------------------------------------------------
+        # فقط مستأجرین
+        # -----------------------------------------------------
+
+        if participant_type == 'renters' and not is_renter:
+
+            print(
+                "ACCESS DENIED: POLL IS FOR RENTERS ONLY"
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'این نظرسنجی فقط برای مستأجرین فعال است.'
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -----------------------------------------------------
+        # مقدار نامعتبر participant_type
+        # -----------------------------------------------------
+
+        if participant_type not in [
+            'all',
+            'owners',
+            'renters',
+        ]:
+
+            print(
+                "INVALID PARTICIPANT TYPE:",
+                participant_type
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'نوع شرکت‌کنندگان این نظرسنجی نامعتبر است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        print("PARTICIPANT ACCESS: OK")
+
+        # =====================================================
+        # تعیین واحد معتبر برای ثبت رأی
+        # =====================================================
+
+        if is_owner and participant_type in [
+            'all',
+            'owners',
+        ]:
+
+            unit = owner_unit
+
+        elif is_renter and participant_type in [
+            'all',
+            'renters',
+        ]:
+
+            unit = active_renter.unit
+
+        else:
+
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'واحد مجاز برای ثبت رأی پیدا نشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # =====================================================
+        # بررسی نهایی واحد
+        # =====================================================
 
         if unit is None:
+
+            print("UNIT NOT FOUND")
+
             return Response(
                 {
                     'success': False,
@@ -3077,8 +3557,11 @@ class MobilePollVoteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        print("FINAL USER UNIT:", unit)
+        print("FINAL USER UNIT ID:", unit.id)
+
         # =====================================================
-        # بررسی رأی قبلی
+        # جلوگیری از رأی مجدد
         # =====================================================
 
         already_voted = Vote.objects.filter(
@@ -3092,6 +3575,7 @@ class MobilePollVoteView(APIView):
         )
 
         if already_voted:
+
             return Response(
                 {
                     'success': False,
@@ -3105,9 +3589,7 @@ class MobilePollVoteView(APIView):
         # دریافت پاسخ‌ها
         # =====================================================
 
-        answers = request.data.get(
-            'answers'
-        )
+        answers = request.data.get('answers')
 
         print(
             "ANSWERS:",
@@ -3115,6 +3597,7 @@ class MobilePollVoteView(APIView):
         )
 
         if not isinstance(answers, list):
+
             return Response(
                 {
                     'success': False,
@@ -3125,6 +3608,7 @@ class MobilePollVoteView(APIView):
             )
 
         if not answers:
+
             return Response(
                 {
                     'success': False,
@@ -3135,7 +3619,7 @@ class MobilePollVoteView(APIView):
             )
 
         # =====================================================
-        # بررسی سؤال‌ها و گزینه‌ها
+        # سؤال‌های نظرسنجی
         # =====================================================
 
         poll_questions = {
@@ -3147,18 +3631,46 @@ class MobilePollVoteView(APIView):
 
         processed_questions = set()
 
+        # =====================================================
+        # پردازش پاسخ‌ها
+        # =====================================================
+
         for answer in answers:
+
+            if not isinstance(answer, dict):
+
+                return Response(
+                    {
+                        'success': False,
+                        'message':
+                            'ساختار پاسخ نامعتبر است.'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # -------------------------------------------------
+            # شناسه سؤال
+            # -------------------------------------------------
 
             question_id = answer.get(
                 'question_id'
             )
+
+            # -------------------------------------------------
+            # شناسه گزینه‌ها
+            # -------------------------------------------------
 
             choice_ids = answer.get(
                 'choice_ids',
                 []
             )
 
+            # -------------------------------------------------
+            # بررسی شناسه سؤال
+            # -------------------------------------------------
+
             if not question_id:
+
                 return Response(
                     {
                         'success': False,
@@ -3185,7 +3697,12 @@ class MobilePollVoteView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # -------------------------------------------------
+            # سؤال تکراری
+            # -------------------------------------------------
+
             if question_id in processed_questions:
+
                 return Response(
                     {
                         'success': False,
@@ -3199,11 +3716,16 @@ class MobilePollVoteView(APIView):
                 question_id
             )
 
+            # -------------------------------------------------
+            # پیدا کردن سؤال
+            # -------------------------------------------------
+
             question = poll_questions.get(
                 question_id
             )
 
             if question is None:
+
                 return Response(
                     {
                         'success': False,
@@ -3213,10 +3735,15 @@ class MobilePollVoteView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
 
+            # -------------------------------------------------
+            # بررسی لیست گزینه‌ها
+            # -------------------------------------------------
+
             if not isinstance(
-                    choice_ids,
-                    list
+                choice_ids,
+                list
             ):
+
                 return Response(
                     {
                         'success': False,
@@ -3225,6 +3752,33 @@ class MobilePollVoteView(APIView):
                     },
                     status=status.HTTP_400_BAD_REQUEST,
                 )
+
+            # -------------------------------------------------
+            # تبدیل ID گزینه‌ها به عدد
+            # -------------------------------------------------
+
+            normalized_choice_ids = []
+
+            for choice_id in choice_ids:
+
+                try:
+
+                    normalized_choice_ids.append(
+                        int(choice_id)
+                    )
+
+                except (TypeError, ValueError):
+
+                    return Response(
+                        {
+                            'success': False,
+                            'message':
+                                'شناسه یکی از گزینه‌ها نامعتبر است.'
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+            choice_ids = normalized_choice_ids
 
             # -------------------------------------------------
             # تعداد انتخاب
@@ -3236,6 +3790,7 @@ class MobilePollVoteView(APIView):
             ]:
 
                 if len(choice_ids) != 1:
+
                     return Response(
                         {
                             'success': False,
@@ -3248,6 +3803,7 @@ class MobilePollVoteView(APIView):
             elif question.question_type == 'multi':
 
                 if len(choice_ids) < 1:
+
                     return Response(
                         {
                             'success': False,
@@ -3258,12 +3814,28 @@ class MobilePollVoteView(APIView):
                     )
 
             # -------------------------------------------------
+            # نوع سؤال نامعتبر
+            # -------------------------------------------------
+
+            else:
+
+                return Response(
+                    {
+                        'success': False,
+                        'message':
+                            'نوع سؤال نامعتبر است.'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # -------------------------------------------------
             # جلوگیری از ID تکراری
             # -------------------------------------------------
 
             if len(choice_ids) != len(
-                    set(choice_ids)
+                set(choice_ids)
             ):
+
                 return Response(
                     {
                         'success': False,
@@ -3274,7 +3846,22 @@ class MobilePollVoteView(APIView):
                 )
 
             # -------------------------------------------------
-            # گزینه‌ها
+            # جلوگیری از انتخاب خالی
+            # -------------------------------------------------
+
+            if not choice_ids:
+
+                return Response(
+                    {
+                        'success': False,
+                        'message':
+                            'حداقل یک گزینه باید انتخاب شود.'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            # -------------------------------------------------
+            # بررسی گزینه‌ها
             # -------------------------------------------------
 
             choices = Choice.objects.filter(
@@ -3283,8 +3870,9 @@ class MobilePollVoteView(APIView):
             )
 
             if choices.count() != len(
-                    choice_ids
+                choice_ids
             ):
+
                 return Response(
                     {
                         'success': False,
@@ -3299,6 +3887,7 @@ class MobilePollVoteView(APIView):
             # -------------------------------------------------
 
             for choice in choices:
+
                 Vote.objects.create(
                     poll=poll,
                     question=question,
@@ -3308,7 +3897,7 @@ class MobilePollVoteView(APIView):
                 )
 
         # =====================================================
-        # بررسی اینکه همه سؤال‌ها پاسخ داده شده‌اند
+        # بررسی پاسخ همه سؤال‌ها
         # =====================================================
 
         total_questions = Question.objects.filter(
@@ -3330,10 +3919,10 @@ class MobilePollVoteView(APIView):
         )
 
         if answered_questions != total_questions:
-            # چون transaction.atomic داریم،
-            # رأی‌های ایجادشده rollback می‌شوند.
-            from django.db import transaction
-            transaction.set_rollback(True)
+
+            transaction.set_rollback(
+                True
+            )
 
             return Response(
                 {
@@ -3344,13 +3933,12 @@ class MobilePollVoteView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        print(
-            "VOTE SUCCESS"
-        )
+        # =====================================================
+        # رأی با موفقیت ثبت شد
+        # =====================================================
 
-        print(
-            "================================================"
-        )
+        print("VOTE SUCCESS")
+        print("================================================")
 
         return Response(
             {
@@ -3362,7 +3950,9 @@ class MobilePollVoteView(APIView):
         )
 
 
-# Civil Views
+# =====================================================
+# لیست شارژهای عمرانی
+# =====================================================
 class CivilChargeListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -7977,6 +8567,7 @@ class ManagerBankTransferDeleteView(APIView):
 # ============================================================
 # =================== Polls =========================
 # ============================================================
+
 class ManagerPollBaseView(APIView):
 
     authentication_classes = [
@@ -7988,12 +8579,14 @@ class ManagerPollBaseView(APIView):
     ]
 
     def get_house(self, user):
+
         return MyHouse.objects.filter(
             user=user,
             is_active=True
         ).first()
 
     def get_poll(self, user, poll_id):
+
         house = self.get_house(user)
 
         if not house:
@@ -8020,6 +8613,129 @@ class ManagerPollBaseView(APIView):
             return False
 
         return True
+
+    # ========================================================
+    # تعداد مالکین فعال
+    # ========================================================
+
+    def get_active_owner_count(self, house):
+
+        return house.units.filter(
+            is_active=True
+        ).count()
+
+    # ========================================================
+    # تعداد مستاجرین فعال
+    # ========================================================
+
+    def get_active_renter_count(self, house):
+
+        return Renter.objects.filter(
+            unit__myhouse=house,
+            unit__is_active=True,
+            renter_is_active=True
+        ).count()
+
+    # ========================================================
+    # تعداد افراد مجاز به شرکت
+    # ========================================================
+
+    def get_eligible_counts(self, poll):
+
+        house = poll.house
+
+        owner_count = self.get_active_owner_count(
+            house
+        )
+
+        renter_count = self.get_active_renter_count(
+            house
+        )
+
+        if poll.participant_type == 'owners':
+
+            eligible_count = owner_count
+
+        elif poll.participant_type == 'renters':
+
+            eligible_count = renter_count
+
+        else:
+
+            eligible_count = (
+                owner_count +
+                renter_count
+            )
+
+        return {
+            'owner_count': owner_count,
+            'renter_count': renter_count,
+            'eligible_count': eligible_count,
+        }
+
+    # ========================================================
+    # بررسی مجاز بودن کاربر برای شرکت در نظرسنجی
+    # ========================================================
+
+    def is_user_eligible_for_poll(
+        self,
+        poll,
+        user
+    ):
+
+        if not user or not user.is_authenticated:
+            return False
+
+        house = poll.house
+
+        # ---------------------------------------------
+        # واحد فعال متعلق به کاربر
+        # ---------------------------------------------
+
+        owner_unit_exists = house.units.filter(
+            user=user,
+            is_active=True
+        ).exists()
+
+        # ---------------------------------------------
+        # مستاجر فعال
+        # ---------------------------------------------
+
+        renter_exists = Renter.objects.filter(
+            unit__myhouse=house,
+            unit__is_active=True,
+            user=user,
+            renter_is_active=True
+        ).exists()
+
+        # ---------------------------------------------
+        # همه
+        # ---------------------------------------------
+
+        if poll.participant_type == 'all':
+
+            return (
+                owner_unit_exists or
+                renter_exists
+            )
+
+        # ---------------------------------------------
+        # فقط مالکین
+        # ---------------------------------------------
+
+        if poll.participant_type == 'owners':
+
+            return owner_unit_exists
+
+        # ---------------------------------------------
+        # فقط مستاجرین
+        # ---------------------------------------------
+
+        if poll.participant_type == 'renters':
+
+            return renter_exists
+
+        return False
 
 
 # ============================================================
@@ -8434,104 +9150,199 @@ class ManagerPollResultsView(
                 status=status.HTTP_404_NOT_FOUND
             )
 
-        eligible_users = User.objects.filter(
-            manager=request.user,
-            is_active=True
-        ).count()
+        # ====================================================
+        # افراد مجاز
+        # ====================================================
 
-        participants = Vote.objects.filter(
-            poll=poll
-        ).values(
-            'user'
-        ).distinct().count()
+        eligible_data = self.get_eligible_counts(
+            poll
+        )
+
+        owner_count = eligible_data[
+            'owner_count'
+        ]
+
+        renter_count = eligible_data[
+            'renter_count'
+        ]
+
+        eligible_users = eligible_data[
+            'eligible_count'
+        ]
+
+        # ====================================================
+        # شرکت کنندگان
+        # ====================================================
+
+        participants = (
+            Vote.objects
+            .filter(
+                poll=poll
+            )
+            .values(
+                'user'
+            )
+            .distinct()
+            .count()
+        )
+
+        # ====================================================
+        # عدم شرکت
+        # ====================================================
 
         not_participated = max(
             eligible_users - participants,
             0
         )
 
+        # ====================================================
+        # درصد مشارکت
+        # ====================================================
+
         if eligible_users:
+
             participation_percentage = round(
                 (
-                    participants
-                    / eligible_users
+                    participants /
+                    eligible_users
                 ) * 100,
                 1
             )
+
         else:
+
             participation_percentage = 0
+
+        # ====================================================
+        # نتایج سوالات
+        # ====================================================
 
         questions_result = []
 
         questions = (
             poll.questions
-            .prefetch_related('choices')
-            .order_by('order')
+            .prefetch_related(
+                'choices'
+            )
+            .order_by(
+                'order'
+            )
         )
 
         for question in questions:
 
-            question_participants = Vote.objects.filter(
-                question=question
-            ).values(
-                'user'
-            ).distinct().count()
+            question_participants = (
+                Vote.objects
+                .filter(
+                    question=question
+                )
+                .values(
+                    'user'
+                )
+                .distinct()
+                .count()
+            )
 
             choices_result = []
 
             for choice in question.choices.all():
 
-                vote_count = Vote.objects.filter(
-                    choice=choice
-                ).count()
+                vote_count = (
+                    Vote.objects
+                    .filter(
+                        choice=choice
+                    )
+                    .count()
+                )
 
                 if question_participants:
+
                     percentage = round(
                         (
-                            vote_count
-                            / question_participants
+                            vote_count /
+                            question_participants
                         ) * 100,
                         1
                     )
+
                 else:
+
                     percentage = 0
 
                 choices_result.append({
-                    'id': choice.id,
-                    'title': choice.title,
-                    'vote_count': vote_count,
-                    'percentage': percentage,
+                    'id':
+                        choice.id,
+
+                    'title':
+                        choice.title,
+
+                    'vote_count':
+                        vote_count,
+
+                    'percentage':
+                        percentage,
                 })
 
             questions_result.append({
-                'id': question.id,
-                'title': question.title,
+
+                'id':
+                    question.id,
+
+                'title':
+                    question.title,
+
                 'question_type':
                     question.question_type,
+
                 'order':
                     question.order,
+
                 'participant_count':
                     question_participants,
+
                 'choices':
                     choices_result,
             })
 
+        # ====================================================
+        # Response
+        # ====================================================
+
         return Response(
             {
+
                 'poll': {
-                    'id': poll.id,
-                    'title': poll.title,
+
+                    'id':
+                        poll.id,
+
+                    'title':
+                        poll.title,
+
                     'description':
                         poll.description,
+
                     'start_date':
                         poll.start_date,
+
                     'end_date':
                         poll.end_date,
+
                     'is_active':
                         poll.is_active,
+
+                    'participant_type':
+                        poll.participant_type,
                 },
 
                 'participation': {
+
+                    'owner_count':
+                        owner_count,
+
+                    'renter_count':
+                        renter_count,
+
                     'eligible_count':
                         eligible_users,
 
@@ -8548,5 +9359,860 @@ class ManagerPollResultsView(
                 'questions':
                     questions_result,
             },
+
             status=status.HTTP_200_OK
         )
+
+# ============================================================
+# TICKET TO USER
+# ============================================================
+class MobileSupportTicketCreateView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+
+        user = request.user
+
+        subject = request.data.get('subject')
+        message = request.data.get('message')
+        is_call = request.data.get('is_call', False)
+
+        if not subject:
+            return Response({
+                'success': False,
+                'message': 'عنوان تیکت الزامی است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not message:
+            return Response({
+                'success': False,
+                'message': 'متن پیام الزامی است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # تبدیل is_call به boolean
+        # -------------------------------------------------
+
+        if isinstance(is_call, str):
+            is_call = is_call.lower() in [
+                'true',
+                '1',
+                'yes',
+                'on',
+            ]
+
+        # -------------------------------------------------
+        # پیدا کردن مجتمع کاربر
+        # -------------------------------------------------
+
+        house = getattr(user, 'house', None)
+
+        if not house:
+            return Response({
+                'success': False,
+                'message': 'مجتمع کاربر مشخص نیست.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # ایجاد تیکت
+        # -------------------------------------------------
+
+        ticket = SupportUser.objects.create(
+            user=user,
+            subject=subject,
+            message=message,
+            is_sent=True,
+            is_read=False,
+            is_call=is_call,
+            is_closed=False,
+            is_answer=False,
+            is_waiting=True,
+        )
+
+        # -------------------------------------------------
+        # پیام اولیه
+        # -------------------------------------------------
+
+        support_message = SupportMessage.objects.create(
+            support_user=ticket,
+            sender=user,
+            message=message,
+            is_read=False,
+        )
+
+        # -------------------------------------------------
+        # پیدا کردن مدیران ساختمان
+        #
+        # مدیرانی که MyHouse مربوط به آنهاست
+        # -------------------------------------------------
+
+        managers = User.objects.filter(
+            is_middle_admin=True,
+            myhouse__id=house.id,
+        ).distinct()
+
+        # -------------------------------------------------
+        # Notification برای مدیر
+        # -------------------------------------------------
+
+        notifications = []
+
+        for manager in managers:
+
+            notifications.append(
+                Notification(
+                    user=manager,
+                    ticket=ticket,
+                    title='تیکت جدید',
+                    message=(
+                        f'تیکت جدید با شماره '
+                        f'{ticket.ticket_no} برای شما ارسال شد.'
+                    ),
+                    link=f'/support/tickets/{ticket.id}/',
+                    is_read=False,
+                )
+            )
+
+        if notifications:
+            Notification.objects.bulk_create(
+                notifications
+            )
+
+        return Response({
+            'success': True,
+            'message': 'تیکت با موفقیت ارسال شد.',
+            'ticket': {
+                'id': ticket.id,
+                'ticket_no': ticket.ticket_no,
+                'subject': ticket.subject,
+                'is_call': ticket.is_call,
+                'created_at': ticket.created_at,
+            }
+        }, status=status.HTTP_201_CREATED)
+
+class MobileSupportTicketListView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        user = request.user
+
+        tickets = (
+            SupportUser.objects
+            .filter(user=user)
+            .prefetch_related(
+                'messages__sender',
+                'messages__attachments',
+            )
+            .order_by('-updated_at')
+        )
+
+        serializer = SupportTicketListSerializer(
+            tickets,
+            many=True,
+            context={
+                'request': request
+            }
+        )
+
+        return Response({
+            'success': True,
+            'count': tickets.count(),
+            'tickets': serializer.data,
+        })
+
+
+class MobileSupportTicketDetailView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, ticket_id):
+
+        ticket = (
+            SupportUser.objects
+            .filter(
+                id=ticket_id,
+                user=request.user,
+            )
+            .prefetch_related(
+                'messages__sender',
+                'messages__attachments',
+                'files',
+            )
+            .first()
+        )
+
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # -------------------------------------------------
+        # پیام‌های مدیر را خوانده‌شده کن
+        # -------------------------------------------------
+
+        ticket.messages.filter(
+            is_read=False
+        ).exclude(
+            sender=request.user
+        ).update(
+            is_read=True
+        )
+
+        # Notification مربوط به این تیکت نیز خوانده شود
+        Notification.objects.filter(
+            user=request.user,
+            ticket=ticket,
+            is_read=False,
+        ).update(
+            is_read=True
+        )
+
+        serializer = SupportTicketDetailSerializer(
+            ticket,
+            context={
+                'request': request
+            }
+        )
+
+        return Response({
+            'success': True,
+            'ticket': serializer.data,
+        })
+
+
+class MobileSupportTicketMessageView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, ticket_id):
+
+        ticket = SupportUser.objects.filter(
+            id=ticket_id,
+            user=request.user,
+        ).first()
+
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        if ticket.is_closed:
+            return Response({
+                'success': False,
+                'message': 'این تیکت بسته شده است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        message = request.data.get('message')
+
+        if not message:
+            return Response({
+                'success': False,
+                'message': 'متن پیام الزامی است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        support_message = SupportMessage.objects.create(
+            support_user=ticket,
+            sender=request.user,
+            message=message,
+            is_read=False,
+        )
+
+        # -------------------------------------------------
+        # وضعیت تیکت
+        # -------------------------------------------------
+
+        ticket.is_answer = True
+        ticket.is_waiting = True
+        ticket.is_read = False
+        ticket.updated_at = timezone.now()
+        ticket.save(
+            update_fields=[
+                'is_answer',
+                'is_waiting',
+                'is_read',
+                'updated_at',
+            ]
+        )
+
+        # -------------------------------------------------
+        # پیدا کردن مجتمع
+        # -------------------------------------------------
+
+        house = getattr(
+            request.user,
+            'house',
+            None
+        )
+
+        if house:
+
+            managers = User.objects.filter(
+                is_middle_admin=True,
+                myhouse__id=house.id,
+            ).distinct()
+
+            notifications = []
+
+            for manager in managers:
+
+                notifications.append(
+                    Notification(
+                        user=manager,
+                        ticket=ticket,
+                        title='پاسخ جدید به تیکت',
+                        message=(
+                            f'در تیکت شماره '
+                            f'{ticket.ticket_no} پیام جدیدی دریافت شد.'
+                        ),
+                        link=f'/support/tickets/{ticket.id}/',
+                        is_read=False,
+                    )
+                )
+
+            if notifications:
+                Notification.objects.bulk_create(
+                    notifications
+                )
+
+        return Response({
+            'success': True,
+            'message': 'پیام شما ارسال شد.',
+            'message_id': support_message.id,
+        }, status=status.HTTP_201_CREATED)
+
+
+class MobileSupportTicketCloseView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, ticket_id):
+
+        ticket = SupportUser.objects.filter(
+            id=ticket_id,
+            user=request.user,
+        ).first()
+
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        if ticket.is_closed:
+            return Response({
+                'success': False,
+                'message': 'این تیکت قبلاً بسته شده است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        ticket.is_closed = True
+        ticket.is_waiting = False
+        ticket.save(
+            update_fields=[
+                'is_closed',
+                'is_waiting',
+                'updated_at',
+            ]
+        )
+
+        return Response({
+            'success': True,
+            'message': 'تیکت بسته شد.',
+        })
+
+
+# ============================================================
+# MANAGER TICKET
+# ============================================================
+
+class ManagerSupportTicketListView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        # -------------------------------------------------
+        # بررسی مدیر ساختمان
+        # -------------------------------------------------
+
+        if not request.user.is_middle_admin:
+            return Response({
+                'success': False,
+                'message': 'دسترسی غیرمجاز است.',
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # -------------------------------------------------
+        # مجتمع مدیر
+        # -------------------------------------------------
+
+        house = MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not house:
+            return Response({
+                'success': False,
+                'message': 'مجتمع فعال برای مدیر پیدا نشد.',
+                'tickets': [],
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # کاربران مالک واحدهای فعال
+        # -------------------------------------------------
+
+        owner_user_ids = Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        # -------------------------------------------------
+        # کاربران مستاجر فعال
+        # -------------------------------------------------
+
+        renter_user_ids = Renter.objects.filter(
+            unit__myhouse=house,
+            unit__is_active=True,
+            renter_is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        # -------------------------------------------------
+        # تمام کاربران مجاز مجتمع
+        # -------------------------------------------------
+
+        resident_user_ids = set(
+            owner_user_ids
+        ) | set(
+            renter_user_ids
+        )
+
+        # -------------------------------------------------
+        # تیکت‌های این مجتمع
+        # -------------------------------------------------
+
+        tickets = (
+            SupportUser.objects
+            .filter(
+                user_id__in=resident_user_ids,
+                is_sent=True,
+            )
+            .select_related('user')
+            .prefetch_related(
+                'messages__sender',
+                'messages__attachments',
+            )
+            .order_by('-updated_at')
+        )
+
+        serializer = SupportTicketListSerializer(
+            tickets,
+            many=True,
+            context={
+                'request': request,
+            }
+        )
+
+        return Response({
+            'success': True,
+            'count': tickets.count(),
+            'tickets': serializer.data,
+        })
+
+class ManagerSupportTicketDetailView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, ticket_id):
+
+        # -------------------------------------------------
+        # بررسی مدیر
+        # -------------------------------------------------
+
+        if not request.user.is_middle_admin:
+            return Response({
+                'success': False,
+                'message': 'دسترسی غیرمجاز است.',
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # -------------------------------------------------
+        # مجتمع مدیر
+        # -------------------------------------------------
+
+        house = MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not house:
+            return Response({
+                'success': False,
+                'message': 'مجتمع فعال برای مدیر پیدا نشد.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # پیدا کردن مالکین فعال
+        # -------------------------------------------------
+
+        owner_user_ids = Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        # -------------------------------------------------
+        # پیدا کردن مستاجرین فعال
+        # -------------------------------------------------
+
+        renter_user_ids = Renter.objects.filter(
+            unit__myhouse=house,
+            unit__is_active=True,
+            renter_is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        resident_user_ids = set(
+            owner_user_ids
+        ) | set(
+            renter_user_ids
+        )
+
+        # -------------------------------------------------
+        # تیکت
+        # -------------------------------------------------
+
+        ticket = (
+            SupportUser.objects
+            .filter(
+                id=ticket_id,
+                user_id__in=resident_user_ids,
+                is_sent=True,
+            )
+            .select_related('user')
+            .prefetch_related(
+                'messages__sender',
+                'messages__attachments',
+                'files',
+            )
+            .first()
+        )
+
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # -------------------------------------------------
+        # پیام‌های ساکن خوانده‌شده شوند
+        # -------------------------------------------------
+
+        ticket.messages.filter(
+            is_read=False
+        ).exclude(
+            sender=request.user
+        ).update(
+            is_read=True
+        )
+
+        # -------------------------------------------------
+        # Notificationهای این تیکت برای مدیر خوانده شود
+        # -------------------------------------------------
+
+        Notification.objects.filter(
+            user=request.user,
+            ticket=ticket,
+            is_read=False,
+        ).update(
+            is_read=True
+        )
+
+        # -------------------------------------------------
+        # پاسخ
+        # -------------------------------------------------
+
+        serializer = SupportTicketDetailSerializer(
+            ticket,
+            context={
+                'request': request,
+            }
+        )
+
+        return Response({
+            'success': True,
+            'ticket': serializer.data,
+        })
+
+
+class ManagerSupportTicketMessageView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, ticket_id):
+
+        # -------------------------------------------------
+        # بررسی مدیر
+        # -------------------------------------------------
+
+        if not request.user.is_middle_admin:
+            return Response({
+                'success': False,
+                'message': 'دسترسی غیرمجاز است.',
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # -------------------------------------------------
+        # مجتمع مدیر
+        # -------------------------------------------------
+
+        house = MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not house:
+            return Response({
+                'success': False,
+                'message': 'مجتمع فعال برای مدیر پیدا نشد.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # کاربران مجاز مجتمع
+        # -------------------------------------------------
+
+        owner_user_ids = Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        renter_user_ids = Renter.objects.filter(
+            unit__myhouse=house,
+            unit__is_active=True,
+            renter_is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        resident_user_ids = set(
+            owner_user_ids
+        ) | set(
+            renter_user_ids
+        )
+
+        # -------------------------------------------------
+        # تیکت
+        # -------------------------------------------------
+
+        ticket = (
+            SupportUser.objects
+            .filter(
+                id=ticket_id,
+                user_id__in=resident_user_ids,
+                is_sent=True,
+            )
+            .select_related('user')
+            .first()
+        )
+
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # -------------------------------------------------
+        # تیکت بسته شده؟
+        # -------------------------------------------------
+
+        if ticket.is_closed:
+            return Response({
+                'success': False,
+                'message': 'این تیکت بسته شده است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # متن پاسخ
+        # -------------------------------------------------
+
+        message = request.data.get('message')
+
+        if not message or not str(message).strip():
+            return Response({
+                'success': False,
+                'message': 'متن پاسخ الزامی است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # ایجاد پیام
+        # -------------------------------------------------
+
+        support_message = SupportMessage.objects.create(
+            support_user=ticket,
+            sender=request.user,
+            message=message,
+            is_read=False,
+        )
+
+        # -------------------------------------------------
+        # وضعیت تیکت
+        #
+        # بعد از پاسخ مدیر:
+        # تیکت منتظر پاسخ ساکن است.
+        # -------------------------------------------------
+
+        ticket.is_answer = True
+        ticket.is_waiting = False
+        ticket.is_read = True
+
+        ticket.save(
+            update_fields=[
+                'is_answer',
+                'is_waiting',
+                'is_read',
+                'updated_at',
+            ]
+        )
+
+        # -------------------------------------------------
+        # Notification برای ساکن
+        # -------------------------------------------------
+
+        Notification.objects.create(
+            user=ticket.user,
+            ticket=ticket,
+            title='پاسخ جدید به تیکت',
+            message=(
+                f'مدیر ساختمان به تیکت شماره '
+                f'{ticket.ticket_no} پاسخ داده است.'
+            ),
+            link=f'/support/tickets/{ticket.id}/',
+            is_read=False,
+        )
+
+        return Response({
+            'success': True,
+            'message': 'پاسخ با موفقیت ارسال شد.',
+            'message_id': support_message.id,
+        }, status=status.HTTP_201_CREATED)
+
+
+class ManagerSupportTicketCloseView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, ticket_id):
+
+        if not request.user.is_middle_admin:
+            return Response({
+                'success': False,
+                'message': 'دسترسی غیرمجاز است.',
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        house = MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not house:
+            return Response({
+                'success': False,
+                'message': 'مجتمع فعال برای مدیر پیدا نشد.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        owner_user_ids = Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        renter_user_ids = Renter.objects.filter(
+            unit__myhouse=house,
+            unit__is_active=True,
+            renter_is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        resident_user_ids = set(
+            owner_user_ids
+        ) | set(
+            renter_user_ids
+        )
+
+        ticket = SupportUser.objects.filter(
+            id=ticket_id,
+            user_id__in=resident_user_ids,
+            is_sent=True,
+        ).first()
+
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        if ticket.is_closed:
+            return Response({
+                'success': False,
+                'message': 'این تیکت قبلاً بسته شده است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        ticket.is_closed = True
+        ticket.is_waiting = False
+
+        ticket.save(
+            update_fields=[
+                'is_closed',
+                'is_waiting',
+                'updated_at',
+            ]
+        )
+
+        # اطلاع به ساکن
+        Notification.objects.create(
+            user=ticket.user,
+            ticket=ticket,
+            title='تیکت بسته شد',
+            message=(
+                f'تیکت شماره {ticket.ticket_no} '
+                f'توسط مدیر ساختمان بسته شد.'
+            ),
+            link=f'/support/tickets/{ticket.id}/',
+            is_read=False,
+        )
+
+        return Response({
+            'success': True,
+            'message': 'تیکت با موفقیت بسته شد.',
+        })
