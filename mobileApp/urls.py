@@ -14,7 +14,9 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerPollListCreateView, ManagerPollDetailView, ManagerPollToggleActiveView, ManagerPollResultsView, \
     MobileSupportTicketListView, MobileSupportTicketCreateView, MobileSupportTicketDetailView, \
     MobileSupportTicketMessageView, MobileSupportTicketCloseView, ManagerSupportTicketListView, \
-    ManagerSupportTicketDetailView, ManagerSupportTicketMessageView, ManagerSupportTicketCloseView
+    ManagerSupportTicketDetailView, ManagerSupportTicketMessageView, ManagerSupportTicketCloseView, \
+    ManagerSupportTicketWaitingView, UserSupportTicketReadView, UserSupportTicketCloseView, \
+    UserSupportTicketMessageView, UserSupportTicketDetailView, UserSupportTicketListCreateView
 
 urlpatterns = [
     path(
@@ -342,7 +344,39 @@ urlpatterns = [
         MobileSupportTicketCloseView.as_view(),
         name='mobile_support_ticket_close',
     ),
+    # =====================================================
+    # Resident ticket
+    # =====================================================
 
+    path(
+        'user-support/tickets/',
+        UserSupportTicketListCreateView.as_view(),
+        name='user_support_ticket_list_create',
+    ),
+
+    path(
+        'user-support/tickets/<int:ticket_id>/',
+        UserSupportTicketDetailView.as_view(),
+        name='user_support_ticket_detail',
+    ),
+
+    path(
+        'user-support/tickets/<int:ticket_id>/messages/',
+        UserSupportTicketMessageView.as_view(),
+        name='user_support_ticket_message_create',
+    ),
+
+    path(
+        'user-support/tickets/<int:ticket_id>/close/',
+        UserSupportTicketCloseView.as_view(),
+        name='user_support_ticket_close',
+    ),
+
+    path(
+        'user-support/tickets/<int:ticket_id>/read/',
+        UserSupportTicketReadView.as_view(),
+        name='user_support_ticket_read',
+    ),
     # -------------------------------------------------
     # TICKET/Manager
     # -------------------------------------------------
@@ -369,5 +403,10 @@ urlpatterns = [
         'manager/support/tickets/<int:ticket_id>/close/',
         ManagerSupportTicketCloseView.as_view(),
         name='manager_support_ticket_close',
+    ),
+    path(
+        'manager/support/tickets/<int:ticket_id>/waiting/',
+        ManagerSupportTicketWaitingView.as_view(),
+        name='manager_support_ticket_waiting',
     ),
 ]

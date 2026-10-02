@@ -1,10 +1,10 @@
 import json
-
 from django.db.models import Count, Q, Sum
-from django.http import JsonResponse
 from django.utils import timezone
 from decimal import Decimal
-from rest_framework.renderers import JSONRenderer
+
+from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
+
 import requests
 
 from django.contrib.contenttypes.models import ContentType
@@ -30,7 +30,7 @@ from absharProject import settings
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageManage, \
     SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund
 from middleAdmin_panel.services.bank_services import BankTransactionService
-from notifications.models import SupportUser, SupportMessage, Notification
+from notifications.models import SupportUser, SupportMessage, Notification, SupportFile
 from payment_app.views import CallbackURLCharge, ZP_API_REQUEST, ZP_API_STARTPAY
 from polls_app.models import Poll, Vote, Choice, Question
 from user_app.models import Unit, HousePaymentGateway, Renter, Bank, MyHouse, UserPayMoney
@@ -46,6 +46,7 @@ from .serializers import (
     ManagerMessageUnitSerializer, ManagerMessageListSerializer, ManagerMessageDetailSerializer,
     ManagerBankTransferListSerializer, ManagerBankTransferSerializer, ManagerBankSerializer, ManagerPollListSerializer,
     ManagerPollWriteSerializer, ManagerPollDetailSerializer, SupportTicketListSerializer, SupportTicketDetailSerializer,
+    UserSupportTicketListSerializer, UserSupportTicketCreateSerializer, UserSupportTicketDetailSerializer,
 )
 
 User = get_user_model()
@@ -9732,6 +9733,436 @@ class MobileSupportTicketCloseView(APIView):
         })
 
 
+
+# ============================================================
+# Resident TICKET
+# ============================================================
+def get_user_ticket(user, ticket_id):
+    return get_object_or_404(
+        SupportUser.objects
+        .select_related('user')
+        .prefetch_related(
+            'files',
+            'messages__sender',
+            'messages__attachments',
+        ),
+        id=ticket_id,
+        user=user,
+    )
+
+
+# =========================================================
+# لیست تیکت‌ها + ایجاد تیکت
+# =========================================================
+
+class UserSupportTicketListCreateView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    parser_classes = [
+        JSONParser,
+        MultiPartParser,
+        FormParser,
+    ]
+
+    # -----------------------------------------------------
+    # GET
+    # -----------------------------------------------------
+
+    def get(self, request):
+
+        tickets = (
+            SupportUser.objects
+            .filter(user=request.user)
+            .prefetch_related(
+                'messages__sender'
+            )
+            .order_by(
+                '-updated_at'
+            )
+        )
+
+        serializer = UserSupportTicketListSerializer(
+            tickets,
+            many=True,
+            context={
+                'request': request,
+            },
+        )
+
+        return Response({
+            'success': True,
+            'tickets': serializer.data,
+        })
+
+    # -----------------------------------------------------
+    # POST
+    # -----------------------------------------------------
+
+    @transaction.atomic
+    def post(self, request):
+
+        serializer = UserSupportTicketCreateSerializer(
+            data=request.data
+        )
+
+        serializer.is_valid(
+            raise_exception=True
+        )
+
+        ticket = serializer.save(
+            user=request.user,
+            is_sent=True,
+            is_read=False,
+            is_answer=False,
+            is_waiting=False,
+            is_closed=False,
+        )
+
+        # =================================================
+        # پیام اولیه
+        # =================================================
+
+        support_message = SupportMessage.objects.create(
+            support_user=ticket,
+            sender=request.user,
+            message=ticket.message,
+            is_read=True,
+        )
+
+        # =================================================
+        # فایل
+        # =================================================
+
+        uploaded_file = request.FILES.get('file')
+
+        if uploaded_file:
+
+            support_file = SupportFile.objects.create(
+                support_user=ticket,
+                file=uploaded_file,
+            )
+
+            support_message.attachments.add(
+                support_file
+            )
+
+        # =================================================
+        # پاسخ
+        # =================================================
+
+        response_serializer = (
+            UserSupportTicketDetailSerializer(
+                ticket,
+                context={
+                    'request': request,
+                },
+            )
+        )
+
+        return Response(
+            {
+                'success': True,
+                'message': 'تیکت با موفقیت ایجاد شد.',
+                'ticket': response_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# =========================================================
+# جزئیات تیکت
+# =========================================================
+
+class UserSupportTicketDetailView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def get(self, request, ticket_id):
+        print(
+            '========================================'
+        )
+        print(
+            '🔥🔥🔥 DETAIL VIEW CALLED 🔥🔥🔥'
+        )
+        print(
+            'TICKET ID:',
+            ticket_id
+        )
+        print(
+            'URL:',
+            request.path
+        )
+        print(
+            '========================================'
+        )
+
+        ticket = get_user_ticket(
+            request.user,
+            ticket_id,
+        )
+
+        # =================================================
+        # پیام‌های مدیر خوانده شده‌اند
+        # =================================================
+
+        ticket.messages.filter(
+            is_read=False
+        ).exclude(
+            sender=request.user
+        ).update(
+            is_read=True
+        )
+
+        # =================================================
+        # Notificationهای مربوط به این تیکت
+        # =================================================
+
+        Notification.objects.filter(
+            user=request.user,
+            ticket=ticket,
+            is_read=False,
+        ).update(
+            is_read=True
+        )
+
+        serializer = UserSupportTicketDetailSerializer(
+            ticket,
+            context={
+                'request': request,
+            },
+        )
+
+
+        print(
+            '🔥 DETAIL SERIALIZER DATA:',
+            serializer.data,
+        )
+
+        return Response({
+            'success': True,
+            'ticket': serializer.data,
+        })
+
+
+# =========================================================
+# ارسال پیام
+# =========================================================
+
+class UserSupportTicketMessageView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    parser_classes = [
+        MultiPartParser,
+        FormParser,
+    ]
+
+    @transaction.atomic
+    def post(self, request, ticket_id):
+
+        ticket = get_user_ticket(
+            request.user,
+            ticket_id,
+        )
+
+        # =================================================
+        # تیکت بسته شده
+        # =================================================
+
+        if ticket.is_closed:
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'این تیکت بسته شده است.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        message_text = (
+            request.data.get('message') or ''
+        )
+
+        message_text = str(
+            message_text
+        ).strip()
+
+        uploaded_file = request.FILES.get(
+            'file'
+        )
+
+        if not message_text and not uploaded_file:
+            return Response(
+                {
+                    'success': False,
+                    'message':
+                        'متن پیام یا فایل را وارد کنید.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # =================================================
+        # ایجاد پیام
+        # =================================================
+
+        message = SupportMessage.objects.create(
+            support_user=ticket,
+            sender=request.user,
+            message=message_text,
+            is_read=True,
+        )
+
+        # =================================================
+        # فایل
+        # =================================================
+
+        if uploaded_file:
+
+            support_file = SupportFile.objects.create(
+                support_user=ticket,
+                file=uploaded_file,
+            )
+
+            message.attachments.add(
+                support_file
+            )
+
+        # =================================================
+        # وضعیت تیکت
+        #
+        # وقتی ساکن پیام می‌فرستد:
+        # تیکت دوباره منتظر پاسخ مدیر است.
+        # =================================================
+
+        ticket.is_waiting = False
+        ticket.is_answer = False
+        ticket.is_sent = True
+        ticket.is_closed = False
+
+        ticket.save(
+            update_fields=[
+                'is_waiting',
+                'is_answer',
+                'is_sent',
+                'is_closed',
+                'updated_at',
+            ]
+        )
+
+        # =================================================
+        # اعلان برای مدیر
+        # =================================================
+
+        manager_users = []
+
+        if hasattr(request.user, 'myhouse_set'):
+            pass
+
+        # این قسمت را بعد از دیدن ساختار MyHouse
+        # دقیقاً با مدیر ساختمان شما هماهنگ می‌کنیم.
+
+        return Response(
+            {
+                'success': True,
+                'message':
+                    'پیام با موفقیت ارسال شد.',
+                'message_id': message.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+# =========================================================
+# بستن تیکت توسط ساکن
+# =========================================================
+
+class UserSupportTicketCloseView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    @transaction.atomic
+    def post(self, request, ticket_id):
+
+        ticket = get_user_ticket(
+            request.user,
+            ticket_id,
+        )
+
+        if ticket.is_closed:
+            return Response(
+                {
+                    'success': True,
+                    'message':
+                        'تیکت قبلاً بسته شده است.',
+                }
+            )
+
+        ticket.is_closed = True
+        ticket.is_waiting = False
+
+        ticket.save(
+            update_fields=[
+                'is_closed',
+                'is_waiting',
+                'updated_at',
+            ]
+        )
+
+        return Response({
+            'success': True,
+            'message':
+                'تیکت با موفقیت بسته شد.',
+        })
+
+
+# =========================================================
+# علامت‌گذاری پیام‌های مدیر به عنوان خوانده‌شده
+# =========================================================
+
+class UserSupportTicketReadView(APIView):
+
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def post(self, request, ticket_id):
+
+        ticket = get_user_ticket(
+            request.user,
+            ticket_id,
+        )
+
+        count = ticket.messages.filter(
+            is_read=False
+        ).exclude(
+            sender=request.user
+        ).update(
+            is_read=True
+        )
+
+        Notification.objects.filter(
+            user=request.user,
+            ticket=ticket,
+            is_read=False,
+        ).update(
+            is_read=True
+        )
+
+        return Response({
+            'success': True,
+            'marked_count': count,
+        })
+
+
 # ============================================================
 # MANAGER TICKET
 # ============================================================
@@ -10063,10 +10494,24 @@ class ManagerSupportTicketMessageView(APIView):
 
         message = request.data.get('message')
 
-        if not message or not str(message).strip():
+        # -------------------------------------------------
+        # فایل‌ها
+        # -------------------------------------------------
+
+        uploaded_files = request.FILES.getlist('files')
+
+        # -------------------------------------------------
+        # حداقل متن یا فایل باید وجود داشته باشد
+        # -------------------------------------------------
+
+        if (
+            not message
+            or not str(message).strip()
+        ) and not uploaded_files:
+
             return Response({
                 'success': False,
-                'message': 'متن پاسخ الزامی است.',
+                'message': 'متن پاسخ یا فایل پیوست الزامی است.',
             }, status=status.HTTP_400_BAD_REQUEST)
 
         # -------------------------------------------------
@@ -10076,9 +10521,47 @@ class ManagerSupportTicketMessageView(APIView):
         support_message = SupportMessage.objects.create(
             support_user=ticket,
             sender=request.user,
-            message=message,
+            message=message or '',
             is_read=False,
         )
+
+        # -------------------------------------------------
+        # ذخیره فایل‌ها
+        # -------------------------------------------------
+
+        created_files = []
+
+        for uploaded_file in uploaded_files:
+
+            # فقط تصویر چون SupportFile از ImageField استفاده می‌کند
+            content_type = getattr(
+                uploaded_file,
+                'content_type',
+                ''
+            )
+
+            if not content_type.startswith('image/'):
+                transaction.set_rollback(True)
+
+                return Response({
+                    'success': False,
+                    'message': (
+                        'فقط فایل‌های تصویری قابل ارسال هستند.'
+                    ),
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            support_file = SupportFile.objects.create(
+                support_user=ticket,
+                file=uploaded_file,
+            )
+
+            support_message.attachments.add(
+                support_file
+            )
+
+            created_files.append(
+                support_file.id
+            )
 
         # -------------------------------------------------
         # وضعیت تیکت
@@ -10116,11 +10599,137 @@ class ManagerSupportTicketMessageView(APIView):
             is_read=False,
         )
 
+        # -------------------------------------------------
+        # پاسخ
+        # -------------------------------------------------
+
         return Response({
             'success': True,
             'message': 'پاسخ با موفقیت ارسال شد.',
             'message_id': support_message.id,
+            'file_ids': created_files,
         }, status=status.HTTP_201_CREATED)
+
+class ManagerSupportTicketWaitingView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, ticket_id):
+
+        # -------------------------------------------------
+        # بررسی مدیر
+        # -------------------------------------------------
+
+        if not request.user.is_middle_admin:
+            return Response({
+                'success': False,
+                'message': 'دسترسی غیرمجاز است.',
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # -------------------------------------------------
+        # مجتمع مدیر
+        # -------------------------------------------------
+
+        house = MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not house:
+            return Response({
+                'success': False,
+                'message': 'مجتمع فعال برای مدیر پیدا نشد.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # کاربران مجاز مجتمع
+        # -------------------------------------------------
+
+        owner_user_ids = Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        renter_user_ids = Renter.objects.filter(
+            unit__myhouse=house,
+            unit__is_active=True,
+            renter_is_active=True,
+        ).values_list(
+            'user_id',
+            flat=True
+        )
+
+        resident_user_ids = set(
+            owner_user_ids
+        ) | set(
+            renter_user_ids
+        )
+
+        # -------------------------------------------------
+        # تیکت
+        # -------------------------------------------------
+
+        ticket = SupportUser.objects.filter(
+            id=ticket_id,
+            user_id__in=resident_user_ids,
+            is_sent=True,
+        ).first()
+
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        # -------------------------------------------------
+        # تیکت بسته شده؟
+        # -------------------------------------------------
+
+        if ticket.is_closed:
+            return Response({
+                'success': False,
+                'message': 'این تیکت بسته شده است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # -------------------------------------------------
+        # در حال بررسی
+        # -------------------------------------------------
+
+        ticket.is_waiting = True
+        ticket.is_answer = False
+
+        ticket.save(
+            update_fields=[
+                'is_waiting',
+                'is_answer',
+                'updated_at',
+            ]
+        )
+
+        # -------------------------------------------------
+        # اطلاع به ساکن
+        # -------------------------------------------------
+
+        Notification.objects.create(
+            user=ticket.user,
+            ticket=ticket,
+            title='تیکت در حال بررسی است',
+            message=(
+                f'تیکت شماره {ticket.ticket_no} '
+                f'توسط مدیر ساختمان در حال بررسی است.'
+            ),
+            link=f'/support/tickets/{ticket.id}/',
+            is_read=False,
+        )
+
+        return Response({
+            'success': True,
+            'message': 'تیکت در حال بررسی قرار گرفت.',
+        })
 
 
 class ManagerSupportTicketCloseView(APIView):

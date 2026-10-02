@@ -3307,3 +3307,358 @@ class SupportTicketDetailSerializer(serializers.ModelSerializer):
                 'request': request
             }
         ).data
+
+
+# =========================================================
+# resident ticket
+# =========================================================
+
+class UserSupportFileSerializer(serializers.ModelSerializer):
+    url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportFile
+        fields = [
+            'id',
+            'url',
+            'uploaded_at',
+        ]
+
+    def get_url(self, obj):
+        request = self.context.get('request')
+
+        if not obj.file:
+            return None
+
+        try:
+            url = obj.file.url
+        except Exception:
+            return None
+
+        if request:
+            return request.build_absolute_uri(url)
+
+        return url
+
+
+# =========================================================
+# پیام گفتگو
+# =========================================================
+
+class UserSupportMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+    sender_role = serializers.SerializerMethodField()
+
+    attachments = UserSupportFileSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = SupportMessage
+
+        fields = [
+            'id',
+            'sender',
+            'sender_name',
+            'sender_role',
+            'message',
+            'attachments',
+            'created_at',
+            'is_read',
+        ]
+
+        read_only_fields = [
+            'id',
+            'sender',
+            'sender_name',
+            'sender_role',
+            'attachments',
+            'created_at',
+            'is_read',
+        ]
+
+    def get_sender_name(self, obj):
+        if not obj.sender:
+            return ''
+
+        return (
+            getattr(obj.sender, 'full_name', None)
+            or str(obj.sender)
+        )
+
+    def get_sender_role(self, obj):
+        if obj.sender and obj.sender.is_middle_admin:
+            return 'مدیر ساختمان'
+
+        return 'ساکن'
+
+
+# =========================================================
+# آخرین پیام
+# =========================================================
+
+class UserSupportLastMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.SerializerMethodField()
+    sender_role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportMessage
+
+        fields = [
+            'id',
+            'sender_name',
+            'sender_role',
+            'message',
+            'created_at',
+            'is_read',
+        ]
+
+    def get_sender_name(self, obj):
+        if not obj.sender:
+            return ''
+
+        return (
+            getattr(obj.sender, 'full_name', None)
+            or str(obj.sender)
+        )
+
+    def get_sender_role(self, obj):
+        if obj.sender and obj.sender.is_middle_admin:
+            return 'مدیر ساختمان'
+
+        return 'ساکن'
+
+
+# =========================================================
+# لیست تیکت‌های ساکن
+# =========================================================
+
+class UserSupportTicketListSerializer(serializers.ModelSerializer):
+    unread_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportUser
+
+        fields = [
+            'id',
+            'ticket_no',
+            'subject',
+            'is_call',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'status',
+            'unread_count',
+            'last_message',
+            'created_at',
+            'updated_at',
+        ]
+
+        read_only_fields = [
+            'id',
+            'ticket_no',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'status',
+            'unread_count',
+            'last_message',
+            'created_at',
+            'updated_at',
+        ]
+
+    # -----------------------------------------------------
+    # تعداد پیام‌های خوانده نشده مدیر
+    # -----------------------------------------------------
+
+    def get_unread_count(self, obj):
+        request = self.context.get('request')
+
+        if not request or not request.user:
+            return 0
+
+        return (
+            obj.messages
+            .filter(is_read=False)
+            .exclude(sender=request.user)
+            .count()
+        )
+
+    # -----------------------------------------------------
+    # آخرین پیام
+    # -----------------------------------------------------
+
+    def get_last_message(self, obj):
+        message = (
+            obj.messages
+            .select_related('sender')
+            .order_by('-created_at')
+            .first()
+        )
+
+        if not message:
+            return None
+
+        serializer = UserSupportLastMessageSerializer(
+            message,
+            context=self.context,
+        )
+
+        return serializer.data
+
+    # -----------------------------------------------------
+    # وضعیت تیکت
+    # -----------------------------------------------------
+
+    def get_status(self, obj):
+        if obj.is_closed:
+            return 'بسته شده'
+
+        if obj.is_waiting:
+            return 'در حال بررسی'
+
+        if obj.is_answer:
+            return 'پاسخ داده شده'
+
+        return 'در انتظار پاسخ'
+
+
+# =========================================================
+# جزئیات تیکت
+# =========================================================
+
+class UserSupportTicketDetailSerializer(serializers.ModelSerializer):
+    files = UserSupportFileSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    messages = UserSupportMessageSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    unread_count = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = SupportUser
+
+        fields = [
+            'id',
+            'ticket_no',
+            'subject',
+            'message',
+            'answer_message',
+            'is_sent',
+            'is_call',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'status',
+            'unread_count',
+            'files',
+            'messages',
+            'created_at',
+            'updated_at',
+        ]
+
+        read_only_fields = [
+            'id',
+            'ticket_no',
+            'answer_message',
+            'is_sent',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'status',
+            'unread_count',
+            'files',
+            'messages',
+            'created_at',
+            'updated_at',
+        ]
+
+    # -----------------------------------------------------
+    # تعداد پیام‌های خوانده نشده
+    # -----------------------------------------------------
+
+    def get_unread_count(self, obj):
+        request = self.context.get('request')
+
+        if not request or not request.user:
+            return 0
+
+        return (
+            obj.messages
+            .filter(is_read=False)
+            .exclude(sender=request.user)
+            .count()
+        )
+
+    # -----------------------------------------------------
+    # وضعیت
+    # -----------------------------------------------------
+
+    def get_status(self, obj):
+        if obj.is_closed:
+            return 'بسته شده'
+
+        if obj.is_waiting:
+            return 'در حال بررسی'
+
+        if obj.is_answer:
+            return 'پاسخ داده شده'
+
+        return 'در انتظار پاسخ'
+
+
+# =========================================================
+# ایجاد تیکت توسط ساکن
+# =========================================================
+
+class UserSupportTicketCreateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = SupportUser
+
+        fields = [
+            'subject',
+            'message',
+            'is_call',
+        ]
+
+    # -----------------------------------------------------
+    # عنوان
+    # -----------------------------------------------------
+
+    def validate_subject(self, value):
+        value = (value or '').strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                'عنوان تیکت الزامی است.'
+            )
+
+        if len(value) > 200:
+            raise serializers.ValidationError(
+                'عنوان تیکت نمی‌تواند بیشتر از ۲۰۰ کاراکتر باشد.'
+            )
+
+        return value
+
+    # -----------------------------------------------------
+    # متن پیام
+    # -----------------------------------------------------
+
+    def validate_message(self, value):
+        value = value or ''
+
+        if not value.strip():
+            raise serializers.ValidationError(
+                'متن تیکت الزامی است.'
+            )
+
+        return value
