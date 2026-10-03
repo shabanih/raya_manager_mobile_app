@@ -3,7 +3,8 @@ from rest_framework import serializers
 
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageInstallment, \
     SewageManage, MessageToUser, AnnouncementDocument, BankFund
-from notifications.models import SupportFile, SupportMessage, SupportUser
+from notifications.models import SupportFile, SupportMessage, SupportUser, Notification, AdminTicketFile, \
+    AdminTicketMessage, AdminTicket, MiddleAdminNotification
 from polls_app.models import Choice, Question, Poll, Vote
 from user_app.models import Unit, MyHouse, User, Bank, UserPayMoney, Renter
 
@@ -3190,6 +3191,7 @@ class SupportTicketListSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = SupportUser
+
         fields = [
             'id',
             'ticket_no',
@@ -3208,8 +3210,16 @@ class SupportTicketListSerializer(serializers.ModelSerializer):
             'updated_at',
         ]
 
+    # =====================================================
+    # نام ساکن
+    # =====================================================
+
     def get_user_name(self, obj):
         return str(obj.user)
+
+    # =====================================================
+    # موبایل ساکن
+    # =====================================================
 
     def get_user_mobile(self, obj):
         if not obj.is_call:
@@ -3217,20 +3227,41 @@ class SupportTicketListSerializer(serializers.ModelSerializer):
 
         return getattr(obj.user, 'mobile', None)
 
+    # =====================================================
+    # تعداد پیام‌های جدید برای مدیر
+    #
+    # منبع اصلی Notification است، نه SupportMessage.is_read
+    # چون is_read در Notification برای هر مدیر جداگانه است.
+    # =====================================================
+
     def get_unread_count(self, obj):
         request = self.context.get('request')
 
-        if not request or not request.user.is_authenticated:
+        if not request:
             return 0
 
-        return obj.messages.filter(
-            is_read=False
-        ).exclude(
-            sender=request.user
+        user = request.user
+
+        if not user or not user.is_authenticated:
+            return 0
+
+        return Notification.objects.filter(
+            user=user,
+            ticket=obj,
+            is_read=False,
         ).count()
 
+    # =====================================================
+    # آخرین پیام
+    # =====================================================
+
     def get_last_message(self, obj):
-        message = obj.messages.order_by('-created_at').first()
+        message = (
+            obj.messages
+            .select_related('sender')
+            .order_by('-created_at')
+            .first()
+        )
 
         if not message:
             return None
@@ -3435,95 +3466,95 @@ class UserSupportLastMessageSerializer(serializers.ModelSerializer):
 # =========================================================
 
 class UserSupportTicketListSerializer(serializers.ModelSerializer):
-    unread_count = serializers.SerializerMethodField()
-    last_message = serializers.SerializerMethodField()
-    status = serializers.SerializerMethodField()
+        unread_count = serializers.SerializerMethodField()
+        last_message = serializers.SerializerMethodField()
+        status = serializers.SerializerMethodField()
 
-    class Meta:
-        model = SupportUser
+        class Meta:
+            model = SupportUser
 
-        fields = [
-            'id',
-            'ticket_no',
-            'subject',
-            'is_call',
-            'is_closed',
-            'is_answer',
-            'is_waiting',
-            'status',
-            'unread_count',
-            'last_message',
-            'created_at',
-            'updated_at',
-        ]
+            fields = [
+                'id',
+                'ticket_no',
+                'subject',
+                'is_call',
+                'is_closed',
+                'is_answer',
+                'is_waiting',
+                'status',
+                'unread_count',
+                'last_message',
+                'created_at',
+                'updated_at',
+            ]
 
-        read_only_fields = [
-            'id',
-            'ticket_no',
-            'is_closed',
-            'is_answer',
-            'is_waiting',
-            'status',
-            'unread_count',
-            'last_message',
-            'created_at',
-            'updated_at',
-        ]
+            read_only_fields = [
+                'id',
+                'ticket_no',
+                'is_closed',
+                'is_answer',
+                'is_waiting',
+                'status',
+                'unread_count',
+                'last_message',
+                'created_at',
+                'updated_at',
+            ]
 
-    # -----------------------------------------------------
-    # تعداد پیام‌های خوانده نشده مدیر
-    # -----------------------------------------------------
+        # -----------------------------------------------------
+        # تعداد پیام‌های خوانده نشده مدیر
+        # -----------------------------------------------------
 
-    def get_unread_count(self, obj):
-        request = self.context.get('request')
+        def get_unread_count(self, obj):
+            request = self.context.get('request')
 
-        if not request or not request.user:
-            return 0
+            if not request or not request.user:
+                return 0
 
-        return (
-            obj.messages
-            .filter(is_read=False)
-            .exclude(sender=request.user)
-            .count()
-        )
+            return (
+                obj.messages
+                .filter(is_read=False)
+                .exclude(sender=request.user)
+                .count()
+            )
 
-    # -----------------------------------------------------
-    # آخرین پیام
-    # -----------------------------------------------------
+        # -----------------------------------------------------
+        # آخرین پیام
+        # -----------------------------------------------------
 
-    def get_last_message(self, obj):
-        message = (
-            obj.messages
-            .select_related('sender')
-            .order_by('-created_at')
-            .first()
-        )
+        def get_last_message(self, obj):
+            message = (
+                obj.messages
+                .select_related('sender')
+                .order_by('-created_at')
+                .first()
+            )
 
-        if not message:
-            return None
+            if not message:
+                return None
 
-        serializer = UserSupportLastMessageSerializer(
-            message,
-            context=self.context,
-        )
+            serializer = UserSupportLastMessageSerializer(
+                message,
+                context=self.context,
+            )
 
-        return serializer.data
+            return serializer.data
 
-    # -----------------------------------------------------
-    # وضعیت تیکت
-    # -----------------------------------------------------
+        # -----------------------------------------------------
+        # وضعیت تیکت
+        # -----------------------------------------------------
 
-    def get_status(self, obj):
-        if obj.is_closed:
-            return 'بسته شده'
+        def get_status(self, obj):
+            if obj.is_closed:
+                return 'بسته شده'
 
-        if obj.is_waiting:
-            return 'در حال بررسی'
+            if obj.is_waiting:
+                return 'در حال بررسی'
 
-        if obj.is_answer:
-            return 'پاسخ داده شده'
+            if obj.is_answer:
+                return 'پاسخ داده شده'
 
-        return 'در انتظار پاسخ'
+            return 'در انتظار پاسخ'
 
 
 # =========================================================
@@ -3662,3 +3693,325 @@ class UserSupportTicketCreateSerializer(serializers.ModelSerializer):
             )
 
         return value
+
+
+# =========================================================
+#  تیکت ادمین
+# =========================================================
+
+class AdminTicketFileSerializer(serializers.ModelSerializer):
+
+    file_url = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminTicketFile
+
+        fields = [
+            'id',
+            'file',
+            'file_url',
+            'uploaded_at',
+        ]
+
+        read_only_fields = [
+            'id',
+            'file_url',
+            'uploaded_at',
+        ]
+
+    def get_file_url(self, obj):
+        request = self.context.get('request')
+
+        if not obj.file:
+            return None
+
+        try:
+            url = obj.file.url
+        except Exception:
+            return None
+
+        if request:
+            return request.build_absolute_uri(url)
+
+        return url
+
+
+class AdminTicketLastMessageSerializer(serializers.ModelSerializer):
+
+    sender_name = serializers.SerializerMethodField()
+    sender_role = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminTicketMessage
+
+        fields = [
+            'id',
+            'sender_name',
+            'sender_role',
+            'message',
+            'created_at',
+            'is_read',
+        ]
+
+    def get_sender_name(self, obj):
+        return str(obj.sender)
+
+    def get_sender_role(self, obj):
+
+        if obj.sender.is_superuser:
+            return 'ادمین'
+
+        if obj.sender.is_middle_admin:
+            return 'مدیر ساختمان'
+
+        return 'کاربر'
+
+
+class AdminTicketMessageSerializer(serializers.ModelSerializer):
+
+    sender_name = serializers.SerializerMethodField()
+    sender_role = serializers.SerializerMethodField()
+    attachments = AdminTicketFileSerializer(
+        many=True,
+        read_only=True,
+    )
+
+    class Meta:
+        model = AdminTicketMessage
+
+        fields = [
+            'id',
+            'sender_name',
+            'sender_role',
+            'message',
+            'attachments',
+            'created_at',
+            'is_read',
+        ]
+
+    def get_sender_name(self, obj):
+        return str(obj.sender)
+
+    def get_sender_role(self, obj):
+
+        if obj.sender.is_superuser:
+            return 'ادمین'
+
+        if obj.sender.is_middle_admin:
+            return 'مدیر ساختمان'
+
+        return 'کاربر'
+
+
+class AdminTicketListSerializer(serializers.ModelSerializer):
+
+    unread_count = serializers.SerializerMethodField()
+    last_message = serializers.SerializerMethodField()
+    status = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminTicket
+
+        fields = [
+            'id',
+            'ticket_no',
+            'subject',
+            'is_sent',
+            'is_read',
+            'is_call',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'status',
+            'unread_count',
+            'last_message',
+            'created_at',
+            'updated_at',
+        ]
+
+        read_only_fields = [
+            'id',
+            'ticket_no',
+            'is_sent',
+            'is_read',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'status',
+            'unread_count',
+            'last_message',
+            'created_at',
+            'updated_at',
+        ]
+
+    # -----------------------------------------------------
+    # تعداد پیام‌های خوانده نشده برای مدیر
+    # -----------------------------------------------------
+
+    def get_unread_count(self, obj):
+
+        request = self.context.get('request')
+
+        if not request:
+            return 0
+
+        user = request.user
+
+        if not user or not user.is_authenticated:
+            return 0
+
+        return MiddleAdminNotification.objects.filter(
+            user=user,
+            ticket=obj,
+            is_read=False,
+        ).count()
+
+    # -----------------------------------------------------
+    # آخرین پیام
+    # -----------------------------------------------------
+
+    def get_last_message(self, obj):
+
+        message = (
+            obj.messages
+            .select_related('sender')
+            .order_by('-created_at')
+            .first()
+        )
+
+        if not message:
+            return None
+
+        serializer = AdminTicketLastMessageSerializer(
+            message,
+            context=self.context,
+        )
+
+        return serializer.data
+
+    # -----------------------------------------------------
+    # وضعیت
+    # -----------------------------------------------------
+
+    def get_status(self, obj):
+
+        if obj.is_closed:
+            return 'بسته شده'
+
+        if obj.is_waiting:
+            return 'در حال بررسی'
+
+        if obj.is_answer:
+            return 'پاسخ داده شده'
+
+        return 'در انتظار پاسخ'
+
+
+class AdminTicketDetailSerializer(serializers.ModelSerializer):
+
+    status = serializers.SerializerMethodField()
+    messages = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminTicket
+
+        fields = [
+            'id',
+            'ticket_no',
+            'subject',
+            'message',
+            'is_sent',
+            'is_read',
+            'is_call',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'status',
+            'created_at',
+            'updated_at',
+            'messages',
+        ]
+
+        read_only_fields = [
+            'id',
+            'ticket_no',
+            'is_sent',
+            'is_read',
+            'is_closed',
+            'is_answer',
+            'is_waiting',
+            'status',
+            'created_at',
+            'updated_at',
+            'messages',
+        ]
+
+    def get_status(self, obj):
+
+        if obj.is_closed:
+            return 'بسته شده'
+
+        if obj.is_waiting:
+            return 'در حال بررسی'
+
+        if obj.is_answer:
+            return 'پاسخ داده شده'
+
+        return 'در انتظار پاسخ'
+
+    def get_messages(self, obj):
+
+        messages = (
+            obj.messages
+            .select_related('sender')
+            .prefetch_related('attachments')
+            .order_by('created_at')
+        )
+
+        serializer = AdminTicketMessageSerializer(
+            messages,
+            many=True,
+            context=self.context,
+        )
+
+        return serializer.data
+
+
+class AdminTicketCreateSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = AdminTicket
+
+        fields = [
+            'subject',
+            'message',
+        ]
+
+        extra_kwargs = {
+            'subject': {
+                'required': False,
+                'allow_blank': True,
+            },
+            'message': {
+                'required': True,
+            },
+        }
+
+
+class AdminTicketMessageCreateSerializer(serializers.Serializer):
+
+    message = serializers.CharField(
+        required=False,
+        allow_blank=True,
+    )
+
+    def validate(self, attrs):
+
+        message = (
+            attrs.get('message')
+            or ''
+        ).strip()
+
+        attrs['message'] = message
+
+        return attrs

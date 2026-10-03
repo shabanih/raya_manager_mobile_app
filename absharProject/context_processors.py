@@ -274,7 +274,6 @@ def admin_header_notifications(request):
         }
 
     admin_new_messages_count = SmsManagement.objects.filter(
-        is_approved=False,
         is_active=True
     ).count()
 

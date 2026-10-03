@@ -30,7 +30,8 @@ from absharProject import settings
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageManage, \
     SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund
 from middleAdmin_panel.services.bank_services import BankTransactionService
-from notifications.models import SupportUser, SupportMessage, Notification, SupportFile
+from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
+    AdminTicketMessage, AdminTicket, MiddleAdminNotification
 from payment_app.views import CallbackURLCharge, ZP_API_REQUEST, ZP_API_STARTPAY
 from polls_app.models import Poll, Vote, Choice, Question
 from user_app.models import Unit, HousePaymentGateway, Renter, Bank, MyHouse, UserPayMoney
@@ -47,6 +48,7 @@ from .serializers import (
     ManagerBankTransferListSerializer, ManagerBankTransferSerializer, ManagerBankSerializer, ManagerPollListSerializer,
     ManagerPollWriteSerializer, ManagerPollDetailSerializer, SupportTicketListSerializer, SupportTicketDetailSerializer,
     UserSupportTicketListSerializer, UserSupportTicketCreateSerializer, UserSupportTicketDetailSerializer,
+    AdminTicketDetailSerializer, AdminTicketCreateSerializer, AdminTicketListSerializer,
 )
 
 User = get_user_model()
@@ -308,8 +310,8 @@ class MeView(APIView):
             # =================================================
 
             units = (
-                owner_units |
-                renter_units
+                    owner_units |
+                    renter_units
             ).distinct().order_by('unit')
 
             # =================================================
@@ -332,7 +334,7 @@ class MeView(APIView):
                 )
 
                 is_renter = (
-                    active_renter is not None
+                        active_renter is not None
                 )
 
                 # ---------------------------------------------
@@ -340,7 +342,7 @@ class MeView(APIView):
                 # ---------------------------------------------
 
                 owner_name = (
-                    unit.owner_name or ''
+                        unit.owner_name or ''
                 )
 
                 # ---------------------------------------------
@@ -348,7 +350,7 @@ class MeView(APIView):
                 # ---------------------------------------------
 
                 owner_mobile = (
-                    unit.owner_mobile or ''
+                        unit.owner_mobile or ''
                 )
 
                 # ---------------------------------------------
@@ -360,25 +362,24 @@ class MeView(APIView):
                 renter_mobile = ''
 
                 if active_renter:
-
                     renter_name = (
-                        active_renter.renter_name
-                        or getattr(
-                            active_renter.user,
-                            'full_name',
-                            ''
-                        )
-                        or ''
+                            active_renter.renter_name
+                            or getattr(
+                        active_renter.user,
+                        'full_name',
+                        ''
+                    )
+                            or ''
                     )
 
                     renter_mobile = (
-                        active_renter.renter_mobile
-                        or getattr(
-                            active_renter.user,
-                            'mobile',
-                            ''
-                        )
-                        or ''
+                            active_renter.renter_mobile
+                            or getattr(
+                        active_renter.user,
+                        'mobile',
+                        ''
+                    )
+                            or ''
                     )
 
                 # =================================================
@@ -472,7 +473,6 @@ class MeView(APIView):
                 # =================================================
 
                 if unit.myhouse and not house_data:
-
                     house = unit.myhouse
 
                     house_data = {
@@ -522,7 +522,6 @@ class MeView(APIView):
             )
 
             if house:
-
                 house_data = {
 
                     'id':
@@ -2813,7 +2812,7 @@ class MobilePollListView(APIView):
         for poll in polls:
 
             participant_type = (
-                poll.participant_type or 'all'
+                    poll.participant_type or 'all'
             ).strip().lower()
 
             # ---------------------------------------------
@@ -2862,9 +2861,8 @@ class MobilePollListView(APIView):
         print("=============== ELIGIBLE POLLS ===============")
 
         for poll in eligible_polls:
-
             participant_type = (
-                poll.participant_type or 'all'
+                    poll.participant_type or 'all'
             ).strip().lower()
 
             print(
@@ -2926,7 +2924,6 @@ class MobilePollDetailView(APIView):
         user_house = request.user.house
 
         if not user_house:
-
             return Response(
                 {
                     'success': False,
@@ -2996,7 +2993,6 @@ class MobilePollDetailView(APIView):
         # =====================================================
 
         if poll.house_id != user_house.id:
-
             print(
                 "HOUSE MATCH: FALSE"
             )
@@ -3019,7 +3015,6 @@ class MobilePollDetailView(APIView):
         # =====================================================
 
         if not poll.is_active:
-
             print(
                 "POLL ACTIVE: FALSE"
             )
@@ -3038,7 +3033,6 @@ class MobilePollDetailView(APIView):
         # =====================================================
 
         if poll.start_date > now:
-
             print(
                 "POLL NOT STARTED"
             )
@@ -3057,7 +3051,6 @@ class MobilePollDetailView(APIView):
         # =====================================================
 
         if poll.end_date < now:
-
             print(
                 "POLL EXPIRED"
             )
@@ -3108,7 +3101,6 @@ class MobilePollDetailView(APIView):
         # =====================================================
 
         if not is_owner and not is_renter:
-
             print(
                 "USER IS NOT OWNER OR RENTER"
             )
@@ -3127,7 +3119,7 @@ class MobilePollDetailView(APIView):
         # =====================================================
 
         participant_type = (
-            poll.participant_type or 'all'
+                poll.participant_type or 'all'
         ).strip().lower()
 
         print(
@@ -3144,7 +3136,6 @@ class MobilePollDetailView(APIView):
             'owners',
             'renters',
         ]:
-
             print(
                 "INVALID PARTICIPANT TYPE"
             )
@@ -3163,10 +3154,9 @@ class MobilePollDetailView(APIView):
         # =====================================================
 
         if (
-            participant_type == 'owners'
-            and not is_owner
+                participant_type == 'owners'
+                and not is_owner
         ):
-
             print(
                 "ACCESS DENIED - OWNERS ONLY"
             )
@@ -3185,10 +3175,9 @@ class MobilePollDetailView(APIView):
         # =====================================================
 
         if (
-            participant_type == 'renters'
-            and not is_renter
+                participant_type == 'renters'
+                and not is_renter
         ):
-
             print(
                 "ACCESS DENIED - RENTERS ONLY"
             )
@@ -3301,7 +3290,6 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if poll.house_id != house.id:
-
             print("HOUSE MATCH: FALSE")
 
             return Response(
@@ -3319,7 +3307,6 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if not poll.is_active:
-
             print("POLL ACTIVE: FALSE")
 
             return Response(
@@ -3335,7 +3322,6 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if poll.start_date > now:
-
             print("START DATE: NOT STARTED")
 
             return Response(
@@ -3352,7 +3338,6 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if poll.end_date < now:
-
             print("END DATE: EXPIRED")
 
             return Response(
@@ -3423,7 +3408,6 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if not is_owner and not is_renter:
-
             print("USER IS NOT OWNER OR RENTER")
 
             return Response(
@@ -3440,7 +3424,7 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         participant_type = (
-            poll.participant_type or 'all'
+                poll.participant_type or 'all'
         ).strip().lower()
 
         print(
@@ -3453,7 +3437,6 @@ class MobilePollVoteView(APIView):
         # -----------------------------------------------------
 
         if participant_type == 'owners' and not is_owner:
-
             print(
                 "ACCESS DENIED: POLL IS FOR OWNERS ONLY"
             )
@@ -3472,7 +3455,6 @@ class MobilePollVoteView(APIView):
         # -----------------------------------------------------
 
         if participant_type == 'renters' and not is_renter:
-
             print(
                 "ACCESS DENIED: POLL IS FOR RENTERS ONLY"
             )
@@ -3495,7 +3477,6 @@ class MobilePollVoteView(APIView):
             'owners',
             'renters',
         ]:
-
             print(
                 "INVALID PARTICIPANT TYPE:",
                 participant_type
@@ -3546,7 +3527,6 @@ class MobilePollVoteView(APIView):
         # =====================================================
 
         if unit is None:
-
             print("UNIT NOT FOUND")
 
             return Response(
@@ -3576,7 +3556,6 @@ class MobilePollVoteView(APIView):
         )
 
         if already_voted:
-
             return Response(
                 {
                     'success': False,
@@ -3598,7 +3577,6 @@ class MobilePollVoteView(APIView):
         )
 
         if not isinstance(answers, list):
-
             return Response(
                 {
                     'success': False,
@@ -3609,7 +3587,6 @@ class MobilePollVoteView(APIView):
             )
 
         if not answers:
-
             return Response(
                 {
                     'success': False,
@@ -3639,7 +3616,6 @@ class MobilePollVoteView(APIView):
         for answer in answers:
 
             if not isinstance(answer, dict):
-
                 return Response(
                     {
                         'success': False,
@@ -3671,7 +3647,6 @@ class MobilePollVoteView(APIView):
             # -------------------------------------------------
 
             if not question_id:
-
                 return Response(
                     {
                         'success': False,
@@ -3703,7 +3678,6 @@ class MobilePollVoteView(APIView):
             # -------------------------------------------------
 
             if question_id in processed_questions:
-
                 return Response(
                     {
                         'success': False,
@@ -3726,7 +3700,6 @@ class MobilePollVoteView(APIView):
             )
 
             if question is None:
-
                 return Response(
                     {
                         'success': False,
@@ -3741,10 +3714,9 @@ class MobilePollVoteView(APIView):
             # -------------------------------------------------
 
             if not isinstance(
-                choice_ids,
-                list
+                    choice_ids,
+                    list
             ):
-
                 return Response(
                     {
                         'success': False,
@@ -3791,7 +3763,6 @@ class MobilePollVoteView(APIView):
             ]:
 
                 if len(choice_ids) != 1:
-
                     return Response(
                         {
                             'success': False,
@@ -3804,7 +3775,6 @@ class MobilePollVoteView(APIView):
             elif question.question_type == 'multi':
 
                 if len(choice_ids) < 1:
-
                     return Response(
                         {
                             'success': False,
@@ -3834,9 +3804,8 @@ class MobilePollVoteView(APIView):
             # -------------------------------------------------
 
             if len(choice_ids) != len(
-                set(choice_ids)
+                    set(choice_ids)
             ):
-
                 return Response(
                     {
                         'success': False,
@@ -3851,7 +3820,6 @@ class MobilePollVoteView(APIView):
             # -------------------------------------------------
 
             if not choice_ids:
-
                 return Response(
                     {
                         'success': False,
@@ -3871,9 +3839,8 @@ class MobilePollVoteView(APIView):
             )
 
             if choices.count() != len(
-                choice_ids
+                    choice_ids
             ):
-
                 return Response(
                     {
                         'success': False,
@@ -3888,7 +3855,6 @@ class MobilePollVoteView(APIView):
             # -------------------------------------------------
 
             for choice in choices:
-
                 Vote.objects.create(
                     poll=poll,
                     question=question,
@@ -3920,7 +3886,6 @@ class MobilePollVoteView(APIView):
         )
 
         if answered_questions != total_questions:
-
             transaction.set_rollback(
                 True
             )
@@ -6491,7 +6456,6 @@ def get_manager_message_units(user):
 
 
 class ManagerMessageUnitsAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
@@ -6505,9 +6469,9 @@ class ManagerMessageUnitsAPIView(APIView):
         # =====================================================
 
         if not getattr(
-            user,
-            'is_middle_admin',
-            False
+                user,
+                'is_middle_admin',
+                False
         ):
             return Response(
                 {
@@ -6547,13 +6511,13 @@ class ManagerMessageUnitsAPIView(APIView):
             owner_user = unit.user
 
             owner_mobile = (
-                unit.owner_mobile
-                or (
-                    owner_user.mobile
-                    if owner_user
-                    else ''
-                )
-                or ''
+                    unit.owner_mobile
+                    or (
+                        owner_user.mobile
+                        if owner_user
+                        else ''
+                    )
+                    or ''
             )
 
             owner_mobile = str(
@@ -6561,18 +6525,18 @@ class ManagerMessageUnitsAPIView(APIView):
             ).strip()
 
             owner_name = (
-                unit.owner_name
-                or (
-                    owner_user.full_name
-                    if owner_user
-                    else ''
-                )
-                or (
-                    owner_user.username
-                    if owner_user
-                    else ''
-                )
-                or ''
+                    unit.owner_name
+                    or (
+                        owner_user.full_name
+                        if owner_user
+                        else ''
+                    )
+                    or (
+                        owner_user.username
+                        if owner_user
+                        else ''
+                    )
+                    or ''
             )
 
             owner_name = str(
@@ -6581,11 +6545,10 @@ class ManagerMessageUnitsAPIView(APIView):
 
             # فقط گیرنده‌ای که نام و موبایل دارد
             if (
-                owner_user
-                and owner_name
-                and owner_mobile
+                    owner_user
+                    and owner_name
+                    and owner_mobile
             ):
-
                 unit._recipient_type = 'owner'
 
                 # برای Serializer
@@ -6620,13 +6583,13 @@ class ManagerMessageUnitsAPIView(APIView):
                 renter_user = renter.user
 
                 renter_mobile = (
-                    renter.renter_mobile
-                    or (
-                        renter_user.mobile
-                        if renter_user
-                        else ''
-                    )
-                    or ''
+                        renter.renter_mobile
+                        or (
+                            renter_user.mobile
+                            if renter_user
+                            else ''
+                        )
+                        or ''
                 )
 
                 renter_mobile = str(
@@ -6634,18 +6597,18 @@ class ManagerMessageUnitsAPIView(APIView):
                 ).strip()
 
                 renter_name = (
-                    renter.renter_name
-                    or (
-                        renter_user.full_name
-                        if renter_user
-                        else ''
-                    )
-                    or (
-                        renter_user.username
-                        if renter_user
-                        else ''
-                    )
-                    or ''
+                        renter.renter_name
+                        or (
+                            renter_user.full_name
+                            if renter_user
+                            else ''
+                        )
+                        or (
+                            renter_user.username
+                            if renter_user
+                            else ''
+                        )
+                        or ''
                 )
 
                 renter_name = str(
@@ -6653,11 +6616,10 @@ class ManagerMessageUnitsAPIView(APIView):
                 ).strip()
 
                 if (
-                    renter_user
-                    and renter_name
-                    and renter_mobile
+                        renter_user
+                        and renter_name
+                        and renter_mobile
                 ):
-
                     unit._recipient_type = 'renter'
                     unit._active_renter = renter
 
@@ -6686,7 +6648,6 @@ class ManagerMessageUnitsAPIView(APIView):
 
 
 class ManagerMessageListCreateAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
@@ -6711,9 +6672,9 @@ class ManagerMessageListCreateAPIView(APIView):
         # =====================================================
 
         if not getattr(
-            user,
-            'is_middle_admin',
-            False
+                user,
+                'is_middle_admin',
+                False
         ):
             return Response(
                 {
@@ -6758,7 +6719,6 @@ class ManagerMessageListCreateAPIView(APIView):
         # =====================================================
 
         if query:
-
             queryset = queryset.filter(
                 Q(title__icontains=query) |
                 Q(message__icontains=query)
@@ -6806,9 +6766,9 @@ class ManagerMessageListCreateAPIView(APIView):
         # =====================================================
 
         if not getattr(
-            user,
-            'is_middle_admin',
-            False
+                user,
+                'is_middle_admin',
+                False
         ):
             return Response(
                 {
@@ -6846,7 +6806,6 @@ class ManagerMessageListCreateAPIView(APIView):
         # =====================================================
 
         if not title:
-
             return Response(
                 {
                     'detail': (
@@ -6861,7 +6820,6 @@ class ManagerMessageListCreateAPIView(APIView):
         # =====================================================
 
         if not message_text:
-
             return Response(
                 {
                     'detail': (
@@ -6909,7 +6867,6 @@ class ManagerMessageListCreateAPIView(APIView):
 
 
 class ManagerMessageDetailAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
@@ -6919,9 +6876,9 @@ class ManagerMessageDetailAPIView(APIView):
     # =========================================================
 
     def get_message(
-        self,
-        request,
-        pk
+            self,
+            request,
+            pk
     ):
 
         return get_object_or_404(
@@ -6941,15 +6898,15 @@ class ManagerMessageDetailAPIView(APIView):
     # =========================================================
 
     def get(
-        self,
-        request,
-        pk
+            self,
+            request,
+            pk
     ):
 
         if not getattr(
-            request.user,
-            'is_middle_admin',
-            False
+                request.user,
+                'is_middle_admin',
+                False
         ):
             return Response(
                 {
@@ -6984,15 +6941,15 @@ class ManagerMessageDetailAPIView(APIView):
     # =========================================================
 
     def patch(
-        self,
-        request,
-        pk
+            self,
+            request,
+            pk
     ):
 
         if not getattr(
-            request.user,
-            'is_middle_admin',
-            False
+                request.user,
+                'is_middle_admin',
+                False
         ):
             return Response(
                 {
@@ -7013,7 +6970,6 @@ class ManagerMessageDetailAPIView(APIView):
         # =====================================================
 
         if message.send_notification:
-
             return Response(
                 {
                     'detail': (
@@ -7037,7 +6993,6 @@ class ManagerMessageDetailAPIView(APIView):
             ).strip()
 
             if not title:
-
                 return Response(
                     {
                         'detail': (
@@ -7063,7 +7018,6 @@ class ManagerMessageDetailAPIView(APIView):
             ).strip()
 
             if not message_text:
-
                 return Response(
                     {
                         'detail': (
@@ -7080,9 +7034,9 @@ class ManagerMessageDetailAPIView(APIView):
         # =====================================================
 
         if (
-            'title' not in request.data
-            and
-            'message' not in request.data
+                'title' not in request.data
+                and
+                'message' not in request.data
         ):
             return Response(
                 {
@@ -7132,15 +7086,15 @@ class ManagerMessageDetailAPIView(APIView):
     # =========================================================
 
     def delete(
-        self,
-        request,
-        pk
+            self,
+            request,
+            pk
     ):
 
         if not getattr(
-            request.user,
-            'is_middle_admin',
-            False
+                request.user,
+                'is_middle_admin',
+                False
         ):
             return Response(
                 {
@@ -7161,7 +7115,6 @@ class ManagerMessageDetailAPIView(APIView):
         # =====================================================
 
         if message.send_notification:
-
             return Response(
                 {
                     'detail': (
@@ -7184,7 +7137,6 @@ class ManagerMessageDetailAPIView(APIView):
 
 
 class ManagerMessageSendAPIView(APIView):
-
     permission_classes = [
         IsAuthenticated
     ]
@@ -7198,9 +7150,9 @@ class ManagerMessageSendAPIView(APIView):
         # =====================================================
 
         if not getattr(
-            user,
-            'is_middle_admin',
-            False
+                user,
+                'is_middle_admin',
+                False
         ):
             return Response(
                 {
@@ -7249,22 +7201,22 @@ class ManagerMessageSendAPIView(APIView):
         )
 
         if isinstance(
-            send_to_all,
-            str
+                send_to_all,
+                str
         ):
             send_to_all = (
-                send_to_all.lower()
-                in [
-                    'true',
-                    '1',
-                    'yes',
-                    'all',
-                ]
+                    send_to_all.lower()
+                    in [
+                        'true',
+                        '1',
+                        'yes',
+                        'all',
+                    ]
             )
 
         if not isinstance(
-            recipients_data,
-            list
+                recipients_data,
+                list
         ):
             recipients_data = []
 
@@ -7312,17 +7264,17 @@ class ManagerMessageSendAPIView(APIView):
                 owner_user = unit.user
 
                 owner_mobile = (
-                    unit.owner_mobile
-                    or (
-                        getattr(
-                            owner_user,
-                            'mobile',
-                            ''
+                        unit.owner_mobile
+                        or (
+                            getattr(
+                                owner_user,
+                                'mobile',
+                                ''
+                            )
+                            if owner_user
+                            else ''
                         )
-                        if owner_user
-                        else ''
-                    )
-                    or ''
+                        or ''
                 )
 
                 owner_mobile = str(
@@ -7330,10 +7282,9 @@ class ManagerMessageSendAPIView(APIView):
                 ).strip()
 
                 if (
-                    owner_user
-                    and owner_mobile
+                        owner_user
+                        and owner_mobile
                 ):
-
                     recipient_items.append(
                         {
                             'unit': unit,
@@ -7361,17 +7312,17 @@ class ManagerMessageSendAPIView(APIView):
                     renter_user = renter.user
 
                     renter_mobile = (
-                        renter.renter_mobile
-                        or (
-                            getattr(
-                                renter_user,
-                                'mobile',
-                                ''
+                            renter.renter_mobile
+                            or (
+                                getattr(
+                                    renter_user,
+                                    'mobile',
+                                    ''
+                                )
+                                if renter_user
+                                else ''
                             )
-                            if renter_user
-                            else ''
-                        )
-                        or ''
+                            or ''
                     )
 
                     renter_mobile = str(
@@ -7379,10 +7330,9 @@ class ManagerMessageSendAPIView(APIView):
                     ).strip()
 
                     if (
-                        renter_user
-                        and renter_mobile
+                            renter_user
+                            and renter_mobile
                     ):
-
                         recipient_items.append(
                             {
                                 'unit': unit,
@@ -7413,8 +7363,8 @@ class ManagerMessageSendAPIView(APIView):
             for item in recipients_data:
 
                 if not isinstance(
-                    item,
-                    dict
+                        item,
+                        dict
                 ):
                     continue
 
@@ -7434,8 +7384,8 @@ class ManagerMessageSendAPIView(APIView):
                         raw_unit_id
                     )
                 except (
-                    TypeError,
-                    ValueError
+                        TypeError,
+                        ValueError
                 ):
                     continue
 
@@ -7478,13 +7428,13 @@ class ManagerMessageSendAPIView(APIView):
                         continue
 
                     mobile = (
-                        unit.owner_mobile
-                        or getattr(
-                            recipient,
-                            'mobile',
-                            ''
-                        )
-                        or ''
+                            unit.owner_mobile
+                            or getattr(
+                        recipient,
+                        'mobile',
+                        ''
+                    )
+                            or ''
                     )
 
                     mobile = str(
@@ -7527,13 +7477,13 @@ class ManagerMessageSendAPIView(APIView):
                         continue
 
                     mobile = (
-                        renter.renter_mobile
-                        or getattr(
-                            recipient,
-                            'mobile',
-                            ''
-                        )
-                        or ''
+                            renter.renter_mobile
+                            or getattr(
+                        recipient,
+                        'mobile',
+                        ''
+                    )
+                            or ''
                     )
 
                     mobile = str(
@@ -7557,7 +7507,6 @@ class ManagerMessageSendAPIView(APIView):
         # =====================================================
 
         if not recipient_items:
-
             return Response(
                 {
                     'detail': (
@@ -7584,7 +7533,6 @@ class ManagerMessageSendAPIView(APIView):
         unique_items = {}
 
         for item in recipient_items:
-
             key = (
                 item['unit'].id,
                 item['type'],
@@ -7622,7 +7570,6 @@ class ManagerMessageSendAPIView(APIView):
             # -------------------------------------------------
 
             for item in recipient_items:
-
                 MessageReadStatus.objects.update_or_create(
                     message=message,
                     recipient=item['recipient'],
@@ -7703,6 +7650,7 @@ class ManagerHouseListView(APIView):
 
         return Response(result)
 
+
 class ManagerBankListCreateView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -7774,7 +7722,6 @@ class ManagerBankListCreateView(APIView):
         # اگر موجودی اولیه وجود داشته باشد،
         # آن را به عنوان افتتاحیه ثبت می‌کنیم.
         if initial_fund > 0:
-
             financial_document_number = (
                 get_next_financial_document_number(house)
             )
@@ -7998,8 +7945,8 @@ class ManagerBankDetailView(APIView):
                 # موجودی فعلی را بر اساس مقدار قبلی نگه نمی‌داریم
                 # و فقط مبلغ افتتاحیه را اضافه می‌کنیم.
                 bank.current_balance = (
-                    Decimal(bank.current_balance or 0)
-                    + new_initial_fund
+                        Decimal(bank.current_balance or 0)
+                        + new_initial_fund
                 )
 
                 bank.save()
@@ -8053,8 +8000,8 @@ class ManagerBankDetailView(APIView):
 
                 bank.initial_fund = Decimal('0')
                 bank.current_balance = (
-                    Decimal(bank.current_balance or 0)
-                    - difference
+                        Decimal(bank.current_balance or 0)
+                        - difference
                 )
 
                 if bank.current_balance < 0:
@@ -8071,7 +8018,7 @@ class ManagerBankDetailView(APIView):
             else:
 
                 difference = (
-                    new_initial_fund - old_initial_fund
+                        new_initial_fund - old_initial_fund
                 )
 
                 bank.initial_fund = new_initial_fund
@@ -8092,14 +8039,14 @@ class ManagerBankDetailView(APIView):
                     opening_bank_fund.house = new_house
                     opening_bank_fund.payment_date = bank.create_at
                     opening_bank_fund.balance_after = (
-                        Decimal(bank.current_balance or 0)
-                        + difference
+                            Decimal(bank.current_balance or 0)
+                            + difference
                     )
                     opening_bank_fund.save()
 
                 bank.current_balance = (
-                    Decimal(bank.current_balance or 0)
-                    + difference
+                        Decimal(bank.current_balance or 0)
+                        + difference
                 )
 
                 bank.save()
@@ -8148,7 +8095,6 @@ class ManagerBankDetailView(APIView):
 # =================== Bank Transfers =========================
 # ============================================================
 class ManagerBankTransferListCreateView(APIView):
-
     authentication_classes = [
         JWTAuthentication
     ]
@@ -8230,7 +8176,6 @@ class ManagerBankTransferListCreateView(APIView):
             )
 
             if group_id not in groups:
-
                 groups[group_id] = {
                     'transfer_group_id':
                         group_id,
@@ -8383,7 +8328,6 @@ class ManagerBankTransferListCreateView(APIView):
         )
 
         if not from_bank or not to_bank:
-
             return Response(
                 {
                     'detail':
@@ -8397,7 +8341,7 @@ class ManagerBankTransferListCreateView(APIView):
         # -------------------------------------------------
 
         payment_description = (
-            data.get('description') or ''
+                data.get('description') or ''
         ).strip()
 
         # -------------------------------------------------
@@ -8536,16 +8480,16 @@ class ManagerBankTransferDeleteView(APIView):
 
             if opening_bank_fund:
                 deposits_without_opening = (
-                    deposits -
-                    Decimal(opening_bank_fund.amount or 0)
+                        deposits -
+                        Decimal(opening_bank_fund.amount or 0)
                 )
             else:
                 deposits_without_opening = deposits
 
             new_balance = (
-                opening_amount
-                + deposits_without_opening
-                - withdrawals
+                    opening_amount
+                    + deposits_without_opening
+                    - withdrawals
             )
 
             if new_balance < 0:
@@ -8570,7 +8514,6 @@ class ManagerBankTransferDeleteView(APIView):
 # ============================================================
 
 class ManagerPollBaseView(APIView):
-
     authentication_classes = [
         JWTAuthentication
     ]
@@ -8664,8 +8607,8 @@ class ManagerPollBaseView(APIView):
         else:
 
             eligible_count = (
-                owner_count +
-                renter_count
+                    owner_count +
+                    renter_count
             )
 
         return {
@@ -8679,9 +8622,9 @@ class ManagerPollBaseView(APIView):
     # ========================================================
 
     def is_user_eligible_for_poll(
-        self,
-        poll,
-        user
+            self,
+            poll,
+            user
     ):
 
         if not user or not user.is_authenticated:
@@ -8714,10 +8657,9 @@ class ManagerPollBaseView(APIView):
         # ---------------------------------------------
 
         if poll.participant_type == 'all':
-
             return (
-                owner_unit_exists or
-                renter_exists
+                    owner_unit_exists or
+                    renter_exists
             )
 
         # ---------------------------------------------
@@ -8725,7 +8667,6 @@ class ManagerPollBaseView(APIView):
         # ---------------------------------------------
 
         if poll.participant_type == 'owners':
-
             return owner_unit_exists
 
         # ---------------------------------------------
@@ -8733,7 +8674,6 @@ class ManagerPollBaseView(APIView):
         # ---------------------------------------------
 
         if poll.participant_type == 'renters':
-
             return renter_exists
 
         return False
@@ -8901,10 +8841,10 @@ class ManagerPollDetailView(
         )
 
     def _update(
-        self,
-        request,
-        poll_id,
-        partial=False
+            self,
+            request,
+            poll_id,
+            partial=False
     ):
 
         if not self.check_manager(request):
@@ -9084,8 +9024,8 @@ class ManagerPollToggleActiveView(
             )
 
         if not isinstance(
-            is_active,
-            bool
+                is_active,
+                bool
         ):
             return Response(
                 {
@@ -9204,8 +9144,8 @@ class ManagerPollResultsView(
 
             participation_percentage = round(
                 (
-                    participants /
-                    eligible_users
+                        participants /
+                        eligible_users
                 ) * 100,
                 1
             )
@@ -9260,8 +9200,8 @@ class ManagerPollResultsView(
 
                     percentage = round(
                         (
-                            vote_count /
-                            question_participants
+                                vote_count /
+                                question_participants
                         ) * 100,
                         1
                     )
@@ -9364,11 +9304,11 @@ class ManagerPollResultsView(
             status=status.HTTP_200_OK
         )
 
+
 # ============================================================
 # TICKET TO USER
 # ============================================================
 class MobileSupportTicketCreateView(APIView):
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -9462,7 +9402,6 @@ class MobileSupportTicketCreateView(APIView):
         notifications = []
 
         for manager in managers:
-
             notifications.append(
                 Notification(
                     user=manager,
@@ -9494,13 +9433,12 @@ class MobileSupportTicketCreateView(APIView):
             }
         }, status=status.HTTP_201_CREATED)
 
-class MobileSupportTicketListView(APIView):
 
+class MobileSupportTicketListView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-
         user = request.user
 
         tickets = (
@@ -9529,12 +9467,10 @@ class MobileSupportTicketListView(APIView):
 
 
 class MobileSupportTicketDetailView(APIView):
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, ticket_id):
-
         ticket = (
             SupportUser.objects
             .filter(
@@ -9590,7 +9526,6 @@ class MobileSupportTicketDetailView(APIView):
 
 
 class MobileSupportTicketMessageView(APIView):
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -9666,7 +9601,6 @@ class MobileSupportTicketMessageView(APIView):
             notifications = []
 
             for manager in managers:
-
                 notifications.append(
                     Notification(
                         user=manager,
@@ -9694,7 +9628,6 @@ class MobileSupportTicketMessageView(APIView):
 
 
 class MobileSupportTicketCloseView(APIView):
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -9733,10 +9666,110 @@ class MobileSupportTicketCloseView(APIView):
         })
 
 
-
 # ============================================================
 # Resident TICKET
 # ============================================================
+
+# ============================================================
+# ایجاد Notification برای مدیران مجتمع ساکن
+# ============================================================
+
+def notify_managers_about_ticket(ticket, title, message):
+    """
+    پیدا کردن مدیران مجتمع مربوط به ساکن و ایجاد Notification
+    برای آنها.
+
+    ساکن می‌تواند:
+    - مالک واحد باشد
+    - مستاجر فعال واحد باشد
+    """
+
+    resident = ticket.user
+
+    # --------------------------------------------------------
+    # مجتمع‌هایی که ساکن مالک واحد آنهاست
+    # --------------------------------------------------------
+
+    owner_house_ids = Unit.objects.filter(
+        user=resident,
+        is_active=True,
+    ).values_list(
+        'myhouse_id',
+        flat=True,
+    )
+
+    # --------------------------------------------------------
+    # مجتمع‌هایی که ساکن مستاجر فعال آنهاست
+    # --------------------------------------------------------
+
+    renter_house_ids = Renter.objects.filter(
+        user=resident,
+        unit__is_active=True,
+        renter_is_active=True,
+    ).values_list(
+        'unit__myhouse_id',
+        flat=True,
+    )
+
+    # --------------------------------------------------------
+    # تمام مجتمع‌های مرتبط با ساکن
+    # --------------------------------------------------------
+
+    house_ids = set(owner_house_ids) | set(renter_house_ids)
+
+    if not house_ids:
+        return 0
+
+    # --------------------------------------------------------
+    # مدیران مجتمع
+    # --------------------------------------------------------
+
+    manager_user_ids = (
+        MyHouse.objects
+        .filter(
+            id__in=house_ids,
+            is_active=True,
+        )
+        .exclude(
+            user_id=resident.id,
+        )
+        .values_list(
+            'user_id',
+            flat=True,
+        )
+        .distinct()
+    )
+
+    manager_user_ids = list(manager_user_ids)
+
+    if not manager_user_ids:
+        return 0
+
+    # --------------------------------------------------------
+    # ایجاد Notification برای مدیران
+    # --------------------------------------------------------
+
+    notifications = []
+
+    for manager_user_id in manager_user_ids:
+        notifications.append(
+            Notification(
+                user_id=manager_user_id,
+                ticket=ticket,
+                title=title,
+                message=message,
+                link=f'/support/tickets/{ticket.id}/',
+                is_read=False,
+            )
+        )
+
+    Notification.objects.bulk_create(
+        notifications
+    )
+
+    return len(notifications)
+
+
 def get_user_ticket(user, ticket_id):
     return get_object_or_404(
         SupportUser.objects
@@ -9756,7 +9789,6 @@ def get_user_ticket(user, ticket_id):
 # =========================================================
 
 class UserSupportTicketListCreateView(APIView):
-
     permission_classes = [
         IsAuthenticated,
     ]
@@ -9772,7 +9804,6 @@ class UserSupportTicketListCreateView(APIView):
     # -----------------------------------------------------
 
     def get(self, request):
-
         tickets = (
             SupportUser.objects
             .filter(user=request.user)
@@ -9801,9 +9832,12 @@ class UserSupportTicketListCreateView(APIView):
     # POST
     # -----------------------------------------------------
 
+    # -----------------------------------------------------
+    # POST
+    # -----------------------------------------------------
+
     @transaction.atomic
     def post(self, request):
-
         serializer = UserSupportTicketCreateSerializer(
             data=request.data
         )
@@ -9839,7 +9873,6 @@ class UserSupportTicketListCreateView(APIView):
         uploaded_file = request.FILES.get('file')
 
         if uploaded_file:
-
             support_file = SupportFile.objects.create(
                 support_user=ticket,
                 file=uploaded_file,
@@ -9848,6 +9881,19 @@ class UserSupportTicketListCreateView(APIView):
             support_message.attachments.add(
                 support_file
             )
+
+        # =================================================
+        # Notification برای مدیر مجتمع
+        # =================================================
+
+        notify_managers_about_ticket(
+            ticket=ticket,
+            title='تیکت جدید',
+            message=(
+                f'ساکن یک تیکت جدید با شماره '
+                f'{ticket.ticket_no} ایجاد کرده است.'
+            ),
+        )
 
         # =================================================
         # پاسخ
@@ -9877,7 +9923,6 @@ class UserSupportTicketListCreateView(APIView):
 # =========================================================
 
 class UserSupportTicketDetailView(APIView):
-
     permission_classes = [
         IsAuthenticated,
     ]
@@ -9937,7 +9982,6 @@ class UserSupportTicketDetailView(APIView):
             },
         )
 
-
         print(
             '🔥 DETAIL SERIALIZER DATA:',
             serializer.data,
@@ -9953,8 +9997,11 @@ class UserSupportTicketDetailView(APIView):
 # ارسال پیام
 # =========================================================
 
-class UserSupportTicketMessageView(APIView):
+# =========================================================
+# ارسال پیام
+# =========================================================
 
+class UserSupportTicketMessageView(APIView):
     permission_classes = [
         IsAuthenticated,
     ]
@@ -9986,17 +10033,29 @@ class UserSupportTicketMessageView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
+        # =================================================
+        # متن پیام
+        # =================================================
+
         message_text = (
-            request.data.get('message') or ''
+                request.data.get('message') or ''
         )
 
         message_text = str(
             message_text
         ).strip()
 
+        # =================================================
+        # فایل
+        # =================================================
+
         uploaded_file = request.FILES.get(
             'file'
         )
+
+        # =================================================
+        # حداقل متن یا فایل باید وجود داشته باشد
+        # =================================================
 
         if not message_text and not uploaded_file:
             return Response(
@@ -10025,6 +10084,24 @@ class UserSupportTicketMessageView(APIView):
 
         if uploaded_file:
 
+            content_type = getattr(
+                uploaded_file,
+                'content_type',
+                '',
+            )
+
+            if not content_type.startswith(
+                    'image/'
+            ):
+                return Response(
+                    {
+                        'success': False,
+                        'message':
+                            'فقط فایل‌های تصویری قابل ارسال هستند.',
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
             support_file = SupportFile.objects.create(
                 support_user=ticket,
                 file=uploaded_file,
@@ -10046,27 +10123,38 @@ class UserSupportTicketMessageView(APIView):
         ticket.is_sent = True
         ticket.is_closed = False
 
+        # بسیار مهم:
+        # برای مدیر یعنی پیام جدید خوانده نشده است.
+        ticket.is_read = False
+
         ticket.save(
             update_fields=[
                 'is_waiting',
                 'is_answer',
                 'is_sent',
                 'is_closed',
+                'is_read',
                 'updated_at',
             ]
         )
 
         # =================================================
-        # اعلان برای مدیر
+        # Notification برای مدیر مجتمع
         # =================================================
 
-        manager_users = []
+        notify_managers_about_ticket(
+            ticket=ticket,
+            title='پیام جدید در تیکت',
+            message=(
+                f'ساکن در تیکت شماره '
+                f'{ticket.ticket_no} '
+                f'پیام جدیدی ارسال کرده است.'
+            ),
+        )
 
-        if hasattr(request.user, 'myhouse_set'):
-            pass
-
-        # این قسمت را بعد از دیدن ساختار MyHouse
-        # دقیقاً با مدیر ساختمان شما هماهنگ می‌کنیم.
+        # =================================================
+        # پاسخ
+        # =================================================
 
         return Response(
             {
@@ -10084,14 +10172,12 @@ class UserSupportTicketMessageView(APIView):
 # =========================================================
 
 class UserSupportTicketCloseView(APIView):
-
     permission_classes = [
         IsAuthenticated,
     ]
 
     @transaction.atomic
     def post(self, request, ticket_id):
-
         ticket = get_user_ticket(
             request.user,
             ticket_id,
@@ -10129,13 +10215,11 @@ class UserSupportTicketCloseView(APIView):
 # =========================================================
 
 class UserSupportTicketReadView(APIView):
-
     permission_classes = [
         IsAuthenticated,
     ]
 
     def post(self, request, ticket_id):
-
         ticket = get_user_ticket(
             request.user,
             ticket_id,
@@ -10163,12 +10247,29 @@ class UserSupportTicketReadView(APIView):
         })
 
 
+class UserSupportUnreadCountView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def get(self, request):
+        count = Notification.objects.filter(
+            user=request.user,
+            ticket__isnull=False,
+            is_read=False,
+        ).count()
+
+        return Response({
+            'success': True,
+            'unread_count': count,
+        })
+
+
 # ============================================================
 # MANAGER TICKET
 # ============================================================
 
 class ManagerSupportTicketListView(APIView):
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -10267,8 +10368,8 @@ class ManagerSupportTicketListView(APIView):
             'tickets': serializer.data,
         })
 
-class ManagerSupportTicketDetailView(APIView):
 
+class ManagerSupportTicketDetailView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -10398,7 +10499,6 @@ class ManagerSupportTicketDetailView(APIView):
 
 
 class ManagerSupportTicketMessageView(APIView):
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -10505,10 +10605,9 @@ class ManagerSupportTicketMessageView(APIView):
         # -------------------------------------------------
 
         if (
-            not message
-            or not str(message).strip()
+                not message
+                or not str(message).strip()
         ) and not uploaded_files:
-
             return Response({
                 'success': False,
                 'message': 'متن پاسخ یا فایل پیوست الزامی است.',
@@ -10610,8 +10709,8 @@ class ManagerSupportTicketMessageView(APIView):
             'file_ids': created_files,
         }, status=status.HTTP_201_CREATED)
 
-class ManagerSupportTicketWaitingView(APIView):
 
+class ManagerSupportTicketWaitingView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -10733,7 +10832,6 @@ class ManagerSupportTicketWaitingView(APIView):
 
 
 class ManagerSupportTicketCloseView(APIView):
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
@@ -10825,3 +10923,589 @@ class ManagerSupportTicketCloseView(APIView):
             'success': True,
             'message': 'تیکت با موفقیت بسته شد.',
         })
+
+
+class ManagerSupportUnreadCountView(APIView):
+    permission_classes = [
+        IsAuthenticated,
+    ]
+
+    def get(self, request):
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شما اجازه دسترسی ندارید.',
+                },
+                status=403,
+            )
+
+        count = Notification.objects.filter(
+            user=request.user,
+            ticket__isnull=False,
+            is_read=False,
+        ).count()
+
+        return Response({
+            'success': True,
+            'unread_count': count,
+        })
+
+# ============================================================
+# Admin TICKET
+# ============================================================
+# =========================================================
+# بررسی دسترسی مدیر ساختمان به تیکت
+# =========================================================
+
+def get_manager_admin_ticket(user, ticket_id):
+    """
+    فقط مدیر ساختمان و فقط تیکت متعلق به خودش را برمی‌گرداند.
+    """
+
+    if not user.is_middle_admin:
+        return None
+
+    ticket = get_object_or_404(
+        AdminTicket.objects
+        .select_related(
+            'user',
+            'house',
+            'middle_admin',
+        )
+        .prefetch_related(
+            'files_ticket',
+            'messages__sender',
+            'messages__attachments',
+        ),
+        id=ticket_id,
+    )
+
+    if ticket.user_id != user.id:
+        return None
+
+    return ticket
+
+
+class ManagerAdminSupportTicketListView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی غیرمجاز است.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        tickets = (
+            AdminTicket.objects
+            .filter(
+                user=request.user,
+                is_sent=True,
+            )
+            .select_related(
+                'user',
+                'house',
+                'middle_admin',
+            )
+            .prefetch_related(
+                'messages__sender',
+                'messages__attachments',
+            )
+            .order_by('-updated_at')
+        )
+
+        serializer = AdminTicketListSerializer(
+            tickets,
+            many=True,
+            context={'request': request},
+        )
+
+        return Response(
+            {
+                'success': True,
+                'count': tickets.count(),
+                'tickets': serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ManagerAdminSupportTicketCreateView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    parser_classes = [
+        JSONParser,
+        MultiPartParser,
+        FormParser,
+    ]
+
+    @transaction.atomic
+    def post(self, request):
+
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی غیرمجاز است.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # -------------------------------------------------
+        # پیدا کردن مجتمع فعال مدیر
+        # -------------------------------------------------
+
+        house = (
+            MyHouse.objects
+            .filter(
+                user=request.user,
+                is_active=True,
+            )
+            .first()
+        )
+
+        if not house:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'مجتمع فعال برای مدیر پیدا نشد.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -------------------------------------------------
+        # اعتبارسنجی
+        # -------------------------------------------------
+
+        serializer = AdminTicketCreateSerializer(
+            data=request.data,
+        )
+
+        serializer.is_valid(
+            raise_exception=True,
+        )
+
+        # -------------------------------------------------
+        # ایجاد تیکت
+        # -------------------------------------------------
+
+        ticket = serializer.save(
+            user=request.user,
+            house=house,
+            is_sent=True,
+            is_read=True,
+            is_answer=False,
+            is_waiting=False,
+            is_closed=False,
+        )
+
+        # -------------------------------------------------
+        # پیام اولیه
+        # -------------------------------------------------
+
+        support_message = AdminTicketMessage.objects.create(
+            ticket=ticket,
+            sender=request.user,
+            message=ticket.message,
+            is_read=True,
+        )
+
+        # -------------------------------------------------
+        # فایل
+        # -------------------------------------------------
+
+        uploaded_files = request.FILES.getlist('files')
+
+        for uploaded_file in uploaded_files:
+
+            support_file = AdminTicketFile.objects.create(
+                ticket=ticket,
+                file=uploaded_file,
+            )
+
+            support_message.attachments.add(
+                support_file
+            )
+
+        # -------------------------------------------------
+        # پاسخ نهایی
+        # -------------------------------------------------
+
+        response_serializer = AdminTicketDetailSerializer(
+            ticket,
+            context={'request': request},
+        )
+
+        return Response(
+            {
+                'success': True,
+                'message': 'تیکت با موفقیت ایجاد شد.',
+                'ticket': response_serializer.data,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ManagerAdminSupportTicketDetailView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, ticket_id):
+
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی غیرمجاز است.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        ticket = get_manager_admin_ticket(
+            request.user,
+            ticket_id,
+        )
+
+        if ticket is None:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'تیکت پیدا نشد یا دسترسی ندارید.',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # -------------------------------------------------
+        # خوانده شدن پیام‌های ادمین
+        # -------------------------------------------------
+
+        ticket.messages.filter(
+            is_read=False,
+        ).exclude(
+            sender=request.user,
+        ).update(
+            is_read=True,
+        )
+
+        # -------------------------------------------------
+        # خوانده شدن Notification
+        # -------------------------------------------------
+
+        MiddleAdminNotification.objects.filter(
+            user=request.user,
+            ticket=ticket,
+            is_read=False,
+        ).update(
+            is_read=True,
+        )
+
+        # -------------------------------------------------
+        # خروجی
+        # -------------------------------------------------
+
+        serializer = AdminTicketDetailSerializer(
+            ticket,
+            context={'request': request},
+        )
+
+        return Response(
+            {
+                'success': True,
+                'ticket': serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ManagerAdminSupportTicketMessageView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    parser_classes = [
+        MultiPartParser,
+        FormParser,
+    ]
+
+    @transaction.atomic
+    def post(self, request, ticket_id):
+
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی غیرمجاز است.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        ticket = get_manager_admin_ticket(
+            request.user,
+            ticket_id,
+        )
+
+        if ticket is None:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'تیکت پیدا نشد یا دسترسی ندارید.',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # -------------------------------------------------
+        # تیکت بسته شده
+        # -------------------------------------------------
+
+        if ticket.is_closed:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'این تیکت بسته شده است.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -------------------------------------------------
+        # متن
+        # -------------------------------------------------
+
+        message_text = (
+            request.data.get('message')
+            or ''
+        )
+
+        message_text = str(
+            message_text
+        ).strip()
+
+        # -------------------------------------------------
+        # فایل‌ها
+        # -------------------------------------------------
+
+        uploaded_files = request.FILES.getlist(
+            'files'
+        )
+
+        if not message_text and not uploaded_files:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'متن پیام یا فایل را وارد کنید.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # -------------------------------------------------
+        # ایجاد پیام
+        # -------------------------------------------------
+
+        message = AdminTicketMessage.objects.create(
+            ticket=ticket,
+            sender=request.user,
+            message=message_text,
+            is_read=True,
+        )
+
+        # -------------------------------------------------
+        # فایل‌ها
+        # -------------------------------------------------
+
+        for uploaded_file in uploaded_files:
+
+            support_file = AdminTicketFile.objects.create(
+                ticket=ticket,
+                file=uploaded_file,
+            )
+
+            message.attachments.add(
+                support_file
+            )
+
+        # -------------------------------------------------
+        # وضعیت تیکت
+        # -------------------------------------------------
+
+        ticket.is_answer = False
+        ticket.is_waiting = False
+        ticket.is_read = True
+        ticket.is_closed = False
+
+        ticket.save(
+            update_fields=[
+                'is_answer',
+                'is_waiting',
+                'is_read',
+                'is_closed',
+                'updated_at',
+            ]
+        )
+
+        # -------------------------------------------------
+        # پاسخ
+        # -------------------------------------------------
+
+        return Response(
+            {
+                'success': True,
+                'message': 'پیام با موفقیت ارسال شد.',
+                'message_id': message.id,
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class ManagerAdminSupportTicketCloseView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request, ticket_id):
+
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی غیرمجاز است.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        ticket = get_manager_admin_ticket(
+            request.user,
+            ticket_id,
+        )
+
+        if ticket is None:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'تیکت پیدا نشد یا دسترسی ندارید.',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if ticket.is_closed:
+            return Response(
+                {
+                    'success': True,
+                    'message': 'تیکت قبلاً بسته شده است.',
+                },
+                status=status.HTTP_200_OK,
+            )
+
+        ticket.is_closed = True
+        ticket.is_waiting = False
+
+        ticket.save(
+            update_fields=[
+                'is_closed',
+                'is_waiting',
+                'updated_at',
+            ]
+        )
+
+        return Response(
+            {
+                'success': True,
+                'message': 'تیکت با موفقیت بسته شد.',
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ManagerAdminSupportTicketReadView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, ticket_id):
+
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی غیرمجاز است.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        ticket = get_manager_admin_ticket(
+            request.user,
+            ticket_id,
+        )
+
+        if ticket is None:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'تیکت پیدا نشد یا دسترسی ندارید.',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        count = ticket.messages.filter(
+            is_read=False,
+        ).exclude(
+            sender=request.user,
+        ).update(
+            is_read=True,
+        )
+
+        MiddleAdminNotification.objects.filter(
+            user=request.user,
+            ticket=ticket,
+            is_read=False,
+        ).update(
+            is_read=True,
+        )
+
+        return Response(
+            {
+                'success': True,
+                'marked_count': count,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+class ManagerAdminSupportUnreadCountView(APIView):
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی غیرمجاز است.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        count = MiddleAdminNotification.objects.filter(
+            user=request.user,
+            ticket__isnull=False,
+            is_read=False,
+        ).count()
+
+        return Response(
+            {
+                'success': True,
+                'unread_count': count,
+            },
+            status=status.HTTP_200_OK,
+        )

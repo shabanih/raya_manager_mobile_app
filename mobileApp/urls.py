@@ -16,7 +16,10 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     MobileSupportTicketMessageView, MobileSupportTicketCloseView, ManagerSupportTicketListView, \
     ManagerSupportTicketDetailView, ManagerSupportTicketMessageView, ManagerSupportTicketCloseView, \
     ManagerSupportTicketWaitingView, UserSupportTicketReadView, UserSupportTicketCloseView, \
-    UserSupportTicketMessageView, UserSupportTicketDetailView, UserSupportTicketListCreateView
+    UserSupportTicketMessageView, UserSupportTicketDetailView, UserSupportTicketListCreateView, \
+    UserSupportUnreadCountView, ManagerSupportUnreadCountView, ManagerAdminSupportTicketListView, \
+    ManagerAdminSupportTicketCreateView, ManagerAdminSupportTicketDetailView, ManagerAdminSupportTicketMessageView, \
+    ManagerAdminSupportTicketReadView, ManagerAdminSupportUnreadCountView, ManagerAdminSupportTicketCloseView
 
 urlpatterns = [
     path(
@@ -377,6 +380,11 @@ urlpatterns = [
         UserSupportTicketReadView.as_view(),
         name='user_support_ticket_read',
     ),
+    path(
+        'user-support/unread-count/',
+        UserSupportUnreadCountView.as_view(),
+        name='user_support_unread_count',
+    ),
     # -------------------------------------------------
     # TICKET/Manager
     # -------------------------------------------------
@@ -408,5 +416,56 @@ urlpatterns = [
         'manager/support/tickets/<int:ticket_id>/waiting/',
         ManagerSupportTicketWaitingView.as_view(),
         name='manager_support_ticket_waiting',
+    ),
+    path(
+        'manager-support/unread-count/',
+        ManagerSupportUnreadCountView.as_view(),
+        name='manager_support_unread_count',
+    ),
+
+    # =========================================================
+    # مدیریت پشتیبانی مدیر ساختمان
+    # =========================================================
+
+    path(
+        'manager/admin-support/tickets/',
+        ManagerAdminSupportTicketListView.as_view(),
+        name='manager_admin_support_ticket_list',
+    ),
+
+    path(
+        'manager/admin-support/tickets/create/',
+        ManagerAdminSupportTicketCreateView.as_view(),
+        name='manager_admin_support_ticket_create',
+    ),
+
+    path(
+        'manager/admin-support/tickets/<int:ticket_id>/',
+        ManagerAdminSupportTicketDetailView.as_view(),
+        name='manager_admin_support_ticket_detail',
+    ),
+
+    path(
+        'manager/admin-support/tickets/<int:ticket_id>/message/',
+        ManagerAdminSupportTicketMessageView.as_view(),
+        name='manager_admin_support_ticket_message',
+    ),
+
+    path(
+        'manager/admin-support/tickets/<int:ticket_id>/close/',
+        ManagerAdminSupportTicketCloseView.as_view(),
+        name='manager_admin_support_ticket_close',
+    ),
+
+    path(
+        'manager/admin-support/tickets/<int:ticket_id>/read/',
+        ManagerAdminSupportTicketReadView.as_view(),
+        name='manager_admin_support_ticket_read',
+    ),
+
+    path(
+        'manager/admin-support/unread-count/',
+        ManagerAdminSupportUnreadCountView.as_view(),
+        name='manager_admin_support_unread_count',
     ),
 ]
