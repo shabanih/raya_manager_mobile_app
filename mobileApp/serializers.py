@@ -3720,7 +3720,6 @@ class AdminTicketFileSerializer(serializers.ModelSerializer):
         ]
 
     def get_file_url(self, obj):
-        request = self.context.get('request')
 
         if not obj.file:
             return None
@@ -3730,13 +3729,24 @@ class AdminTicketFileSerializer(serializers.ModelSerializer):
         except Exception:
             return None
 
+        request = self.context.get('request')
+
         if request:
-            return request.build_absolute_uri(url)
+            try:
+                return request.build_absolute_uri(url)
+            except Exception:
+                pass
 
         return url
 
 
-class AdminTicketLastMessageSerializer(serializers.ModelSerializer):
+# =========================================================
+# آخرین پیام
+# =========================================================
+
+class AdminTicketLastMessageSerializer(
+    serializers.ModelSerializer
+):
 
     sender_name = serializers.SerializerMethodField()
     sender_role = serializers.SerializerMethodField()
@@ -3754,9 +3764,16 @@ class AdminTicketLastMessageSerializer(serializers.ModelSerializer):
         ]
 
     def get_sender_name(self, obj):
+
+        if not obj.sender:
+            return 'نامشخص'
+
         return str(obj.sender)
 
     def get_sender_role(self, obj):
+
+        if not obj.sender:
+            return 'نامشخص'
 
         if obj.sender.is_superuser:
             return 'ادمین'
@@ -3767,10 +3784,17 @@ class AdminTicketLastMessageSerializer(serializers.ModelSerializer):
         return 'کاربر'
 
 
-class AdminTicketMessageSerializer(serializers.ModelSerializer):
+# =========================================================
+# پیام
+# =========================================================
+
+class AdminTicketMessageSerializer(
+    serializers.ModelSerializer
+):
 
     sender_name = serializers.SerializerMethodField()
     sender_role = serializers.SerializerMethodField()
+
     attachments = AdminTicketFileSerializer(
         many=True,
         read_only=True,
@@ -3790,9 +3814,16 @@ class AdminTicketMessageSerializer(serializers.ModelSerializer):
         ]
 
     def get_sender_name(self, obj):
+
+        if not obj.sender:
+            return 'نامشخص'
+
         return str(obj.sender)
 
     def get_sender_role(self, obj):
+
+        if not obj.sender:
+            return 'نامشخص'
 
         if obj.sender.is_superuser:
             return 'ادمین'
@@ -3803,7 +3834,13 @@ class AdminTicketMessageSerializer(serializers.ModelSerializer):
         return 'کاربر'
 
 
-class AdminTicketListSerializer(serializers.ModelSerializer):
+# =========================================================
+# لیست تیکت
+# =========================================================
+
+class AdminTicketListSerializer(
+    serializers.ModelSerializer
+):
 
     unread_count = serializers.SerializerMethodField()
     last_message = serializers.SerializerMethodField()
@@ -3816,15 +3853,20 @@ class AdminTicketListSerializer(serializers.ModelSerializer):
             'id',
             'ticket_no',
             'subject',
+
             'is_sent',
             'is_read',
             'is_call',
+
             'is_closed',
             'is_answer',
             'is_waiting',
+
             'status',
+
             'unread_count',
             'last_message',
+
             'created_at',
             'updated_at',
         ]
@@ -3832,20 +3874,25 @@ class AdminTicketListSerializer(serializers.ModelSerializer):
         read_only_fields = [
             'id',
             'ticket_no',
+
             'is_sent',
             'is_read',
+            'is_call',
+
             'is_closed',
             'is_answer',
             'is_waiting',
+
             'status',
             'unread_count',
             'last_message',
+
             'created_at',
             'updated_at',
         ]
 
     # -----------------------------------------------------
-    # تعداد پیام‌های خوانده نشده برای مدیر
+    # تعداد اعلان‌های خوانده نشده
     # -----------------------------------------------------
 
     def get_unread_count(self, obj):
@@ -3857,7 +3904,7 @@ class AdminTicketListSerializer(serializers.ModelSerializer):
 
         user = request.user
 
-        if not user or not user.is_authenticated:
+        if not user.is_authenticated:
             return 0
 
         return MiddleAdminNotification.objects.filter(
@@ -3882,12 +3929,10 @@ class AdminTicketListSerializer(serializers.ModelSerializer):
         if not message:
             return None
 
-        serializer = AdminTicketLastMessageSerializer(
+        return AdminTicketLastMessageSerializer(
             message,
             context=self.context,
-        )
-
-        return serializer.data
+        ).data
 
     # -----------------------------------------------------
     # وضعیت
@@ -3907,10 +3952,17 @@ class AdminTicketListSerializer(serializers.ModelSerializer):
         return 'در انتظار پاسخ'
 
 
-class AdminTicketDetailSerializer(serializers.ModelSerializer):
+# =========================================================
+# جزئیات تیکت
+# =========================================================
+
+class AdminTicketDetailSerializer(
+    serializers.ModelSerializer
+):
 
     status = serializers.SerializerMethodField()
     messages = serializers.SerializerMethodField()
+    files = serializers.SerializerMethodField()
 
     class Meta:
         model = AdminTicket
@@ -3920,29 +3972,21 @@ class AdminTicketDetailSerializer(serializers.ModelSerializer):
             'ticket_no',
             'subject',
             'message',
+
             'is_sent',
             'is_read',
             'is_call',
-            'is_closed',
-            'is_answer',
-            'is_waiting',
-            'status',
-            'created_at',
-            'updated_at',
-            'messages',
-        ]
 
-        read_only_fields = [
-            'id',
-            'ticket_no',
-            'is_sent',
-            'is_read',
             'is_closed',
             'is_answer',
             'is_waiting',
+
             'status',
+
             'created_at',
             'updated_at',
+
+            'files',
             'messages',
         ]
 
@@ -3959,6 +4003,28 @@ class AdminTicketDetailSerializer(serializers.ModelSerializer):
 
         return 'در انتظار پاسخ'
 
+    # -----------------------------------------------------
+    # فایل‌های اولیه تیکت
+    # -----------------------------------------------------
+
+    def get_files(self, obj):
+
+        files = (
+            obj.files_ticket
+            .all()
+            .order_by('uploaded_at')
+        )
+
+        return AdminTicketFileSerializer(
+            files,
+            many=True,
+            context=self.context,
+        ).data
+
+    # -----------------------------------------------------
+    # پیام‌ها
+    # -----------------------------------------------------
+
     def get_messages(self, obj):
 
         messages = (
@@ -3968,16 +4034,20 @@ class AdminTicketDetailSerializer(serializers.ModelSerializer):
             .order_by('created_at')
         )
 
-        serializer = AdminTicketMessageSerializer(
+        return AdminTicketMessageSerializer(
             messages,
             many=True,
             context=self.context,
-        )
-
-        return serializer.data
+        ).data
 
 
-class AdminTicketCreateSerializer(serializers.ModelSerializer):
+# =========================================================
+# ایجاد تیکت
+# =========================================================
+
+class AdminTicketCreateSerializer(
+    serializers.ModelSerializer
+):
 
     class Meta:
         model = AdminTicket
@@ -3992,26 +4062,44 @@ class AdminTicketCreateSerializer(serializers.ModelSerializer):
                 'required': False,
                 'allow_blank': True,
             },
+
             'message': {
                 'required': True,
+                'allow_blank': False,
             },
         }
 
+    def validate_message(self, value):
 
-class AdminTicketMessageCreateSerializer(serializers.Serializer):
+        value = (value or '').strip()
+
+        if not value:
+            raise serializers.ValidationError(
+                'متن تیکت را وارد کنید.'
+            )
+
+        return value
+
+
+# =========================================================
+# ایجاد پیام
+# =========================================================
+
+class AdminTicketMessageCreateSerializer(
+    serializers.Serializer
+):
 
     message = serializers.CharField(
         required=False,
         allow_blank=True,
+        trim_whitespace=True,
     )
 
     def validate(self, attrs):
 
-        message = (
+        attrs['message'] = (
             attrs.get('message')
             or ''
         ).strip()
-
-        attrs['message'] = message
 
         return attrs

@@ -490,144 +490,582 @@ def middlAdmin_close_ticket(request, pk):
     # messages.success(request, "تیکت بسته شد.")
     return redirect('middleAdmin_ticket_detail', pk=ticket.id)
 
+# =========================================================
+# لیست تیکت‌های مدیران ساختمان برای ادمین
+# =========================================================
 
-# -------------------------------------------------------------------------------
 @method_decorator(admin_required, name='dispatch')
 class AdminTicketsView(ListView):
+
     model = AdminTicket
     template_name = 'admin_tickets.html'
     context_object_name = 'admin_tickets'
 
     def get_paginate_by(self, queryset):
+
         paginate = self.request.GET.get('paginate')
+
         if paginate == '1000':
-            return None  # نمایش همه
-        return int(paginate or 20)
+            return None
+
+        try:
+            return int(paginate or 20)
+        except (TypeError, ValueError):
+            return 20
 
     def get_queryset(self):
-        query = self.request.GET.get('q', '')
-        qs = AdminTicket.objects.filter(user__is_middle_admin=True).select_related('user')
+
+        query = self.request.GET.get('q', '').strip()
+
+        # فقط تیکت‌هایی که توسط مدیر ساختمان ایجاد شده‌اند
+        qs = (
+            AdminTicket.objects
+            .filter(
+                user__is_middle_admin=True,
+                is_sent=True,
+            )
+            .select_related(
+                'user',
+                'house',
+                'middle_admin',
+            )
+            .prefetch_related(
+                'messages__sender',
+            )
+        )
+
         if query:
             qs = qs.filter(
-                Q(subject__icontains=query) |
-                Q(message__icontains=query) |
+                Q(subject__icontains=query)
+                |
+                Q(message__icontains=query)
+                |
                 Q(ticket_no__icontains=query)
+                |
+                Q(user__username__icontains=query)
             )
+
         return qs.order_by('-created_at')
 
     def get_context_data(self, **kwargs):
+
         context = super().get_context_data(**kwargs)
-        context['query'] = self.request.GET.get('q', '')
+
+        context['query'] = self.request.GET.get(
+            'q',
+            ''
+        )
+
+        # تعداد Notificationهای خوانده نشده ادمین
+        context['unread_ticket_count'] = (
+            MiddleAdminNotification.objects
+            .filter(
+                user=self.request.user,
+                ticket__isnull=False,
+                is_read=False,
+            )
+            .count()
+        )
+
         return context
 
 
+# =========================================================
+# جزئیات تیکت مدیر ساختمان برای ادمین
+# =========================================================
+
 @login_required
 def admin_ticket_detail(request, pk):
-    ticket = get_object_or_404(AdminTicket, id=pk)
 
-    # فقط ادمین اجازه دارد
+    # -----------------------------------------------------
+    # فقط ادمین سامانه
+    # -----------------------------------------------------
+
     if not request.user.is_superuser:
-        messages.error(request, "اجازه دسترسی ندارید.")
+        messages.error(
+            request,
+            "اجازه دسترسی ندارید."
+        )
+
         return redirect('admin_tickets')
+
+    # -----------------------------------------------------
+    # دریافت تیکت
+    # -----------------------------------------------------
+
+    ticket = get_object_or_404(
+        AdminTicket.objects
+        .select_related(
+            'user',
+            'house',
+            'middle_admin',
+        )
+        .prefetch_related(
+            'files_ticket',
+            'messages__sender',
+            'messages__attachments',
+        ),
+        id=pk,
+    )
 
     form = MiddleAdminMessageForm()
 
-    # پیام‌های خوانده‌نشده مدیر میانی → باید توسط ادمین خوانده شوند
+    # =====================================================
+    # پیام‌های خوانده نشده مدیر ساختمان
+    # =====================================================
+
     unread_messages = ticket.messages.filter(
         sender__is_middle_admin=True,
-        is_read=False
+        is_read=False,
     )
 
     if unread_messages.exists():
-        unread_messages.update(is_read=True)
 
-        # بروزرسانی کانتر مدیر میانی
-        if ticket.middle_admin:
-            channel_layer = get_channel_layer()
-            async_to_sync(channel_layer.group_send)(
-                f"middle_admin_group_{ticket.middle_admin.id}",
-                {"type": "send_admin_ticket_count"}
-            )
+        unread_messages.update(
+            is_read=True
+        )
+
+    # =====================================================
+    # Notification مربوط به این تیکت برای ادمین
+    # =====================================================
+
+    MiddleAdminNotification.objects.filter(
+        user=request.user,
+        ticket=ticket,
+        is_read=False,
+    ).update(
+        is_read=True
+    )
+
+    # =====================================================
+    # بروزرسانی کانتر اپ مدیر
+    #
+    # اگر Notification مدیر قبلاً خوانده شده باشد،
+    # کانتر مدیر هم باید آپدیت شود.
+    # =====================================================
+
+    if ticket.user and ticket.user.is_middle_admin:
+
+        channel_layer = get_channel_layer()
+
+        async_to_sync(
+            channel_layer.group_send
+        )(
+            f"middle_admin_group_{ticket.user.id}",
+            {
+                "type": "send_admin_ticket_count"
+            }
+        )
+
+    # =====================================================
+    # ارسال پاسخ ادمین
+    # =====================================================
 
     if request.method == 'POST':
-        form = MiddleAdminMessageForm(request.POST, request.FILES)
+
+        form = MiddleAdminMessageForm(
+            request.POST,
+            request.FILES
+        )
+
         if form.is_valid():
 
-            msg = form.save(commit=False)
+            msg = form.save(
+                commit=False
+            )
+
             msg.ticket = ticket
-            msg.sender = request.user  # ادمین
+            msg.sender = request.user
             msg.is_read = False
+
             msg.save()
 
+            # -------------------------------------------------
             # ذخیره فایل‌ها
-            for f in request.FILES.getlist('file'):
-                file_instance = AdminTicketFile.objects.create(file=f, ticket=ticket)
-                msg.attachments.add(file_instance)
+            # -------------------------------------------------
+
+            for uploaded_file in request.FILES.getlist('file'):
+
+                file_instance = AdminTicketFile.objects.create(
+                    file=uploaded_file,
+                    ticket=ticket,
+                )
+
+                msg.attachments.add(
+                    file_instance
+                )
+
+            # -------------------------------------------------
+            # وضعیت تیکت
+            #
+            # پاسخ ادمین = پاسخ داده شده
+            # -------------------------------------------------
 
             ticket.is_answer = True
+            ticket.is_waiting = False
             ticket.is_closed = False
-            ticket.save()
 
-            # نوتیفیکیشن برای مدیر میانی
-            if ticket.middle_admin:
-                MiddleAdminNotification.objects.create(
-                    user=ticket.middle_admin,
+            ticket.save(
+                update_fields=[
+                    'is_answer',
+                    'is_waiting',
+                    'is_closed',
+                    'updated_at',
+                ]
+            )
+
+            # =================================================
+            # Notification برای مدیر ساختمان
+            #
+            # بسیار مهم:
+            # گیرنده = ticket.user
+            # نه ticket.middle_admin
+            # =================================================
+
+            manager = ticket.user
+
+            notification = None
+
+            if manager and manager.is_middle_admin:
+
+                notification = MiddleAdminNotification.objects.create(
+                    user=manager,
                     ticket=ticket,
                     title="پیام جدید از ادمین",
-                    message=f"ادمین یک پیام جدید برای تیکت #{ticket.ticket_no} ارسال کرد.",
-                    link=f"/middle-admin/admin_ticket/{ticket.id}/"
+                    message=(
+                        f"ادمین یک پیام جدید برای "
+                        f"تیکت #{ticket.ticket_no} ارسال کرد."
+                    ),
+                    link=(
+                        f"/middle-admin/admin_ticket/"
+                        f"{ticket.id}/"
+                    ),
+                    is_read=False,
                 )
 
-                # آپدیت کانتر مدیر میانی
+                # -------------------------------------------------
+                # آپدیت کانتر مدیر ساختمان
+                # -------------------------------------------------
+
                 channel_layer = get_channel_layer()
-                async_to_sync(channel_layer.group_send)(
-                    f"middle_admin_group_{ticket.middle_admin.id}",
-                    {"type": "send_admin_ticket_count"}
+
+                async_to_sync(
+                    channel_layer.group_send
+                )(
+                    f"middle_admin_group_{manager.id}",
+                    {
+                        "type": "send_admin_ticket_count"
+                    }
                 )
 
-            return redirect('admin_ticket_detail', pk=ticket.id)
+            return redirect(
+                'admin_ticket_detail',
+                pk=ticket.id
+            )
 
-    messages_list = ticket.messages.all().order_by('-created_at')
+    # =====================================================
+    # پیام‌ها
+    # =====================================================
 
-    return render(request, 'admin_ticket_detail.html', {
-        'ticket': ticket,
-        'messages_list': messages_list,
-        'form': form
-    })
+    messages_list = (
+        ticket.messages
+        .select_related('sender')
+        .prefetch_related('attachments')
+        .all()
+        .order_by('-created_at')
+    )
 
+    return render(
+        request,
+        'admin_ticket_detail.html',
+        {
+            'ticket': ticket,
+            'messages_list': messages_list,
+            'form': form,
+        }
+    )
+
+
+# =========================================================
+# بستن تیکت
+# =========================================================
 
 @login_required
 def admin_close_ticket(request, pk):
-    ticket = get_object_or_404(AdminTicket, id=pk)
-    ticket.is_closed = True
-    ticket.save()
-    # messages.success(request, "تیکت بسته شد.")
-    return redirect('admin_ticket_detail', pk=ticket.id)
 
+    if not request.user.is_superuser:
+        messages.error(
+            request,
+            "اجازه دسترسی ندارید."
+        )
+
+        return redirect('admin_tickets')
+
+    ticket = get_object_or_404(
+        AdminTicket,
+        id=pk,
+    )
+
+    ticket.is_closed = True
+    ticket.is_waiting = False
+
+    ticket.save(
+        update_fields=[
+            'is_closed',
+            'is_waiting',
+            'updated_at',
+        ]
+    )
+
+    # -----------------------------------------------------
+    # اطلاع به مدیر ساختمان
+    # -----------------------------------------------------
+
+    manager = ticket.user
+
+    if manager and manager.is_middle_admin:
+
+        MiddleAdminNotification.objects.create(
+            user=manager,
+            ticket=ticket,
+            title="تیکت بسته شد",
+            message=(
+                f"تیکت #{ticket.ticket_no} "
+                f"توسط ادمین بسته شد."
+            ),
+            link=(
+                f"/middle-admin/admin_ticket/"
+                f"{ticket.id}/"
+            ),
+            is_read=False,
+        )
+
+        # آپدیت کانتر مدیر
+        channel_layer = get_channel_layer()
+
+        async_to_sync(
+            channel_layer.group_send
+        )(
+            f"middle_admin_group_{manager.id}",
+            {
+                "type": "send_admin_ticket_count"
+            }
+        )
+
+    return redirect(
+        'admin_ticket_detail',
+        pk=ticket.id
+    )
+
+
+# =========================================================
+# باز کردن تیکت
+# =========================================================
 
 @login_required
 def admin_open_ticket(request, pk):
-    ticket = get_object_or_404(AdminTicket, id=pk)
-    ticket.is_closed = False
-    ticket.save()
-    # messages.success(request, "تیکت باز شد.")
-    return redirect('admin_ticket_detail', pk=ticket.id)
 
+    if not request.user.is_superuser:
+        messages.error(
+            request,
+            "اجازه دسترسی ندارید."
+        )
+
+        return redirect('admin_tickets')
+
+    ticket = get_object_or_404(
+        AdminTicket,
+        id=pk,
+    )
+
+    ticket.is_closed = False
+
+    ticket.save(
+        update_fields=[
+            'is_closed',
+            'updated_at',
+        ]
+    )
+
+    return redirect(
+        'admin_ticket_detail',
+        pk=ticket.id
+    )
+
+
+# =========================================================
+# در حال بررسی
+#
+# فقط ادمین سامانه اجازه دارد
+# =========================================================
 
 @login_required
 def admin_is_waiting(request, pk):
-    ticket = get_object_or_404(AdminTicket, id=pk)
-    ticket.is_waiting = True
-    ticket.save()
-    return redirect('admin_ticket_detail', pk=ticket.id)
 
+    if not request.user.is_superuser:
+        messages.error(
+            request,
+            "اجازه دسترسی ندارید."
+        )
+
+        return redirect('admin_tickets')
+
+    ticket = get_object_or_404(
+        AdminTicket,
+        id=pk,
+    )
+
+    ticket.is_waiting = True
+    ticket.is_answer = False
+    ticket.is_closed = False
+
+    ticket.save(
+        update_fields=[
+            'is_waiting',
+            'is_answer',
+            'is_closed',
+            'updated_at',
+        ]
+    )
+
+    # -----------------------------------------------------
+    # اطلاع به مدیر ساختمان
+    # -----------------------------------------------------
+
+    manager = ticket.user
+
+    if manager and manager.is_middle_admin:
+
+        MiddleAdminNotification.objects.create(
+            user=manager,
+            ticket=ticket,
+            title="تیکت در حال بررسی",
+            message=(
+                f"تیکت #{ticket.ticket_no} "
+                f"توسط ادمین در حال بررسی است."
+            ),
+            link=(
+                f"/middle-admin/admin_ticket/"
+                f"{ticket.id}/"
+            ),
+            is_read=False,
+        )
+
+        channel_layer = get_channel_layer()
+
+        async_to_sync(
+            channel_layer.group_send
+        )(
+            f"middle_admin_group_{manager.id}",
+            {
+                "type": "send_admin_ticket_count"
+            }
+        )
+
+    return redirect(
+        'admin_ticket_detail',
+        pk=ticket.id
+    )
+
+
+# =========================================================
+# ادامه بررسی / خروج از وضعیت در حال بررسی
+# =========================================================
 
 @login_required
 def admin_is_continue(request, pk):
-    ticket = get_object_or_404(AdminTicket, id=pk)
+
+    if not request.user.is_superuser:
+        messages.error(
+            request,
+            "اجازه دسترسی ندارید."
+        )
+
+        return redirect('admin_tickets')
+
+    ticket = get_object_or_404(
+        AdminTicket,
+        id=pk,
+    )
+
     ticket.is_waiting = False
-    ticket.save()
-    return redirect('admin_ticket_detail', pk=ticket.id)
+    ticket.is_answer = False
+    ticket.is_closed = False
+
+    ticket.save(
+        update_fields=[
+            'is_waiting',
+            'is_answer',
+            'is_closed',
+            'updated_at',
+        ]
+    )
+
+    # -----------------------------------------------------
+    # اطلاع به مدیر ساختمان
+    # -----------------------------------------------------
+
+    manager = ticket.user
+
+    if manager and manager.is_middle_admin:
+
+        MiddleAdminNotification.objects.create(
+            user=manager,
+            ticket=ticket,
+            title="وضعیت تیکت تغییر کرد",
+            message=(
+                f"تیکت #{ticket.ticket_no} "
+                f"از حالت در حال بررسی خارج شد."
+            ),
+            link=(
+                f"/middle-admin/admin_ticket/"
+                f"{ticket.id}/"
+            ),
+            is_read=False,
+        )
+
+        channel_layer = get_channel_layer()
+
+        async_to_sync(
+            channel_layer.group_send
+        )(
+            f"middle_admin_group_{manager.id}",
+            {
+                "type": "send_admin_ticket_count"
+            }
+        )
+
+    return redirect(
+        'admin_ticket_detail',
+        pk=ticket.id
+    )
+
+
+# =========================================================
+# کانتر تیکت‌های خوانده نشده برای ادمین
+# =========================================================
+
+@admin_required
+def admin_ticket_counter(request):
+
+    if not request.user.is_superuser:
+        return JsonResponse({
+            "count": 0
+        })
+
+    # -----------------------------------------------------
+    # کانتر بر اساس Notification
+    # -----------------------------------------------------
+
+    count = MiddleAdminNotification.objects.filter(
+        user=request.user,
+        ticket__isnull=False,
+        is_read=False,
+    ).count()
+
+    return JsonResponse({
+        "count": count
+    })
 
 
 # ========================= Message To User ======

@@ -49,6 +49,7 @@ from .serializers import (
     ManagerPollWriteSerializer, ManagerPollDetailSerializer, SupportTicketListSerializer, SupportTicketDetailSerializer,
     UserSupportTicketListSerializer, UserSupportTicketCreateSerializer, UserSupportTicketDetailSerializer,
     AdminTicketDetailSerializer, AdminTicketCreateSerializer, AdminTicketListSerializer,
+    AdminTicketMessageCreateSerializer,
 )
 
 User = get_user_model()
@@ -10954,51 +10955,80 @@ class ManagerSupportUnreadCountView(APIView):
 # ============================================================
 # Admin TICKET
 # ============================================================
-# =========================================================
-# بررسی دسترسی مدیر ساختمان به تیکت
-# =========================================================
 
 def get_manager_admin_ticket(user, ticket_id):
-    """
-    فقط مدیر ساختمان و فقط تیکت متعلق به خودش را برمی‌گرداند.
-    """
 
-    if not user.is_middle_admin:
+    if not getattr(user, 'is_middle_admin', False):
         return None
 
-    ticket = get_object_or_404(
-        AdminTicket.objects
-        .select_related(
-            'user',
-            'house',
-            'middle_admin',
+    try:
+        return (
+            AdminTicket.objects
+            .select_related(
+                'user',
+                'house',
+                'middle_admin',
+            )
+            .prefetch_related(
+                'files_ticket',
+                'messages__sender',
+                'messages__attachments',
+            )
+            .get(
+                id=ticket_id,
+                user=user,
+            )
         )
-        .prefetch_related(
-            'files_ticket',
-            'messages__sender',
-            'messages__attachments',
-        ),
-        id=ticket_id,
+
+    except AdminTicket.DoesNotExist:
+        return None
+
+
+# =========================================================
+# ایجاد اعلان
+# =========================================================
+
+def create_middle_admin_notification(
+    user,
+    ticket,
+    title,
+    message,
+):
+
+    if not user:
+        return None
+
+    return MiddleAdminNotification.objects.create(
+        user=user,
+        ticket=ticket,
+        title=title,
+        message=message or '',
+        link=str(ticket.id),
+        is_read=False,
     )
 
-    if ticket.user_id != user.id:
-        return None
 
-    return ticket
-
+# =========================================================
+# لیست تیکت‌های مدیر
+# =========================================================
 
 class ManagerAdminSupportTicketListView(APIView):
 
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+    ]
 
     def get(self, request):
 
-        if not request.user.is_middle_admin:
+        if not getattr(
+            request.user,
+            'is_middle_admin',
+            False,
+        ):
             return Response(
                 {
-                    'success': False,
-                    'message': 'دسترسی غیرمجاز است.',
+                    'message':
+                        'دسترسی به پشتیبانی سامانه ندارید.'
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
@@ -11016,52 +11046,62 @@ class ManagerAdminSupportTicketListView(APIView):
             )
             .prefetch_related(
                 'messages__sender',
-                'messages__attachments',
             )
-            .order_by('-updated_at')
+            .order_by(
+                '-updated_at',
+                '-created_at',
+            )
         )
 
         serializer = AdminTicketListSerializer(
             tickets,
             many=True,
-            context={'request': request},
+            context={
+                'request': request,
+            },
         )
 
         return Response(
             {
-                'success': True,
-                'count': tickets.count(),
                 'tickets': serializer.data,
-            },
-            status=status.HTTP_200_OK,
+            }
         )
 
 
+# =========================================================
+# ایجاد تیکت توسط مدیر
+# =========================================================
+
 class ManagerAdminSupportTicketCreateView(APIView):
 
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+    ]
 
     parser_classes = [
-        JSONParser,
         MultiPartParser,
         FormParser,
+        JSONParser,
     ]
 
     @transaction.atomic
     def post(self, request):
 
-        if not request.user.is_middle_admin:
+        if not getattr(
+            request.user,
+            'is_middle_admin',
+            False,
+        ):
             return Response(
                 {
-                    'success': False,
-                    'message': 'دسترسی غیرمجاز است.',
+                    'message':
+                        'فقط مدیر ساختمان می‌تواند تیکت ایجاد کند.'
                 },
                 status=status.HTTP_403_FORBIDDEN,
             )
 
         # -------------------------------------------------
-        # پیدا کردن مجتمع فعال مدیر
+        # ساختمان مدیر
         # -------------------------------------------------
 
         house = (
@@ -11070,339 +11110,440 @@ class ManagerAdminSupportTicketCreateView(APIView):
                 user=request.user,
                 is_active=True,
             )
+            .order_by('-created_at')
             .first()
         )
 
         if not house:
+
             return Response(
                 {
-                    'success': False,
-                    'message': 'مجتمع فعال برای مدیر پیدا نشد.',
+                    'message':
+                        'ساختمان فعالی برای مدیر پیدا نشد.'
                 },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # -------------------------------------------------
-        # اعتبارسنجی
-        # -------------------------------------------------
-
         serializer = AdminTicketCreateSerializer(
             data=request.data,
+            context={
+                'request': request,
+            },
         )
 
         serializer.is_valid(
             raise_exception=True,
         )
 
+        subject = (
+            serializer.validated_data.get(
+                'subject'
+            )
+            or ''
+        ).strip()
+
+        message = (
+            serializer.validated_data.get(
+                'message'
+            )
+            or ''
+        ).strip()
+
+        # -------------------------------------------------
+        # ادمین سامانه
+        # -------------------------------------------------
+
+        admin_user = (
+            User.objects
+            .filter(
+                is_superuser=True,
+                is_active=True,
+            )
+            .order_by('id')
+            .first()
+        )
+
+        if not admin_user:
+
+            return Response(
+                {
+                    'message':
+                        'ادمین سامانه برای دریافت تیکت پیدا نشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
         # -------------------------------------------------
         # ایجاد تیکت
         # -------------------------------------------------
 
-        ticket = serializer.save(
+        ticket = AdminTicket.objects.create(
             user=request.user,
+            middle_admin=admin_user,
             house=house,
+            subject=subject,
+            message=message,
+
             is_sent=True,
             is_read=True,
+            is_call=False,
+            is_closed=False,
             is_answer=False,
             is_waiting=False,
-            is_closed=False,
         )
 
         # -------------------------------------------------
         # پیام اولیه
         # -------------------------------------------------
 
-        support_message = AdminTicketMessage.objects.create(
+        ticket_message = AdminTicketMessage.objects.create(
             ticket=ticket,
             sender=request.user,
-            message=ticket.message,
+            message=message,
             is_read=True,
         )
 
         # -------------------------------------------------
-        # فایل
+        # فایل‌های اولیه
         # -------------------------------------------------
 
-        uploaded_files = request.FILES.getlist('files')
+        files = request.FILES.getlist('files')
 
-        for uploaded_file in uploaded_files:
+        for uploaded_file in files:
 
-            support_file = AdminTicketFile.objects.create(
+            AdminTicketFile.objects.create(
                 ticket=ticket,
                 file=uploaded_file,
             )
 
-            support_message.attachments.add(
-                support_file
-            )
-
         # -------------------------------------------------
-        # پاسخ نهایی
+        # اعلان برای ادمین
         # -------------------------------------------------
 
-        response_serializer = AdminTicketDetailSerializer(
-            ticket,
-            context={'request': request},
+        create_middle_admin_notification(
+            user=admin_user,
+            ticket=ticket,
+            title='تیکت جدید مدیر ساختمان',
+            message=message,
         )
 
         return Response(
             {
-                'success': True,
-                'message': 'تیکت با موفقیت ایجاد شد.',
-                'ticket': response_serializer.data,
+                'message':
+                    'تیکت با موفقیت ثبت شد.',
+
+                'ticket_id':
+                    ticket.id,
+
+                'ticket_no':
+                    ticket.ticket_no,
+
+                'message_id':
+                    ticket_message.id,
             },
             status=status.HTTP_201_CREATED,
         )
 
 
-class ManagerAdminSupportTicketDetailView(APIView):
+# =========================================================
+# جزئیات تیکت
+# =========================================================
 
+class ManagerAdminSupportTicketDetailView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request, ticket_id):
 
-        if not request.user.is_middle_admin:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'دسترسی غیرمجاز است.',
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        user = request.user
 
-        ticket = get_manager_admin_ticket(
-            request.user,
-            ticket_id,
+        # -------------------------------------------------
+        # فقط مدیر ساختمان
+        # -------------------------------------------------
+
+        if not user.is_middle_admin:
+            return Response({
+                'success': False,
+                'message': 'شما دسترسی مشاهده این تیکت را ندارید.',
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # -------------------------------------------------
+        # تیکت فقط متعلق به همین مدیر باشد
+        # -------------------------------------------------
+
+        ticket = (
+            AdminTicket.objects
+            .select_related(
+                'user',
+                'house',
+                'middle_admin',
+            )
+            .filter(
+                id=ticket_id,
+                user=user,
+                is_sent=True,
+            )
+            .prefetch_related(
+                'files_ticket',
+                'messages__sender',
+                'messages__attachments',
+            )
+            .first()
         )
 
-        if ticket is None:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'تیکت پیدا نشد یا دسترسی ندارید.',
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
 
-        # -------------------------------------------------
-        # خوانده شدن پیام‌های ادمین
-        # -------------------------------------------------
+        # =================================================
+        # پیام‌های ادمین خوانده شوند
+        # =================================================
 
         ticket.messages.filter(
-            is_read=False,
+            is_read=False
         ).exclude(
-            sender=request.user,
+            sender=user
         ).update(
-            is_read=True,
+            is_read=True
         )
 
-        # -------------------------------------------------
-        # خوانده شدن Notification
-        # -------------------------------------------------
+        # =================================================
+        # Notificationهای این تیکت برای مدیر
+        # خوانده‌شده شوند
+        # =================================================
 
         MiddleAdminNotification.objects.filter(
-            user=request.user,
+            user=user,
             ticket=ticket,
             is_read=False,
         ).update(
-            is_read=True,
+            is_read=True
         )
 
-        # -------------------------------------------------
-        # خروجی
-        # -------------------------------------------------
+        # =================================================
+        # Serializer
+        # =================================================
 
         serializer = AdminTicketDetailSerializer(
             ticket,
-            context={'request': request},
+            context={
+                'request': request,
+            }
         )
 
-        return Response(
-            {
-                'success': True,
-                'ticket': serializer.data,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response({
+            'success': True,
+            'ticket': serializer.data,
+        }, status=status.HTTP_200_OK)
 
+
+# =========================================================
+# ارسال پیام مدیر
+# =========================================================
 
 class ManagerAdminSupportTicketMessageView(APIView):
-
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
-
-    parser_classes = [
-        MultiPartParser,
-        FormParser,
-    ]
 
     @transaction.atomic
     def post(self, request, ticket_id):
 
-        if not request.user.is_middle_admin:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'دسترسی غیرمجاز است.',
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+        user = request.user
 
-        ticket = get_manager_admin_ticket(
-            request.user,
-            ticket_id,
+        # -------------------------------------------------
+        # فقط مدیر ساختمان
+        # -------------------------------------------------
+
+        if not user.is_middle_admin:
+            return Response({
+                'success': False,
+                'message': 'شما دسترسی ارسال پیام ندارید.',
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # -------------------------------------------------
+        # پیدا کردن تیکت
+        # -------------------------------------------------
+
+        ticket = (
+            AdminTicket.objects
+            .select_related(
+                'user',
+                'house',
+            )
+            .filter(
+                id=ticket_id,
+                user=user,
+                is_sent=True,
+            )
+            .first()
         )
 
-        if ticket is None:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'تیکت پیدا نشد یا دسترسی ندارید.',
-                },
-                status=status.HTTP_404_NOT_FOUND,
-            )
+        if not ticket:
+            return Response({
+                'success': False,
+                'message': 'تیکت مورد نظر پیدا نشد.',
+            }, status=status.HTTP_404_NOT_FOUND)
 
         # -------------------------------------------------
-        # تیکت بسته شده
+        # دریافت پیام
         # -------------------------------------------------
 
-        if ticket.is_closed:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'این تیکت بسته شده است.',
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        message = request.data.get('message', '')
 
-        # -------------------------------------------------
-        # متن
-        # -------------------------------------------------
+        if message is None:
+            message = ''
 
-        message_text = (
-            request.data.get('message')
-            or ''
-        )
-
-        message_text = str(
-            message_text
-        ).strip()
+        message = str(message).strip()
 
         # -------------------------------------------------
         # فایل‌ها
         # -------------------------------------------------
 
-        uploaded_files = request.FILES.getlist(
-            'files'
-        )
+        uploaded_files = request.FILES.getlist('files')
 
-        if not message_text and not uploaded_files:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'متن پیام یا فایل را وارد کنید.',
-                },
-                status=status.HTTP_400_BAD_REQUEST,
-            )
+        if not message and not uploaded_files:
+            return Response({
+                'success': False,
+                'message': 'متن پیام یا فایل الزامی است.',
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         # -------------------------------------------------
         # ایجاد پیام
         # -------------------------------------------------
 
-        message = AdminTicketMessage.objects.create(
+        ticket_message = AdminTicketMessage.objects.create(
             ticket=ticket,
-            sender=request.user,
-            message=message_text,
-            is_read=True,
+            sender=user,
+            message=message,
+            is_read=False,
         )
 
         # -------------------------------------------------
-        # فایل‌ها
+        # ذخیره فایل‌ها
         # -------------------------------------------------
+
+        created_files = []
 
         for uploaded_file in uploaded_files:
 
-            support_file = AdminTicketFile.objects.create(
+            ticket_file = AdminTicketFile.objects.create(
                 ticket=ticket,
                 file=uploaded_file,
             )
 
-            message.attachments.add(
-                support_file
+            ticket_message.attachments.add(
+                ticket_file
             )
+
+            created_files.append(ticket_file)
 
         # -------------------------------------------------
         # وضعیت تیکت
+        #
+        # وقتی مدیر پیام می‌فرستد:
+        # منتظر پاسخ ادمین
         # -------------------------------------------------
 
-        ticket.is_answer = False
-        ticket.is_waiting = False
-        ticket.is_read = True
         ticket.is_closed = False
+        ticket.is_waiting = False
+        ticket.is_answer = False
 
         ticket.save(
             update_fields=[
-                'is_answer',
-                'is_waiting',
-                'is_read',
                 'is_closed',
+                'is_waiting',
+                'is_answer',
                 'updated_at',
             ]
         )
+
+        # =================================================
+        # پیدا کردن ادمین سامانه
+        # =================================================
+
+        admins = User.objects.filter(
+            is_superuser=True,
+            is_active=True,
+        )
+
+        # =================================================
+        # ایجاد Notification برای ادمین
+        # =================================================
+
+        notifications = []
+
+        for admin in admins:
+
+            notifications.append(
+                MiddleAdminNotification(
+                    user=admin,
+                    ticket=ticket,
+                    title='پیام جدید مدیر ساختمان',
+                    message=(
+                        f'مدیر ساختمان برای تیکت '
+                        f'{ticket.ticket_no} پیام جدید ارسال کرده است.'
+                    ),
+                    link=str(ticket.id),
+                    is_read=False,
+                )
+            )
+
+        if notifications:
+            MiddleAdminNotification.objects.bulk_create(
+                notifications
+            )
 
         # -------------------------------------------------
         # پاسخ
         # -------------------------------------------------
 
-        return Response(
-            {
-                'success': True,
-                'message': 'پیام با موفقیت ارسال شد.',
-                'message_id': message.id,
-            },
-            status=status.HTTP_201_CREATED,
-        )
+        return Response({
+            'success': True,
+            'message': 'پیام با موفقیت ارسال شد.',
+            'ticket_id': ticket.id,
+            'message_id': ticket_message.id,
+            'notification_count': len(notifications),
+        }, status=status.HTTP_201_CREATED)
 
+
+# =========================================================
+# بستن تیکت توسط مدیر
+# =========================================================
 
 class ManagerAdminSupportTicketCloseView(APIView):
 
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+    ]
 
     @transaction.atomic
     def post(self, request, ticket_id):
-
-        if not request.user.is_middle_admin:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'دسترسی غیرمجاز است.',
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
 
         ticket = get_manager_admin_ticket(
             request.user,
             ticket_id,
         )
 
-        if ticket is None:
+        if not ticket:
+
             return Response(
                 {
-                    'success': False,
-                    'message': 'تیکت پیدا نشد یا دسترسی ندارید.',
+                    'message':
+                        'تیکت مورد نظر پیدا نشد.'
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
         if ticket.is_closed:
+
             return Response(
                 {
-                    'success': True,
-                    'message': 'تیکت قبلاً بسته شده است.',
+                    'message':
+                        'تیکت قبلاً بسته شده است.'
                 },
-                status=status.HTTP_200_OK,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
         ticket.is_closed = True
@@ -11416,49 +11557,59 @@ class ManagerAdminSupportTicketCloseView(APIView):
             ]
         )
 
+        # -------------------------------------------------
+        # اطلاع به ادمین
+        # -------------------------------------------------
+
+        if ticket.middle_admin:
+
+            create_middle_admin_notification(
+                user=ticket.middle_admin,
+                ticket=ticket,
+                title='تیکت بسته شد',
+                message='مدیر ساختمان تیکت را بسته است.',
+            )
+
         return Response(
             {
-                'success': True,
-                'message': 'تیکت با موفقیت بسته شد.',
-            },
-            status=status.HTTP_200_OK,
+                'message':
+                    'تیکت با موفقیت بسته شد.'
+            }
         )
 
 
+# =========================================================
+# خوانده شده
+# =========================================================
+
 class ManagerAdminSupportTicketReadView(APIView):
 
-    authentication_classes = [JWTAuthentication]
-    permission_classes = [IsAuthenticated]
+    permission_classes = [
+        IsAuthenticated,
+    ]
 
+    @transaction.atomic
     def post(self, request, ticket_id):
-
-        if not request.user.is_middle_admin:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'دسترسی غیرمجاز است.',
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
 
         ticket = get_manager_admin_ticket(
             request.user,
             ticket_id,
         )
 
-        if ticket is None:
+        if not ticket:
+
             return Response(
                 {
-                    'success': False,
-                    'message': 'تیکت پیدا نشد یا دسترسی ندارید.',
+                    'message':
+                        'تیکت مورد نظر پیدا نشد.'
                 },
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        count = ticket.messages.filter(
+        AdminTicketMessage.objects.filter(
+            ticket=ticket,
+            sender__is_superuser=True,
             is_read=False,
-        ).exclude(
-            sender=request.user,
         ).update(
             is_read=True,
         )
@@ -11473,39 +11624,35 @@ class ManagerAdminSupportTicketReadView(APIView):
 
         return Response(
             {
-                'success': True,
-                'marked_count': count,
-            },
-            status=status.HTTP_200_OK,
+                'message':
+                    'پیام‌ها به عنوان خوانده شده ثبت شدند.'
+            }
         )
 
 
-class ManagerAdminSupportUnreadCountView(APIView):
+# =========================================================
+# تعداد پیام‌های جدید مدیر
+# =========================================================
 
+class ManagerAdminSupportUnreadCountView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
 
         if not request.user.is_middle_admin:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'دسترسی غیرمجاز است.',
-                },
-                status=status.HTTP_403_FORBIDDEN,
-            )
+            return Response({
+                'success': False,
+                'message': 'دسترسی غیرمجاز.',
+            }, status=status.HTTP_403_FORBIDDEN)
 
-        count = MiddleAdminNotification.objects.filter(
+        unread_count = MiddleAdminNotification.objects.filter(
             user=request.user,
             ticket__isnull=False,
             is_read=False,
         ).count()
 
-        return Response(
-            {
-                'success': True,
-                'unread_count': count,
-            },
-            status=status.HTTP_200_OK,
-        )
+        return Response({
+            'success': True,
+            'unread_count': unread_count,
+        })
