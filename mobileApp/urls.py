@@ -19,7 +19,9 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     UserSupportTicketMessageView, UserSupportTicketDetailView, UserSupportTicketListCreateView, \
     UserSupportUnreadCountView, ManagerSupportUnreadCountView, ManagerAdminSupportTicketListView, \
     ManagerAdminSupportTicketCreateView, ManagerAdminSupportTicketDetailView, ManagerAdminSupportTicketMessageView, \
-    ManagerAdminSupportTicketReadView, ManagerAdminSupportUnreadCountView, ManagerAdminSupportTicketCloseView
+    ManagerAdminSupportTicketReadView, ManagerAdminSupportUnreadCountView, ManagerAdminSupportTicketCloseView, \
+    ManagerUnitListCreateView, ManagerUnitDetailView, ManagerUnitAddRenterView, ManagerRenterDetailView, \
+    ManagerUnitRemoveOwnerView, ManagerUnitResidenceHistoryView, ManagerUnitChangeOwnerView
 
 urlpatterns = [
     path(
@@ -467,5 +469,64 @@ urlpatterns = [
         'manager/admin-support/unread-count/',
         ManagerAdminSupportUnreadCountView.as_view(),
         name='manager_admin_support_unread_count',
+    ),
+
+    # =====================================================
+    # مدیریت واحدها
+    # =====================================================
+
+    path(
+        'manager/units/',
+        ManagerUnitListCreateView.as_view(),
+        name='manager_units',
+    ),
+
+    # جزئیات / ویرایش / حذف واحد
+    path(
+        'manager/units/<int:unit_id>/',
+        ManagerUnitDetailView.as_view(),
+        name='manager_unit_detail',
+    ),
+
+    # =====================================================
+    # مستأجر
+    # =====================================================
+
+    path(
+        'manager/units/<int:unit_id>/renters/',
+        ManagerUnitAddRenterView.as_view(),
+        name='manager_unit_add_renter',
+    ),
+
+    path(
+        'manager/units/<int:unit_id>/renters/<int:renter_id>/',
+        ManagerRenterDetailView.as_view(),
+        name='manager_renter_detail',
+    ),
+
+    # =====================================================
+    # مالک
+    # =====================================================
+
+    path(
+        'manager/units/<int:unit_id>/owner/',
+        ManagerUnitRemoveOwnerView.as_view(),
+        name='manager_unit_remove_owner',
+    ),
+
+    # =====================================================
+    # سوابق سکونت
+    # =====================================================
+
+    path(
+        'manager/units/<int:unit_id>/residence-history/',
+        ManagerUnitResidenceHistoryView.as_view(),
+        name='manager_unit_residence_history',
+    ),
+
+    path(
+        'manager/units/<int:unit_id>/owner/change/',
+        ManagerUnitChangeOwnerView.as_view(),
+        name='manager_unit_change_owner',
     ),
 ]

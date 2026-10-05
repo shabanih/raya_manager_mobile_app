@@ -6,7 +6,7 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
 from notifications.models import SupportFile, SupportMessage, SupportUser, Notification, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
 from polls_app.models import Choice, Question, Poll, Vote
-from user_app.models import Unit, MyHouse, User, Bank, UserPayMoney, Renter
+from user_app.models import Unit, MyHouse, User, Bank, UserPayMoney, Renter, UnitResidenceHistory
 
 
 class LoginSerializer(serializers.Serializer):
@@ -4103,3 +4103,210 @@ class AdminTicketMessageCreateSerializer(
         ).strip()
 
         return attrs
+
+# --------------- Unit -----------------------
+
+class ManagerUnitListSerializer(serializers.ModelSerializer):
+    active_renter = serializers.SerializerMethodField()
+    owner = serializers.SerializerMethodField()
+    label = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Unit
+        fields = [
+            'id',
+            'unit',
+            'floor_number',
+            'area',
+            'bedrooms_count',
+            'parking_number',
+            'parking_place',
+            'extra_parking_first',
+            'extra_parking_second',
+            'parking_counts',
+            'unit_phone',
+            'unit_details',
+            'status_residence',
+            'people_count',
+            'owner',
+            'active_renter',
+            'is_renter',
+            'is_active',
+            'label',
+        ]
+
+    def get_owner(self, obj):
+        return {
+            'name': obj.owner_name or '',
+            'mobile': obj.owner_mobile or '',
+            'national_code': obj.owner_national_code or '',
+            'purchase_date': (
+                obj.purchase_date.isoformat()
+                if obj.purchase_date
+                else None
+            ),
+            'people_count': obj.owner_people_count or 0,
+            'details': obj.owner_details or '',
+        }
+
+    def get_active_renter(self, obj):
+        renter = obj.get_active_renter()
+
+        if not renter:
+            return None
+
+        return {
+            'id': renter.id,
+            'name': renter.renter_name or '',
+            'mobile': renter.renter_mobile or '',
+            'national_code': renter.renter_national_code or '',
+            'people_count': int(
+                renter.renter_people_count or 0
+            ),
+            'start_date': (
+                renter.start_date.isoformat()
+                if renter.start_date
+                else None
+            ),
+            'end_date': (
+                renter.end_date.isoformat()
+                if renter.end_date
+                else None
+            ),
+            'contract_number': renter.contract_number or '',
+            'estate_name': renter.estate_name or '',
+            'details': renter.renter_details or '',
+        }
+
+    def get_label(self, obj):
+        return obj.get_label
+
+
+class ManagerUnitDetailSerializer(serializers.ModelSerializer):
+    owner = serializers.SerializerMethodField()
+    active_renter = serializers.SerializerMethodField()
+    histories = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Unit
+        fields = [
+            'id',
+            'unit',
+            'floor_number',
+            'area',
+            'bedrooms_count',
+            'parking_number',
+            'parking_place',
+            'extra_parking_first',
+            'extra_parking_second',
+            'parking_counts',
+            'unit_phone',
+            'unit_details',
+            'status_residence',
+            'people_count',
+            'is_renter',
+            'is_active',
+            'owner',
+            'active_renter',
+            'histories',
+        ]
+
+    def get_owner(self, obj):
+        return {
+            'name': obj.owner_name or '',
+            'mobile': obj.owner_mobile or '',
+            'national_code': obj.owner_national_code or '',
+            'purchase_date': (
+                obj.purchase_date.isoformat()
+                if obj.purchase_date
+                else None
+            ),
+            'people_count': obj.owner_people_count or 0,
+            'details': obj.owner_details or '',
+        }
+
+    def get_active_renter(self, obj):
+        renter = obj.get_active_renter()
+
+        if not renter:
+            return None
+
+        return {
+            'id': renter.id,
+            'name': renter.renter_name or '',
+            'mobile': renter.renter_mobile or '',
+            'national_code': renter.renter_national_code or '',
+            'people_count': int(
+                renter.renter_people_count or 0
+            ),
+            'start_date': (
+                renter.start_date.isoformat()
+                if renter.start_date
+                else None
+            ),
+            'end_date': (
+                renter.end_date.isoformat()
+                if renter.end_date
+                else None
+            ),
+            'contract_number': renter.contract_number or '',
+            'estate_name': renter.estate_name or '',
+            'details': renter.renter_details or '',
+        }
+
+    def get_histories(self, obj):
+        histories = (
+            UnitResidenceHistory.objects
+            .filter(unit=obj)
+            .select_related('renter', 'changed_by')
+            .order_by('-from_date', '-id')
+        )
+
+        return [
+            {
+                'id': history.id,
+                'resident_type': history.resident_type,
+                'resident_type_display': (
+                    history.get_resident_type_display()
+                ),
+                'name': history.name or '',
+                'mobile': history.mobile or '',
+                'people_count': history.people_count or 0,
+                'from_date': (
+                    history.from_date.isoformat()
+                    if history.from_date
+                    else None
+                ),
+                'to_date': (
+                    history.to_date.isoformat()
+                    if history.to_date
+                    else None
+                ),
+                'is_active': history.to_date is None,
+            }
+            for history in histories
+        ]
+
+
+class ManagerRenterSerializer(serializers.ModelSerializer):
+
+    class Meta:
+        model = Renter
+        fields = [
+            'id',
+            'unit',
+            'renter_name',
+            'renter_mobile',
+            'renter_national_code',
+            'renter_people_count',
+            'start_date',
+            'end_date',
+            'contract_number',
+            'estate_name',
+            'renter_details',
+            'renter_is_active',
+        ]
+        read_only_fields = [
+            'id',
+            'unit',
+        ]
