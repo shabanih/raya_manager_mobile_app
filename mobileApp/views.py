@@ -12569,37 +12569,310 @@ class ManagerRenterDetailView(
 # حذف مالک
 # =========================================================
 
-class ManagerUnitRemoveOwnerView(
-    ManagerUnitBaseView
-):
+# =========================================================
+# مدیریت مالک واحد
 
-    @transaction.atomic
-    def delete(
-        self,
-        request,
-        unit_id,
-    ):
+class ManagerUnitRemoveOwnerView(APIView):
+    permission_classes = [IsAuthenticated]
 
-        unit = self.get_unit(
-            request.user,
-            unit_id,
-        )
+    # =========================================================
+    # بررسی دسترسی مدیر به واحد
+    # =========================================================
+    def _get_unit(self, request, unit_id):
+
+        if not getattr(request.user, 'is_middle_admin', False):
+            return None, Response(
+                {
+                    'detail': 'شما دسترسی مدیریت واحدها را ندارید.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        house = getattr(request.user, 'house', None)
+
+        if not house:
+            return None, Response(
+                {
+                    'detail': 'ساختمان مدیر مشخص نیست.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        unit = Unit.objects.filter(
+            id=unit_id,
+            myhouse=house,
+            is_active=True,
+        ).first()
 
         if not unit:
+            return None, Response(
+                {
+                    'detail': 'واحد موردنظر پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        return unit, None
+
+    # =========================================================
+    # POST
+    #
+    # افزودن مالک جدید
+    #
+    # اگر مالک قبلی وجود داشته باشد:
+    # Unit.save() خودش History قبلی را می‌بندد.
+    #
+    # اگر مستأجر فعال وجود داشته باشد:
+    # Unit.save() خودش مستأجر را غیرفعال می‌کند.
+    # =========================================================
+    @transaction.atomic
+    def post(self, request, unit_id):
+
+        unit, error = self._get_unit(
+            request,
+            unit_id
+        )
+
+        if error:
+            return error
+
+        name = (
+            request.data.get('owner_name')
+            or ''
+        ).strip()
+
+        mobile = (
+            request.data.get('owner_mobile')
+            or ''
+        ).strip()
+
+        if not name:
             return Response(
                 {
-                    'success': False,
-                    'message':
-                        'واحد مورد نظر پیدا نشد.',
+                    'detail': 'نام مالک الزامی است.'
                 },
-                status=404,
+                status=status.HTTP_400_BAD_REQUEST
             )
+
+        if not mobile:
+            return Response(
+                {
+                    'detail': 'شماره موبایل مالک الزامی است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # -----------------------------------------------------
+        # اطلاعات مالک جدید
+        # -----------------------------------------------------
+        unit.owner_name = name
+        unit.owner_mobile = mobile
+
+        unit.owner_national_code = (
+            request.data.get(
+                'owner_national_code'
+            )
+            or ''
+        ).strip()
+
+        unit.owner_people_count = (
+            request.data.get(
+                'owner_people_count'
+            )
+            or 0
+        )
+
+        unit.owner_details = (
+            request.data.get(
+                'owner_details'
+            )
+            or ''
+        )
+
+        purchase_date = request.data.get(
+            'purchase_date'
+        )
+
+        if purchase_date:
+            unit.purchase_date = purchase_date
+
+        # -----------------------------------------------------
+        # بسیار مهم:
+        #
+        # تمام منطق مالک جدید + مستأجر فعال
+        # داخل Unit.save() انجام می‌شود.
+        # -----------------------------------------------------
+        unit.save()
+
+        return Response(
+            {
+                'detail': 'مالک با موفقیت ثبت شد.',
+                'owner_name': unit.owner_name,
+                'owner_mobile': unit.owner_mobile,
+                'owner_national_code': (
+                    unit.owner_national_code
+                ),
+                'owner_people_count': (
+                    unit.owner_people_count
+                ),
+                'owner_details': (
+                    unit.owner_details
+                ),
+                'purchase_date': (
+                    unit.purchase_date
+                ),
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+    # =========================================================
+    # PATCH
+    #
+    # ویرایش مالک فعلی
+    #
+    # اگر نام و موبایل هر دو تغییر کنند:
+    # Unit.save() مالک جدید تشخیص می‌دهد.
+    #
+    # در غیر این صورت:
+    # همان مالک و History ویرایش می‌شود.
+    # =========================================================
+    @transaction.atomic
+    def patch(self, request, unit_id):
+
+        unit, error = self._get_unit(
+            request,
+            unit_id
+        )
+
+        if error:
+            return error
+
+        # -----------------------------------------------------
+        # فقط فیلدهایی که ارسال شده‌اند تغییر کنند
+        # -----------------------------------------------------
+
+        if 'owner_name' in request.data:
+
+            owner_name = (
+                request.data.get('owner_name')
+                or ''
+            ).strip()
+
+            if not owner_name:
+                return Response(
+                    {
+                        'detail': 'نام مالک نمی‌تواند خالی باشد.'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            unit.owner_name = owner_name
+
+        if 'owner_mobile' in request.data:
+
+            owner_mobile = (
+                request.data.get('owner_mobile')
+                or ''
+            ).strip()
+
+            if not owner_mobile:
+                return Response(
+                    {
+                        'detail': 'شماره موبایل مالک نمی‌تواند خالی باشد.'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            unit.owner_mobile = owner_mobile
+
+        if 'owner_national_code' in request.data:
+
+            unit.owner_national_code = (
+                request.data.get(
+                    'owner_national_code'
+                )
+                or ''
+            ).strip()
+
+        if 'owner_people_count' in request.data:
+
+            unit.owner_people_count = (
+                request.data.get(
+                    'owner_people_count'
+                )
+                or 0
+            )
+
+        if 'owner_details' in request.data:
+
+            unit.owner_details = (
+                request.data.get(
+                    'owner_details'
+                )
+                or ''
+            )
+
+        if 'purchase_date' in request.data:
+
+            purchase_date = request.data.get(
+                'purchase_date'
+            )
+
+            unit.purchase_date = purchase_date
+
+        # -----------------------------------------------------
+        # تمام منطق تشخیص مالک جدید یا ویرایش مالک
+        # داخل Unit.save()
+        # -----------------------------------------------------
+        old_name = unit.owner_name
+        old_mobile = unit.owner_mobile
+
+        unit.save()
+
+        return Response(
+            {
+                'detail': 'اطلاعات مالک با موفقیت بروزرسانی شد.',
+                'owner_name': unit.owner_name,
+                'owner_mobile': unit.owner_mobile,
+                'owner_national_code': (
+                    unit.owner_national_code
+                ),
+                'owner_people_count': (
+                    unit.owner_people_count
+                ),
+                'owner_details': (
+                    unit.owner_details
+                ),
+                'purchase_date': (
+                    unit.purchase_date
+                ),
+            },
+            status=status.HTTP_200_OK
+        )
+
+    # =========================================================
+    # DELETE
+    #
+    # پایان مالک فعلی
+    #
+    # اینجا چون مالک حذف می‌شود، باید History فعلی بسته شود.
+    # =========================================================
+    @transaction.atomic
+    def delete(self, request, unit_id):
+
+        unit, error = self._get_unit(
+            request,
+            unit_id
+        )
+
+        if error:
+            return error
 
         today = timezone.now().date()
 
-        # سابقه مالک را حفظ می‌کنیم
-        # و فقط به عنوان مالک فعلی خاتمه می‌دهیم.
-
+        # -----------------------------------------------------
+        # بستن History مالک فعلی
+        # -----------------------------------------------------
         UnitResidenceHistory.objects.filter(
             unit=unit,
             resident_type='owner',
@@ -12608,23 +12881,28 @@ class ManagerUnitRemoveOwnerView(
             to_date=today
         )
 
+        # -----------------------------------------------------
+        # حذف اطلاعات مالک از Unit
+        # -----------------------------------------------------
         unit.owner_name = ''
         unit.owner_mobile = ''
-        unit.owner_national_code = None
+        unit.owner_national_code = ''
         unit.owner_people_count = 0
-        unit.owner_details = None
+        unit.owner_details = ''
         unit.purchase_date = None
 
+        # -----------------------------------------------------
+        # این save نباید باعث ایجاد History مالک جدید شود.
+        # چون نام و موبایل عمداً خالی شده‌اند.
+        # -----------------------------------------------------
         unit.save()
 
         return Response(
             {
-                'success': True,
-                'message':
-                    'مالک فعلی حذف شد و سابقه مالک حفظ گردید.',
-            }
+                'detail': 'مالک با موفقیت حذف شد.'
+            },
+            status=status.HTTP_200_OK
         )
-
 
 # =========================================================
 # سوابق سکونت
