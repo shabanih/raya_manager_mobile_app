@@ -1,6 +1,6 @@
 from django.db.models import Q
 from rest_framework import serializers
-
+from datetime import date, datetime
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageInstallment, \
     SewageManage, MessageToUser, AnnouncementDocument, BankFund
 from notifications.models import SupportFile, SupportMessage, SupportUser, Notification, AdminTicketFile, \
@@ -4105,7 +4105,6 @@ class AdminTicketMessageCreateSerializer(
         return attrs
 
 # --------------- Unit -----------------------
-
 class ManagerUnitListSerializer(serializers.ModelSerializer):
     active_renter = serializers.SerializerMethodField()
     owner = serializers.SerializerMethodField()
@@ -4135,15 +4134,28 @@ class ManagerUnitListSerializer(serializers.ModelSerializer):
             'label',
         ]
 
+    @staticmethod
+    def _serialize_date(value):
+        """
+        تبدیل امن تاریخ به رشته قابل ارسال در JSON.
+        مقادیر date و datetime و رشته را پشتیبانی می‌کند.
+        """
+        if value is None or value == '':
+            return None
+
+        if isinstance(value, (date, datetime)):
+            return value.isoformat()
+
+        # اگر مقدار از قبل رشته است، همان را برگردان.
+        return str(value)
+
     def get_owner(self, obj):
         return {
             'name': obj.owner_name or '',
             'mobile': obj.owner_mobile or '',
             'national_code': obj.owner_national_code or '',
-            'purchase_date': (
-                obj.purchase_date.isoformat()
-                if obj.purchase_date
-                else None
+            'purchase_date': self._serialize_date(
+                obj.purchase_date
             ),
             'people_count': obj.owner_people_count or 0,
             'details': obj.owner_details or '',
@@ -4163,15 +4175,11 @@ class ManagerUnitListSerializer(serializers.ModelSerializer):
             'people_count': int(
                 renter.renter_people_count or 0
             ),
-            'start_date': (
-                renter.start_date.isoformat()
-                if renter.start_date
-                else None
+            'start_date': self._serialize_date(
+                renter.start_date
             ),
-            'end_date': (
-                renter.end_date.isoformat()
-                if renter.end_date
-                else None
+            'end_date': self._serialize_date(
+                renter.end_date
             ),
             'contract_number': renter.contract_number or '',
             'estate_name': renter.estate_name or '',
@@ -4180,6 +4188,7 @@ class ManagerUnitListSerializer(serializers.ModelSerializer):
 
     def get_label(self, obj):
         return obj.get_label
+
 
 
 class ManagerUnitDetailSerializer(serializers.ModelSerializer):
@@ -4218,8 +4227,8 @@ class ManagerUnitDetailSerializer(serializers.ModelSerializer):
             'national_code': obj.owner_national_code or '',
             'purchase_date': (
                 obj.purchase_date.isoformat()
-                if obj.purchase_date
-                else None
+                if hasattr(obj.purchase_date, 'isoformat')
+                else str(obj.purchase_date) if obj.purchase_date else None
             ),
             'people_count': obj.owner_people_count or 0,
             'details': obj.owner_details or '',
