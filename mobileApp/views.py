@@ -1,5 +1,9 @@
 import json
-from django.db.models import Count, Q, Sum
+import logging
+import secrets
+
+import jdatetime
+from django.db.models import Count, Q, Sum, ProtectedError
 from django.utils import timezone
 from decimal import Decimal
 
@@ -13,6 +17,9 @@ from django.shortcuts import render, get_object_or_404
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
+
+from admin_panel.forms import FixChargeForm
+from admin_panel.services.calculators import CALCULATORS
 from admin_panel.services.utils import (
     get_next_financial_document_number
 )
@@ -28,7 +35,8 @@ from rest_framework.response import Response
 
 from absharProject import settings
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageManage, \
-    SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund
+    SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund, \
+    FixCharge
 from middleAdmin_panel.services.bank_services import BankTransactionService
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
@@ -50,6 +58,7 @@ from .serializers import (
     UserSupportTicketListSerializer, UserSupportTicketCreateSerializer, UserSupportTicketDetailSerializer,
     AdminTicketDetailSerializer, AdminTicketCreateSerializer, AdminTicketListSerializer,
     AdminTicketMessageCreateSerializer, ManagerUnitListSerializer, ManagerUnitDetailSerializer,
+    ManagerChargeHomeCardSerializer,
 )
 
 User = get_user_model()
@@ -13177,3 +13186,699 @@ class ManagerUnitChangeOwnerView(
                 'unit': serializer.data,
             }
         )
+
+
+# ================ Charge Management ============================
+
+class ManagerChargeHomeView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # فقط مدیران مجاز به استفاده از این API هستند.
+        if not getattr(request.user, 'is_middle_admin', False):
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شما مجاز به دسترسی به مدیریت شارژها نیستید.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        cards = [
+            {
+                'key': 'monthly',
+                'title': 'شارژ ماهانه',
+                'description': 'ایجاد و مدیریت شارژهای ماهانه ساختمان',
+                'icon': 'calendar_month',
+            },
+            {
+                'key': 'civil',
+                'title': 'شارژ عمرانی',
+                'description': 'مدیریت هزینه‌ها و شارژهای عمرانی',
+                'icon': 'construction',
+            },
+            {
+                'key': 'my_charges',
+                'title': 'شارژهای من',
+                'description': 'مشاهده و پیگیری شارژهای ثبت‌شده توسط شما',
+                'icon': 'receipt_long',
+            },
+        ]
+
+        serializer = ManagerChargeHomeCardSerializer(
+            cards,
+            many=True,
+        )
+
+        return Response({
+            'success': True,
+            'count': len(serializer.data),
+            'results': serializer.data,
+        })
+
+
+class ManagerFixedChargeCreateView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        manager = request.user
+
+        # 1. بررسی نقش مدیر
+        if not getattr(manager, "is_middle_admin", False):
+            return Response(
+                {"detail": "شما اجازه ثبت شارژ را ندارید."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        # 2. دریافت ساختمان مدیر
+        house = getattr(manager, "house", None)
+
+        if not house:
+            return Response(
+                {"detail": "ساختمانی برای مدیر تعریف نشده است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 3. اعتبارسنجی اطلاعات فرم موجود
+        form = FixChargeForm(data=request.data)
+
+        if not form.is_valid():
+            return Response(
+                {"errors": form.errors},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 4. دریافت واحدهای فعال همین ساختمان
+        units = Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).distinct()
+
+        if not units.exists():
+            return Response(
+                {"detail": "هیچ واحد فعالی در ساختمان پیدا نشد."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # 5. دریافت محاسبه‌گر شارژ واحدی
+        calculator = CALCULATORS.get("fix")
+
+        if calculator is None:
+            return Response(
+                {"detail": "محاسبه‌گر شارژ واحدی تعریف نشده است."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        try:
+            with transaction.atomic():
+
+                # ذخیره مدل اصلی شارژ
+                fix_charge = form.save(commit=False)
+                fix_charge.user = manager
+                fix_charge.charge_type = "fix"
+                fix_charge.unit_count = units.count()
+                fix_charge.save()
+
+                content_type = ContentType.objects.get_for_model(
+                    FixCharge
+                )
+
+                civil_amount = fix_charge.civil or 0
+                other_amount = fix_charge.other_cost_amount or 0
+                penalty_percent = (
+                    fix_charge.payment_penalty_amount or 0
+                )
+
+                unified_charges = []
+
+                for unit in units.iterator():
+                    base_amount = calculator.calculate(
+                        unit,
+                        fix_charge,
+                    )
+
+                    total_amount = (
+                        base_amount
+                        + civil_amount
+                        + other_amount
+                    )
+
+                    unified_charges.append(
+                        UnifiedCharge(
+                            user=manager,
+                            unit=unit,
+                            house=unit.myhouse,
+                            bank=None,
+                            charge_type="fix",
+                            amount=base_amount,
+                            base_charge=total_amount,
+                            civil=civil_amount,
+                            payment_token=secrets.token_urlsafe(12),
+                            other_cost_amount=other_amount,
+                            penalty_percent=penalty_percent,
+                            penalty_amount=0,
+                            total_charge_month=total_amount,
+                            details=fix_charge.details or "",
+                            title=fix_charge.name or "شارژ ثابت",
+                            send_notification=False,
+                            send_notification_date=None,
+                            payment_deadline_date=(
+                                fix_charge.payment_deadline
+                            ),
+                            content_type=content_type,
+                            object_id=fix_charge.pk,
+                        )
+                    )
+
+                UnifiedCharge.objects.bulk_create(
+                    unified_charges,
+                    batch_size=500,
+                )
+
+            return Response(
+                {
+                    "success": True,
+                    "message": "شارژ واحدی با موفقیت ثبت شد.",
+                    "charge": {
+                        "id": fix_charge.pk,
+                        "name": fix_charge.name,
+                        "charge_type": "fix",
+                        "unit_count": len(unified_charges),
+                        "fix_amount": fix_charge.fix_amount,
+                        "civil": civil_amount,
+                        "other_cost_amount": other_amount,
+                        "payment_deadline": (
+                            fix_charge.payment_deadline.isoformat()
+                            if fix_charge.payment_deadline
+                            else None
+                        ),
+                        "total_per_unit": (
+                            (fix_charge.fix_amount or 0)
+                            + civil_amount
+                            + other_amount
+                        ),
+                        "notification_sent": False,
+                    },
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except Exception:
+            # جزئیات خطای داخلی را در پاسخ عمومی افشا نمی‌کنیم.
+            # خطا باید در لاگ سرور ثبت شود.
+            import logging
+            logging.getLogger(__name__).exception(
+                "Failed to create manager fixed charge"
+            )
+
+            return Response(
+                {"detail": "ثبت شارژ انجام نشد. خطای سرور را بررسی کنید."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+logger = logging.getLogger(__name__)
+class ManagerFixedChargeAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    # --------------------------------------------------
+    # ساختمان و دسترسی مدیر
+    # --------------------------------------------------
+
+    def get_house(self, request):
+        if not getattr(request.user, "is_middle_admin", False):
+            return None
+
+        return getattr(request.user, "house", None)
+
+    def check_manager(self, request):
+        if not getattr(request.user, "is_middle_admin", False):
+            return Response(
+                {"detail": "شما اجازه مدیریت شارژها را ندارید."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not getattr(request.user, "house", None):
+            return Response(
+                {"detail": "ساختمان مدیر مشخص نشده است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return None
+
+    def get_charge(self, request, pk):
+        return FixCharge.objects.filter(
+            pk=pk,
+            user=request.user,
+        ).first()
+
+    def get_active_units(self, house):
+        return Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).distinct()
+
+    def get_content_type(self):
+        return ContentType.objects.get_for_model(FixCharge)
+
+    # --------------------------------------------------
+    # وضعیت اطلاعیه
+    # --------------------------------------------------
+
+    def has_notification(self, charge):
+        return UnifiedCharge.objects.filter(
+            content_type=self.get_content_type(),
+            object_id=charge.pk,
+            send_notification=True,
+        ).exists()
+
+    def has_payment(self, charge):
+        return UnifiedCharge.objects.filter(
+            content_type=self.get_content_type(),
+            object_id=charge.pk,
+            is_paid=True,
+        ).exists()
+
+    # --------------------------------------------------
+    # خروجی JSON
+    # --------------------------------------------------
+
+    def serialize_charge(self, charge):
+        content_type = self.get_content_type()
+
+        related = UnifiedCharge.objects.filter(
+            content_type=content_type,
+            object_id=charge.pk,
+        )
+
+        notified = related.filter(
+            send_notification=True,
+        ).exists()
+
+        return {
+            "id": charge.pk,
+            "name": charge.name or "",
+            "charge_type": "fix",
+            "fix_amount": charge.fix_amount or 0,
+            "unit_count": related.values("unit_id").distinct().count(),
+            "other_cost_amount": charge.other_cost_amount or 0,
+            "payment_penalty_amount": (
+                charge.payment_penalty_amount or 0
+            ),
+            "payment_deadline": (
+                charge.payment_deadline.isoformat()
+                if charge.payment_deadline
+                else None
+            ),
+            "details": charge.details or "",
+            "created_at": (
+                charge.created_at.isoformat()
+                if charge.created_at
+                else None
+            ),
+            "send_notification": notified,
+            "can_edit": not notified,
+            "can_delete": (
+                not notified
+                and not related.filter(is_paid=True).exists()
+            ),
+        }
+
+    # --------------------------------------------------
+    # ذخیره یا همگام‌سازی UnifiedChargeها
+    # --------------------------------------------------
+
+    def sync_unified_charges(self, request, charge, units, civil_amount=0):
+        from django.db import transaction
+
+        content_type = self.get_content_type()
+
+        calculator = CALCULATORS.get("fix")
+        if calculator is None:
+            raise ValueError("محاسبه‌گر شارژ واحدی تعریف نشده است.")
+
+        other_amount = charge.other_cost_amount or 0
+        penalty_percent = charge.payment_penalty_amount or 0
+
+        with transaction.atomic():
+            for unit in units.iterator():
+                base_amount = calculator.calculate(unit, charge) or 0
+                total_amount = base_amount + civil_amount + other_amount
+
+                lookup = {
+                    "user": request.user,
+                    "unit": unit,
+                    "content_type": content_type,
+                    "object_id": charge.pk,
+                }
+
+                defaults = {
+                    "house": unit.myhouse,
+                    "bank": None,
+                    "charge_type": "fix",
+                    "amount": base_amount,
+                    "base_charge": total_amount,
+                    "civil": civil_amount,
+                    "other_cost_amount": other_amount,
+                    "penalty_percent": penalty_percent,
+                    "penalty_amount": 0,
+                    "total_charge_month": total_amount,
+                    "details": charge.details or "",
+                    "title": charge.name or "شارژ واحدی",
+                    "payment_deadline_date": charge.payment_deadline,
+                }
+
+                unified_charge = UnifiedCharge.objects.filter(
+                    **lookup
+                ).first()
+
+                if unified_charge:
+                    # اگر رکورد وجود دارد، توکن پرداخت و وضعیت پرداخت
+                    # آن را تغییر نمی‌دهیم.
+                    for field, value in defaults.items():
+                        setattr(unified_charge, field, value)
+
+                    unified_charge.save()
+
+                else:
+                    # برای رکورد جدید، توکن یکتا ایجاد می‌کنیم.
+                    UnifiedCharge.objects.create(
+                        **lookup,
+                        **defaults,
+                        payment_token=secrets.token_urlsafe(12),
+                        send_notification=False,
+                    )
+
+    # --------------------------------------------------
+    # GET: فهرست شارژهای واحدی
+    # --------------------------------------------------
+
+    def get(self, request, pk=None):
+        denied = self.check_manager(request)
+        if denied:
+            return denied
+
+        if pk is not None:
+            charge = self.get_charge(request, pk)
+
+            if not charge:
+                return Response(
+                    {"detail": "شارژ موردنظر پیدا نشد."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            return Response(self.serialize_charge(charge))
+
+        charges = (
+            FixCharge.objects
+            .filter(user=request.user)
+            .annotate(
+                total_units=Count(
+                    "unified_charges__unit",
+                    distinct=True,
+                ),
+                notified_count=Count(
+                    "unified_charges",
+                    filter=Q(
+                        unified_charges__send_notification=True
+                    ),
+                    distinct=True,
+                ),
+            )
+            .order_by("-created_at")
+        )
+
+        results = [self.serialize_charge(c) for c in charges]
+
+        return Response({
+            "count": len(results),
+            "results": results,
+        })
+
+    # --------------------------------------------------
+    # POST: افزودن شارژ واحدی
+    # --------------------------------------------------
+
+    def post(self, request, pk=None):
+        denied = self.check_manager(request)
+        if denied:
+            return denied
+
+        if pk is not None:
+            return Response(
+                {"detail": "برای افزودن شارژ، مسیر بدون شناسه را استفاده کنید."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        house = self.get_house(request)
+        units = self.get_active_units(house)
+
+        if not units.exists():
+            return Response(
+                {"detail": "هیچ واحد فعالی در ساختمان وجود ندارد."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        form = FixChargeForm(data=request.data)
+
+        if not form.is_valid():
+            return Response(
+                {
+                    "detail": "اطلاعات فرم معتبر نیست.",
+                    "errors": {
+                        key: [str(error) for error in errors]
+                        for key, errors in form.errors.items()
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                charge = form.save(commit=False)
+                charge.user = request.user
+                charge.unit_count = units.count()
+                charge.save()
+
+                # civil در مدل BaseCharge ارسالی وجود ندارد؛
+                # فعلاً مقدار فرم غیرفعال را می‌خوانیم.
+                civil_amount = form.cleaned_data.get("civil") or 0
+
+                self.sync_unified_charges(
+                    request=request,
+                    charge=charge,
+                    units=units,
+                    civil_amount=civil_amount,
+                )
+
+            return Response(
+                {
+                    "detail": "شارژ واحدی با موفقیت ثبت شد.",
+                    "charge": self.serialize_charge(charge),
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except Exception:
+            logger.exception("خطا در ثبت شارژ واحدی")
+            return Response(
+                {"detail": "ثبت شارژ انجام نشد. گزارش خطای سرور را بررسی کنید."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # --------------------------------------------------
+    # PATCH: ویرایش شارژ واحدی
+    # --------------------------------------------------
+
+    def patch(self, request, pk=None):
+        denied = self.check_manager(request)
+        if denied:
+            return denied
+
+        if pk is None:
+            return Response(
+                {"detail": "شناسه شارژ ارسال نشده است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                charge = (
+                    FixCharge.objects
+                    .select_for_update()
+                    .filter(pk=pk, user=request.user)
+                    .first()
+                )
+
+                if not charge:
+                    return Response(
+                        {"detail": "شارژ موردنظر پیدا نشد."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                # بررسی مجدد در سمت سرور
+                if self.has_notification(charge):
+                    return Response(
+                        {
+                            "detail": (
+                                "این شارژ اطلاعیه ارسال‌شده دارد "
+                                "و قابل ویرایش نیست."
+                            ),
+                            "code": "charge_already_notified",
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                house = self.get_house(request)
+                units = self.get_active_units(house)
+
+                if not units.exists():
+                    return Response(
+                        {"detail": "هیچ واحد فعالی در ساختمان وجود ندارد."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # ModelForm برای PATCH به داده‌های اجباری نیاز دارد.
+                # فیلدهای ارسال‌نشده از اطلاعات فعلی تکمیل می‌شوند.
+                data = request.data.copy()
+
+                current_values = {
+                    "name": charge.name or "",
+                    "fix_amount": charge.fix_amount or 0,
+                    "details": charge.details or "",
+                    "payment_penalty_amount": (
+                        charge.payment_penalty_amount or 0
+                    ),
+                    "other_cost_amount": charge.other_cost_amount or 0,
+                }
+
+                for field, value in current_values.items():
+                    if field not in data:
+                        data[field] = value
+
+                if "payment_deadline" not in data:
+                    if charge.payment_deadline:
+                        jalali_deadline = jdatetime.date.fromgregorian(
+                            date=charge.payment_deadline
+                        )
+                        data["payment_deadline"] = (
+                            jalali_deadline.strftime("%Y/%m/%d")
+                        )
+
+                form = FixChargeForm(
+                    data=data,
+                    instance=charge,
+                )
+
+                if not form.is_valid():
+                    return Response(
+                        {
+                            "detail": "اطلاعات فرم معتبر نیست.",
+                            "errors": {
+                                key: [str(error) for error in errors]
+                                for key, errors in form.errors.items()
+                            },
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                charge = form.save(commit=False)
+                charge.unit_count = units.count()
+                charge.save()
+
+                civil_amount = form.cleaned_data.get("civil") or 0
+
+                self.sync_unified_charges(
+                    request=request,
+                    charge=charge,
+                    units=units,
+                    civil_amount=civil_amount,
+                )
+
+            return Response({
+                "detail": "شارژ واحدی با موفقیت ویرایش شد.",
+                "charge": self.serialize_charge(charge),
+            })
+
+        except Exception:
+            logger.exception("خطا در ویرایش شارژ واحدی")
+            return Response(
+                {"detail": "ویرایش شارژ انجام نشد. گزارش خطای سرور را بررسی کنید."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # --------------------------------------------------
+    # DELETE: حذف شارژ واحدی
+    # --------------------------------------------------
+
+    def delete(self, request, pk=None):
+        denied = self.check_manager(request)
+        if denied:
+            return denied
+
+        if pk is None:
+            return Response(
+                {"detail": "شناسه شارژ ارسال نشده است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                charge = (
+                    FixCharge.objects
+                    .select_for_update()
+                    .filter(pk=pk, user=request.user)
+                    .first()
+                )
+
+                if not charge:
+                    return Response(
+                        {"detail": "شارژ موردنظر پیدا نشد."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                # اولویت با قانون ممنوعیت حذف پس از ارسال اطلاعیه است.
+                if self.has_notification(charge):
+                    return Response(
+                        {
+                            "detail": (
+                                "برای این شارژ اطلاعیه صادر شده است؛ "
+                                "بنابراین امکان حذف آن وجود ندارد."
+                            ),
+                            "code": "charge_already_notified",
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                if self.has_payment(charge):
+                    return Response(
+                        {
+                            "detail": (
+                                "برای این شارژ پرداخت ثبت شده است؛ "
+                                "امکان حذف آن وجود ندارد."
+                            ),
+                            "code": "charge_already_paid",
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                charge_name = charge.name or "شارژ واحدی"
+                charge.delete()
+
+            return Response({
+                "detail": f"{charge_name} با موفقیت حذف شد.",
+            })
+
+        except ProtectedError:
+            return Response(
+                {"detail": "به دلیل وابستگی‌های مالی، حذف این شارژ ممکن نیست."},
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+            logger.exception("خطا در حذف شارژ واحدی")
+            return Response(
+                {"detail": "حذف شارژ انجام نشد. گزارش خطای سرور را بررسی کنید."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )

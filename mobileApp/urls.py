@@ -21,7 +21,8 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerAdminSupportTicketCreateView, ManagerAdminSupportTicketDetailView, ManagerAdminSupportTicketMessageView, \
     ManagerAdminSupportTicketReadView, ManagerAdminSupportUnreadCountView, ManagerAdminSupportTicketCloseView, \
     ManagerUnitListCreateView, ManagerUnitDetailView, ManagerUnitAddRenterView, ManagerRenterDetailView, \
-    ManagerUnitRemoveOwnerView, ManagerUnitResidenceHistoryView, ManagerUnitChangeOwnerView
+    ManagerUnitRemoveOwnerView, ManagerUnitResidenceHistoryView, ManagerUnitChangeOwnerView, ManagerChargeHomeView, \
+    ManagerFixedChargeCreateView, ManagerFixedChargeAPIView
 
 urlpatterns = [
     path(
@@ -529,4 +530,18 @@ urlpatterns = [
         ManagerUnitChangeOwnerView.as_view(),
         name='manager_unit_change_owner',
     ),
+    # =====================================================
+    # مدیریت شارژها
+    # =====================================================
+    path(
+        'manager/charges/',
+        ManagerChargeHomeView.as_view(),
+        name='manager-charge-home',
+    ),
+    path(
+        'manager/charges/fixed/',
+        ManagerFixedChargeAPIView.as_view(),
+        name='manager-fixed-charges',
+    ),
+
 ]
