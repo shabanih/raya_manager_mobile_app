@@ -22,7 +22,8 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerAdminSupportTicketReadView, ManagerAdminSupportUnreadCountView, ManagerAdminSupportTicketCloseView, \
     ManagerUnitListCreateView, ManagerUnitDetailView, ManagerUnitAddRenterView, ManagerRenterDetailView, \
     ManagerUnitRemoveOwnerView, ManagerUnitResidenceHistoryView, ManagerUnitChangeOwnerView, ManagerChargeHomeView, \
-    ManagerFixedChargeCreateView, ManagerFixedChargeAPIView
+    ManagerFixedChargeCreateView, ManagerFixedChargeAPIView, ManagerFixedChargeUnitsAPIView, \
+    ManagerFixedChargeSendAPIView, ManagerFixedChargeCancelAPIView
 
 urlpatterns = [
     path(
@@ -538,10 +539,40 @@ urlpatterns = [
         ManagerChargeHomeView.as_view(),
         name='manager-charge-home',
     ),
+
     path(
-        'manager/charges/fixed/',
+        "manager/charges/fixed/",
         ManagerFixedChargeAPIView.as_view(),
-        name='manager-fixed-charges',
+        name="manager-fixed-charges",
     ),
+
+    # مشاهده جزئیات، ویرایش و حذف شارژ واحدی
+    path(
+        "manager/charges/fixed/<int:pk>/",
+        ManagerFixedChargeAPIView.as_view(),
+        name="manager-fixed-charge-detail",
+    ),
+
+    # فهرست واحدهای شارژ
+    path(
+        "manager/charges/fixed/<int:pk>/units/",
+        ManagerFixedChargeUnitsAPIView.as_view(),
+        name="manager-fixed-charge-units",
+    ),
+
+    # ارسال اطلاعیه برای واحدهای انتخاب‌شده
+    path(
+        "manager/charges/fixed/<int:pk>/units/send/",
+        ManagerFixedChargeSendAPIView.as_view(),
+        name="manager-fixed-charge-send",
+    ),
+
+    # لغو اطلاعیه واحدهای انتخاب‌شده
+    path(
+        "manager/charges/fixed/<int:pk>/units/cancel/",
+        ManagerFixedChargeCancelAPIView.as_view(),
+        name="manager-fixed-charge-cancel",
+    ),
+
 
 ]

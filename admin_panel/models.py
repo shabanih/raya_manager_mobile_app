@@ -1443,11 +1443,13 @@ class UnifiedCharge(models.Model):
         on_delete=models.CASCADE,
         related_name="unified_charges"
     )
-    # payment_token = models.CharField(
-    #     max_length=16,
-    #     unique=True,
-    #     editable=False
-    # )
+    payment_token = models.CharField(
+        max_length=16,
+        unique=True,
+        editable=False,
+        null=True,
+        blank=True,
+    )
     financial_document_number = models.PositiveIntegerField(
         null=True,
         blank=True,
@@ -1578,8 +1580,8 @@ class UnifiedCharge(models.Model):
 
         super().save(*args, **kwargs)
 
-    # def generate_payment_token():
-    #     return secrets.token_urlsafe(12)
+    def generate_payment_token(self):
+        return secrets.token_urlsafe(12)
 
     @property
     def app_label(self):

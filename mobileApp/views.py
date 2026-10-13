@@ -40,6 +40,7 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
 from middleAdmin_panel.services.bank_services import BankTransactionService
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
+from notifications.services.sms_service import SmsService, normalize_mobile
 from payment_app.views import CallbackURLCharge, ZP_API_REQUEST, ZP_API_STARTPAY
 from polls_app.models import Poll, Vote, Choice, Question
 from user_app.models import Unit, HousePaymentGateway, Renter, Bank, MyHouse, UserPayMoney, UnitResidenceHistory
@@ -10961,12 +10962,12 @@ class ManagerSupportUnreadCountView(APIView):
             'unread_count': count,
         })
 
+
 # ============================================================
 # Admin TICKET
 # ============================================================
 
 def get_manager_admin_ticket(user, ticket_id):
-
     if not getattr(user, 'is_middle_admin', False):
         return None
 
@@ -10998,12 +10999,11 @@ def get_manager_admin_ticket(user, ticket_id):
 # =========================================================
 
 def create_middle_admin_notification(
-    user,
-    ticket,
-    title,
-    message,
+        user,
+        ticket,
+        title,
+        message,
 ):
-
     if not user:
         return None
 
@@ -11022,17 +11022,15 @@ def create_middle_admin_notification(
 # =========================================================
 
 class ManagerAdminSupportTicketListView(APIView):
-
     permission_classes = [
         IsAuthenticated,
     ]
 
     def get(self, request):
-
         if not getattr(
-            request.user,
-            'is_middle_admin',
-            False,
+                request.user,
+                'is_middle_admin',
+                False,
         ):
             return Response(
                 {
@@ -11082,7 +11080,6 @@ class ManagerAdminSupportTicketListView(APIView):
 # =========================================================
 
 class ManagerAdminSupportTicketCreateView(APIView):
-
     permission_classes = [
         IsAuthenticated,
     ]
@@ -11097,9 +11094,9 @@ class ManagerAdminSupportTicketCreateView(APIView):
     def post(self, request):
 
         if not getattr(
-            request.user,
-            'is_middle_admin',
-            False,
+                request.user,
+                'is_middle_admin',
+                False,
         ):
             return Response(
                 {
@@ -11124,7 +11121,6 @@ class ManagerAdminSupportTicketCreateView(APIView):
         )
 
         if not house:
-
             return Response(
                 {
                     'message':
@@ -11145,17 +11141,17 @@ class ManagerAdminSupportTicketCreateView(APIView):
         )
 
         subject = (
-            serializer.validated_data.get(
-                'subject'
-            )
-            or ''
+                serializer.validated_data.get(
+                    'subject'
+                )
+                or ''
         ).strip()
 
         message = (
-            serializer.validated_data.get(
-                'message'
-            )
-            or ''
+                serializer.validated_data.get(
+                    'message'
+                )
+                or ''
         ).strip()
 
         # -------------------------------------------------
@@ -11173,7 +11169,6 @@ class ManagerAdminSupportTicketCreateView(APIView):
         )
 
         if not admin_user:
-
             return Response(
                 {
                     'message':
@@ -11219,7 +11214,6 @@ class ManagerAdminSupportTicketCreateView(APIView):
         files = request.FILES.getlist('files')
 
         for uploaded_file in files:
-
             AdminTicketFile.objects.create(
                 ticket=ticket,
                 file=uploaded_file,
@@ -11436,7 +11430,6 @@ class ManagerAdminSupportTicketMessageView(APIView):
         created_files = []
 
         for uploaded_file in uploaded_files:
-
             ticket_file = AdminTicketFile.objects.create(
                 ticket=ticket,
                 file=uploaded_file,
@@ -11484,7 +11477,6 @@ class ManagerAdminSupportTicketMessageView(APIView):
         notifications = []
 
         for admin in admins:
-
             notifications.append(
                 MiddleAdminNotification(
                     user=admin,
@@ -11522,7 +11514,6 @@ class ManagerAdminSupportTicketMessageView(APIView):
 # =========================================================
 
 class ManagerAdminSupportTicketCloseView(APIView):
-
     permission_classes = [
         IsAuthenticated,
     ]
@@ -11536,7 +11527,6 @@ class ManagerAdminSupportTicketCloseView(APIView):
         )
 
         if not ticket:
-
             return Response(
                 {
                     'message':
@@ -11546,7 +11536,6 @@ class ManagerAdminSupportTicketCloseView(APIView):
             )
 
         if ticket.is_closed:
-
             return Response(
                 {
                     'message':
@@ -11571,7 +11560,6 @@ class ManagerAdminSupportTicketCloseView(APIView):
         # -------------------------------------------------
 
         if ticket.middle_admin:
-
             create_middle_admin_notification(
                 user=ticket.middle_admin,
                 ticket=ticket,
@@ -11592,21 +11580,18 @@ class ManagerAdminSupportTicketCloseView(APIView):
 # =========================================================
 
 class ManagerAdminSupportTicketReadView(APIView):
-
     permission_classes = [
         IsAuthenticated,
     ]
 
     @transaction.atomic
     def post(self, request, ticket_id):
-
         ticket = get_manager_admin_ticket(
             request.user,
             ticket_id,
         )
 
         if not ticket:
-
             return Response(
                 {
                     'message':
@@ -11648,7 +11633,6 @@ class ManagerAdminSupportUnreadCountView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-
         if not request.user.is_middle_admin:
             return Response({
                 'success': False,
@@ -11665,6 +11649,7 @@ class ManagerAdminSupportUnreadCountView(APIView):
             'success': True,
             'unread_count': unread_count,
         })
+
 
 # ================== Unit Views ========================
 
@@ -11717,6 +11702,7 @@ class ManagerUnitBaseView(APIView):
             )
             .first()
         )
+
 
 # =========================================================
 # لیست واحدها
@@ -12096,10 +12082,10 @@ class ManagerUnitDetailView(
         )
 
     def _update(
-        self,
-        request,
-        unit_id,
-        partial=False,
+            self,
+            request,
+            unit_id,
+            partial=False,
     ):
 
         unit = self.get_unit(
@@ -12379,10 +12365,10 @@ class ManagerRenterDetailView(
 ):
 
     def get_renter(
-        self,
-        request,
-        unit_id,
-        renter_id,
+            self,
+            request,
+            unit_id,
+            renter_id,
     ):
 
         unit = self.get_unit(
@@ -12407,10 +12393,10 @@ class ManagerRenterDetailView(
 
     @transaction.atomic
     def patch(
-        self,
-        request,
-        unit_id,
-        renter_id,
+            self,
+            request,
+            unit_id,
+            renter_id,
     ):
 
         unit, renter = self.get_renter(
@@ -12469,13 +12455,12 @@ class ManagerRenterDetailView(
         )
 
         if history:
-
             history.name = (
-                renter.renter_name or ''
+                    renter.renter_name or ''
             )
 
             history.mobile = (
-                renter.renter_mobile or ''
+                    renter.renter_mobile or ''
             )
 
             history.people_count = int(
@@ -12483,8 +12468,8 @@ class ManagerRenterDetailView(
             )
 
             history.from_date = (
-                renter.start_date
-                or history.from_date
+                    renter.start_date
+                    or history.from_date
             )
 
             history.save(
@@ -12510,10 +12495,10 @@ class ManagerRenterDetailView(
 
     @transaction.atomic
     def delete(
-        self,
-        request,
-        unit_id,
-        renter_id,
+            self,
+            request,
+            unit_id,
+            renter_id,
     ):
 
         unit, renter = self.get_renter(
@@ -12646,13 +12631,13 @@ class ManagerUnitRemoveOwnerView(APIView):
             return error
 
         name = (
-            request.data.get('owner_name')
-            or ''
+                request.data.get('owner_name')
+                or ''
         ).strip()
 
         mobile = (
-            request.data.get('owner_mobile')
-            or ''
+                request.data.get('owner_mobile')
+                or ''
         ).strip()
 
         if not name:
@@ -12678,24 +12663,24 @@ class ManagerUnitRemoveOwnerView(APIView):
         unit.owner_mobile = mobile
 
         unit.owner_national_code = (
-            request.data.get(
-                'owner_national_code'
-            )
-            or ''
+                request.data.get(
+                    'owner_national_code'
+                )
+                or ''
         ).strip()
 
         unit.owner_people_count = (
-            request.data.get(
-                'owner_people_count'
-            )
-            or 0
+                request.data.get(
+                    'owner_people_count'
+                )
+                or 0
         )
 
         unit.owner_details = (
-            request.data.get(
-                'owner_details'
-            )
-            or ''
+                request.data.get(
+                    'owner_details'
+                )
+                or ''
         )
 
         purchase_date = request.data.get(
@@ -12763,8 +12748,8 @@ class ManagerUnitRemoveOwnerView(APIView):
         if 'owner_name' in request.data:
 
             owner_name = (
-                request.data.get('owner_name')
-                or ''
+                    request.data.get('owner_name')
+                    or ''
             ).strip()
 
             if not owner_name:
@@ -12780,8 +12765,8 @@ class ManagerUnitRemoveOwnerView(APIView):
         if 'owner_mobile' in request.data:
 
             owner_mobile = (
-                request.data.get('owner_mobile')
-                or ''
+                    request.data.get('owner_mobile')
+                    or ''
             ).strip()
 
             if not owner_mobile:
@@ -12795,34 +12780,30 @@ class ManagerUnitRemoveOwnerView(APIView):
             unit.owner_mobile = owner_mobile
 
         if 'owner_national_code' in request.data:
-
             unit.owner_national_code = (
-                request.data.get(
-                    'owner_national_code'
-                )
-                or ''
+                    request.data.get(
+                        'owner_national_code'
+                    )
+                    or ''
             ).strip()
 
         if 'owner_people_count' in request.data:
-
             unit.owner_people_count = (
-                request.data.get(
-                    'owner_people_count'
-                )
-                or 0
+                    request.data.get(
+                        'owner_people_count'
+                    )
+                    or 0
             )
 
         if 'owner_details' in request.data:
-
             unit.owner_details = (
-                request.data.get(
-                    'owner_details'
-                )
-                or ''
+                    request.data.get(
+                        'owner_details'
+                    )
+                    or ''
             )
 
         if 'purchase_date' in request.data:
-
             purchase_date = request.data.get(
                 'purchase_date'
             )
@@ -12913,6 +12894,7 @@ class ManagerUnitRemoveOwnerView(APIView):
             status=status.HTTP_200_OK
         )
 
+
 # =========================================================
 # سوابق سکونت
 # =========================================================
@@ -12922,9 +12904,9 @@ class ManagerUnitResidenceHistoryView(
 ):
 
     def get(
-        self,
-        request,
-        unit_id,
+            self,
+            request,
+            unit_id,
     ):
 
         unit = self.get_unit(
@@ -12958,7 +12940,6 @@ class ManagerUnitResidenceHistoryView(
         results = []
 
         for history in histories:
-
             results.append(
                 {
                     'id': history.id,
@@ -13005,6 +12986,7 @@ class ManagerUnitResidenceHistoryView(
                 'results': results,
             }
         )
+
 
 class ManagerUnitChangeOwnerView(
     ManagerUnitBaseView
@@ -13138,11 +13120,11 @@ class ManagerUnitChangeOwnerView(
         if active_owner_history:
 
             active_owner_history.name = (
-                unit.owner_name or ''
+                    unit.owner_name or ''
             )
 
             active_owner_history.mobile = (
-                unit.owner_mobile or ''
+                    unit.owner_mobile or ''
             )
 
             active_owner_history.people_count = int(
@@ -13307,7 +13289,7 @@ class ManagerFixedChargeCreateView(APIView):
                 civil_amount = fix_charge.civil or 0
                 other_amount = fix_charge.other_cost_amount or 0
                 penalty_percent = (
-                    fix_charge.payment_penalty_amount or 0
+                        fix_charge.payment_penalty_amount or 0
                 )
 
                 unified_charges = []
@@ -13319,9 +13301,9 @@ class ManagerFixedChargeCreateView(APIView):
                     )
 
                     total_amount = (
-                        base_amount
-                        + civil_amount
-                        + other_amount
+                            base_amount
+                            + civil_amount
+                            + other_amount
                     )
 
                     unified_charges.append(
@@ -13374,9 +13356,9 @@ class ManagerFixedChargeCreateView(APIView):
                             else None
                         ),
                         "total_per_unit": (
-                            (fix_charge.fix_amount or 0)
-                            + civil_amount
-                            + other_amount
+                                (fix_charge.fix_amount or 0)
+                                + civil_amount
+                                + other_amount
                         ),
                         "notification_sent": False,
                     },
@@ -13397,7 +13379,10 @@ class ManagerFixedChargeCreateView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+
 logger = logging.getLogger(__name__)
+
+
 class ManagerFixedChargeAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -13472,38 +13457,72 @@ class ManagerFixedChargeAPIView(APIView):
             object_id=charge.pk,
         )
 
-        notified = related.filter(
-            send_notification=True,
-        ).exists()
+        # تعداد کل واحدهایی که برای این شارژ رکورد دارند
+        unit_count = (
+            related
+            .values("unit_id")
+            .distinct()
+            .count()
+        )
+
+        # تعداد واحدهایی که اعلان شارژ برای آن‌ها ارسال شده
+        notified_units_count = (
+            related
+            .filter(send_notification=True)
+            .values("unit_id")
+            .distinct()
+            .count()
+        )
+
+        notified = notified_units_count > 0
 
         return {
             "id": charge.pk,
             "name": charge.name or "",
             "charge_type": "fix",
+
             "fix_amount": charge.fix_amount or 0,
-            "unit_count": related.values("unit_id").distinct().count(),
-            "other_cost_amount": charge.other_cost_amount or 0,
-            "payment_penalty_amount": (
-                charge.payment_penalty_amount or 0
+
+            # تعداد کل واحدها
+            "unit_count": unit_count,
+
+            # تعداد واحدهای اعلام‌شده
+            "notified_units_count": notified_units_count,
+
+            # آیا برای حداقل یک واحد اعلان ارسال شده؟
+            "send_notification": notified,
+
+            "other_cost_amount": (
+                    charge.other_cost_amount or 0
             ),
+
+            "payment_penalty_amount": (
+                    charge.payment_penalty_amount or 0
+            ),
+
             "payment_deadline": (
                 charge.payment_deadline.isoformat()
                 if charge.payment_deadline
                 else None
             ),
+
             "details": charge.details or "",
+
             "created_at": (
                 charge.created_at.isoformat()
                 if charge.created_at
                 else None
             ),
-            "send_notification": notified,
+
             "can_edit": not notified,
+
             "can_delete": (
-                not notified
-                and not related.filter(is_paid=True).exists()
+                    not notified
+                    and not related.filter(is_paid=True).exists()
             ),
         }
+
+
 
     # --------------------------------------------------
     # ذخیره یا همگام‌سازی UnifiedChargeها
@@ -13575,6 +13594,9 @@ class ManagerFixedChargeAPIView(APIView):
     # --------------------------------------------------
 
     def get(self, request, pk=None):
+        print("FIXED CHARGE GET CALLED")
+        print("USER ID:", request.user.id)
+        print("PK:", pk)
         denied = self.check_manager(request)
         if denied:
             return denied
@@ -13748,7 +13770,7 @@ class ManagerFixedChargeAPIView(APIView):
                     "fix_amount": charge.fix_amount or 0,
                     "details": charge.details or "",
                     "payment_penalty_amount": (
-                        charge.payment_penalty_amount or 0
+                            charge.payment_penalty_amount or 0
                     ),
                     "other_cost_amount": charge.other_cost_amount or 0,
                 }
@@ -13882,3 +13904,646 @@ class ManagerFixedChargeAPIView(APIView):
                 {"detail": "حذف شارژ انجام نشد. گزارش خطای سرور را بررسی کنید."},
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
+
+
+class ManagerFixedChargeUnitsAPIView(APIView):
+    """
+    GET /api/manager/charges/fixed/<pk>/units/
+    فهرست واحدهای فعال ساختمان به همراه وضعیت ارسال شارژ و پیامک.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def get_house(self, request):
+        return MyHouse.objects.filter(
+            user=request.user
+        ).first()
+
+    def get_charge(self, request, pk):
+        return FixCharge.objects.filter(
+            pk=pk,
+            user=request.user,
+        ).first()
+
+    def get_units_queryset(self, request, house):
+        units = Unit.objects.filter(
+            Q(user=request.user) |
+            Q(user__manager=request.user),
+            myhouse=house,
+            is_active=True,
+        ).distinct()
+
+        search = request.query_params.get(
+            "search", ""
+        ).strip()
+
+        resident_type = request.query_params.get(
+            "resident_type", "all"
+        ).strip()
+
+        if search:
+            units = units.filter(
+                Q(unit__icontains=search) |
+                Q(owner_name__icontains=search) |
+                Q(renters__renter_name__icontains=search)
+            ).distinct()
+
+        if resident_type == "owner":
+            units = units.exclude(
+                renters__renter_is_active=True
+            )
+
+        elif resident_type == "renter":
+            units = units.filter(
+                renters__renter_is_active=True
+            ).distinct()
+
+        elif resident_type == "empty":
+            units = units.filter(
+                status_residence="empty"
+            )
+
+        return units.order_by("unit")
+
+    def get(self, request, pk):
+        house = self.get_house(request)
+        charge = self.get_charge(request, pk)
+
+        if not house or not charge:
+            return Response(
+                {"detail": "شارژ یا ساختمان پیدا نشد."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        content_type = ContentType.objects.get_for_model(
+            FixCharge
+        )
+
+        units = self.get_units_queryset(request, house)
+
+        existing = UnifiedCharge.objects.filter(
+            content_type=content_type,
+            object_id=charge.pk,
+            unit_id__in=units.values("id"),
+        ).select_related("unit")
+
+        charge_by_unit = {
+            item.unit_id: item for item in existing
+        }
+
+        results = []
+
+        for unit in units:
+            uc = charge_by_unit.get(unit.pk)
+
+            renter = unit.renters.filter(
+                renter_is_active=True
+            ).first()
+
+            # وضعیت واقعی پیامک از رکورد UnifiedCharge
+            send_sms = bool(
+                uc and uc.send_sms
+            )
+
+            send_sms_date = (
+                uc.send_sms_date.isoformat()
+                if uc and uc.send_sms_date
+                else None
+            )
+
+            results.append({
+                "id": unit.pk,
+                "unit": str(unit.unit),
+
+                "owner_name": unit.owner_name or "",
+
+                "renter_name": (
+                    renter.renter_name if renter else ""
+                ),
+
+                "resident_type": (
+                    "renter" if renter
+                    else (
+                        "empty"
+                        if unit.status_residence == "empty"
+                        else "owner"
+                    )
+                ),
+
+                # اعلان سیستمی
+                "is_notified": bool(
+                    uc and uc.send_notification
+                ),
+
+                # وضعیت پیامک
+                "send_sms": send_sms,
+                "send_sms_date": send_sms_date,
+
+                # وضعیت پرداخت
+                "is_paid": bool(
+                    uc and uc.is_paid
+                ),
+
+                # مبلغ شارژ
+                "current_charge": str(
+                    uc.total_charge_month
+                    if uc
+                    else (
+                        (charge.fix_amount or Decimal("0")) +
+                        (getattr(charge, "civil", 0) or Decimal("0")) +
+                        (charge.other_cost_amount or Decimal("0"))
+                    )
+                ),
+
+                # شماره سند مالی
+                "financial_document_number": (
+                    uc.financial_document_number
+                    if uc else None
+                ),
+            })
+
+        return Response({
+            "charge_id": charge.pk,
+            "charge_name": charge.name,
+            "fix_amount": str(charge.fix_amount or 0),
+
+            "payment_deadline": (
+                charge.payment_deadline.isoformat()
+                if charge.payment_deadline else None
+            ),
+
+            "count": len(results),
+            "results": results,
+        })
+
+
+
+
+class ManagerFixedChargeSendAPIView(APIView):
+    """
+    POST /api/manager/charges/fixed/<pk>/units/send/
+
+    ارسال سیستمی:
+    {
+        "unit_ids": [1, 2, 3],
+        "send_sms": false
+    }
+
+    ارسال سیستمی و پیامکی:
+    {
+        "unit_ids": [1, 2, 3],
+        "send_sms": true
+    }
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        logger = logging.getLogger(__name__)
+
+        # ---------------------------------------
+        # 1. بررسی ساختمان و شارژ
+        # ---------------------------------------
+        house = MyHouse.objects.filter(
+            user=request.user
+        ).first()
+
+        charge = FixCharge.objects.filter(
+            pk=pk,
+            user=request.user,
+        ).first()
+
+        if not house or not charge:
+            return Response(
+                {"detail": "شارژ یا ساختمان پیدا نشد."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # ---------------------------------------
+        # 2. اعتبارسنجی واحدها
+        # ---------------------------------------
+        raw_ids = request.data.get("unit_ids", [])
+
+        if not isinstance(raw_ids, list) or not raw_ids:
+            return Response(
+                {"detail": "حداقل یک واحد را انتخاب کنید."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            selected_ids = {int(value) for value in raw_ids}
+
+            if any(value <= 0 for value in selected_ids):
+                raise ValueError
+
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "شناسه واحدها معتبر نیست."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------------------------------
+        # 3. روش ارسال
+        # ---------------------------------------
+        send_sms = request.data.get("send_sms", False)
+
+        if not isinstance(send_sms, bool):
+            return Response(
+                {"detail": "روش ارسال پیامک معتبر نیست."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_units = Unit.objects.filter(
+            Q(user=request.user)
+            | Q(user__manager=request.user),
+            myhouse=house,
+            is_active=True,
+            id__in=selected_ids,
+        ).distinct()
+
+        units_by_id = {
+            unit.pk: unit for unit in valid_units
+        }
+
+        if set(units_by_id) != selected_ids:
+            return Response(
+                {
+                    "detail":
+                        "برخی واحدها نامعتبرند یا به ساختمان شما تعلق ندارند."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # ---------------------------------------
+        # 4. بررسی ماشین حساب شارژ
+        # ---------------------------------------
+        calculator = CALCULATORS.get(charge.charge_type)
+
+        if not calculator:
+            return Response(
+                {
+                    "detail":
+                        "نوع محاسبه این شارژ پشتیبانی نمی‌شود."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = ContentType.objects.get_for_model(
+            FixCharge
+        )
+
+        charges_to_notify = []
+
+        # ---------------------------------------
+        # 5. ثبت شارژهای سیستمی
+        # ---------------------------------------
+        try:
+            with transaction.atomic():
+
+                for unit_id in sorted(selected_ids):
+                    unit = units_by_id[unit_id]
+
+                    uc = (
+                        UnifiedCharge.objects
+                        .select_for_update()
+                        .filter(
+                            content_type=content_type,
+                            object_id=charge.pk,
+                            unit=unit,
+                        )
+                        .first()
+                    )
+
+                    if uc is None:
+                        base_amount = calculator.calculate(
+                            unit, charge
+                        )
+
+                        civil_amount = (
+                            getattr(charge, "civil", 0)
+                            or Decimal("0")
+                        )
+
+                        other_amount = (
+                            getattr(
+                                charge,
+                                "other_cost_amount",
+                                0,
+                            )
+                            or Decimal("0")
+                        )
+
+                        total = (
+                            base_amount
+                            + civil_amount
+                            + other_amount
+                        )
+
+                        document_number = (
+                            get_next_financial_document_number(
+                                unit.myhouse
+                            )
+                        )
+
+                        uc = UnifiedCharge(
+                            user=request.user,
+                            unit=unit,
+                            house=unit.myhouse,
+                            bank=None,
+                            financial_document_number=(
+                                document_number
+                            ),
+                            amount=base_amount,
+                            charge_type=charge.charge_type,
+                            base_charge=total,
+                            main_charge=charge,
+                            penalty_percent=(
+                                charge.payment_penalty_amount
+                            ),
+                            civil=civil_amount,
+                            other_cost_amount=other_amount,
+                            penalty_amount=0,
+                            total_charge_month=total,
+                            details=charge.details or "",
+                            title=charge.name,
+                            send_notification=False,
+                            send_notification_date=None,
+                            payment_deadline_date=(
+                                charge.payment_deadline
+                            ),
+                            content_type=content_type,
+                            object_id=charge.pk,
+                            payment_token=(
+                                secrets.token_urlsafe(12)
+                            ),
+                        )
+
+                        uc.save()
+
+                    elif not uc.financial_document_number:
+                        # فقط شماره سند مفقود تکمیل شود.
+                        uc.financial_document_number = (
+                            get_next_financial_document_number(
+                                unit.myhouse
+                            )
+                        )
+
+                        uc.save(
+                            update_fields=[
+                                "financial_document_number"
+                            ]
+                        )
+
+                    # فقط وضعیت اعلان سیستمی تغییر می‌کند.
+                    # اطلاعات مالی و پرداخت دست‌نخورده می‌مانند.
+                    uc.send_notification = True
+                    uc.send_notification_date = (
+                        timezone.now().date()
+                    )
+
+                    uc.save(
+                        update_fields=[
+                            "send_notification",
+                            "send_notification_date",
+                        ]
+                    )
+
+                    charges_to_notify.append(uc)
+
+        except Exception:
+            logger.exception(
+                "Error creating fixed unified charges"
+            )
+
+            return Response(
+                {
+                    "detail":
+                        "ثبت ارسال شارژ انجام نشد. گزارش سرور را بررسی کنید."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        # ---------------------------------------
+        # 6. فقط ارسال سیستمی؛ بدون پیامک
+        # ---------------------------------------
+        if not send_sms:
+            return Response({
+                "ok": True,
+                "sent_count": len(charges_to_notify),
+                "sms_requested": False,
+                "sms_sent": False,
+                "detail":
+                    "اطلاع‌رسانی سیستمی شارژ برای واحدهای انتخاب‌شده ثبت شد.",
+            })
+
+        # ---------------------------------------
+        # 7. پیدا کردن واحدهای دارای موبایل معتبر
+        # ---------------------------------------
+        sms_eligible_charges = [
+            uc
+            for uc in charges_to_notify
+            if normalize_mobile(uc.get_mobile())
+        ]
+
+        if not sms_eligible_charges:
+            return Response({
+                "ok": True,
+                "sent_count": len(charges_to_notify),
+                "sms_requested": True,
+                "sms_sent": False,
+                "sms_sent_count": 0,
+                "detail":
+                    "اعلان سیستمی ثبت شد، اما شماره موبایل معتبر برای ارسال پیامک پیدا نشد.",
+            })
+
+        # ---------------------------------------
+        # 8. ارسال پیامک با سرویس موجود پروژه
+        # ---------------------------------------
+        try:
+            from django.conf import settings
+
+            unit_sms_price = Decimal(
+                str(settings.SMS_PRICE)
+            )
+
+            def save_sms_metadata(
+                total_sms,
+                total_price,
+            ):
+                """
+                این callback فقط در مسیر موفقیت سرویس
+                فراخوانی می‌شود.
+                """
+
+                if total_sms <= 0:
+                    return
+
+                # هزینه کل را به نسبت تعداد گیرندگان
+                # بین شارژهای پیامک‌شده تقسیم می‌کنیم.
+                per_charge_price = (
+                    Decimal(str(total_price))
+                    / Decimal(total_sms)
+                )
+
+                for sms_charge in sms_eligible_charges:
+                    sms_charge.send_sms = True
+                    sms_charge.send_sms_date = (
+                        timezone.now().date()
+                    )
+                    sms_charge.sms_count = 1
+                    sms_charge.sms_price = unit_sms_price
+                    sms_charge.sms_total_price = (
+                        per_charge_price
+                    )
+
+                UnifiedCharge.objects.bulk_update(
+                    sms_eligible_charges,
+                    [
+                        "send_sms",
+                        "send_sms_date",
+                        "sms_count",
+                        "sms_price",
+                        "sms_total_price",
+                    ],
+                )
+
+            sms_result = SmsService.send_for_unified_charges(
+                user=request.user,
+                unified_charges=sms_eligible_charges,
+                meta_callback=save_sms_metadata,
+            )
+
+        except Exception:
+            logger.exception(
+                "Fixed charge SMS sending failed"
+            )
+
+            # شارژ سیستمی قبلاً ثبت شده است؛
+            # خطای پیامک نباید سابقه مالی را حذف کند.
+            return Response({
+                "ok": True,
+                "sent_count": len(charges_to_notify),
+                "sms_requested": True,
+                "sms_sent": False,
+                "sms_sent_count": 0,
+                "detail":
+                    "اعلان سیستمی ثبت شد، اما هنگام ارسال پیامک خطا رخ داد. گزارش سرور را بررسی کنید.",
+            })
+
+        # ---------------------------------------
+        # 9. نتیجه نهایی
+        # ---------------------------------------
+        if not sms_result.success:
+            return Response({
+                "ok": True,
+                "sent_count": len(charges_to_notify),
+                "sms_requested": True,
+                "sms_sent": False,
+                "sms_sent_count": 0,
+                "detail": (
+                    "اعلان سیستمی ثبت شد؛ ارسال پیامک موفق نبود: "
+                    + sms_result.message
+                ),
+            })
+
+        return Response({
+            "ok": True,
+            "sent_count": len(charges_to_notify),
+            "sms_requested": True,
+            "sms_sent": True,
+            "sms_sent_count": sms_result.total_sms,
+            "sms_total_price": str(
+                sms_result.total_price
+            ),
+            "detail":
+                "اعلان سیستمی ثبت شد و پیامک با موفقیت ارسال شد.",
+        })
+
+
+
+class ManagerFixedChargeCancelAPIView(APIView):
+    """
+    POST /api/manager/charges/fixed/<pk>/units/cancel/
+
+    JSON:
+    {"unit_ids": [1, 2, 3]}
+
+    رکورد مالی حذف نمی‌شود؛ وضعیت پرداخت، شماره سند،
+    مبلغ و اطلاعات پرداخت تغییر نمی‌کنند.
+    """
+
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        house = MyHouse.objects.filter(
+            user=request.user
+        ).first()
+
+        charge = FixCharge.objects.filter(
+            pk=pk,
+            user=request.user,
+        ).first()
+
+        if not house or not charge:
+            return Response(
+                {"detail": "شارژ یا ساختمان پیدا نشد."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        raw_ids = request.data.get("unit_ids", [])
+
+        if not isinstance(raw_ids, list) or not raw_ids:
+            return Response(
+                {"detail": "واحدهای موردنظر را انتخاب کنید."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            selected_ids = {int(value) for value in raw_ids}
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "شناسه واحدها معتبر نیست."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_ids = set(
+            Unit.objects.filter(
+                Q(user=request.user) |
+                Q(user__manager=request.user),
+                myhouse=house,
+                is_active=True,
+                id__in=selected_ids,
+            ).values_list("id", flat=True).distinct()
+        )
+
+        if valid_ids != selected_ids:
+            return Response(
+                {"detail": "یک یا چند واحد معتبر نیست."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = ContentType.objects.get_for_model(
+            FixCharge
+        )
+
+        with transaction.atomic():
+            qs = UnifiedCharge.objects.select_for_update().filter(
+                content_type=content_type,
+                object_id=charge.pk,
+                unit_id__in=selected_ids,
+            )
+
+            cancelled_count = qs.filter(
+                Q(send_notification=True) | Q(send_sms=True)
+            ).update(
+                send_notification=False,
+                send_notification_date=None,
+                send_sms=False,
+                send_sms_date=None,
+            )
+
+        return Response({
+            "ok": True,
+            "cancelled_count": cancelled_count,
+            "detail": "اطلاع‌رسانی واحدهای انتخاب‌شده لغو شد.",
+        })
