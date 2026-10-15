@@ -20,10 +20,12 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     UserSupportUnreadCountView, ManagerSupportUnreadCountView, ManagerAdminSupportTicketListView, \
     ManagerAdminSupportTicketCreateView, ManagerAdminSupportTicketDetailView, ManagerAdminSupportTicketMessageView, \
     ManagerAdminSupportTicketReadView, ManagerAdminSupportUnreadCountView, ManagerAdminSupportTicketCloseView, \
-    ManagerUnitListCreateView, ManagerUnitDetailView, ManagerUnitAddRenterView, ManagerRenterDetailView, \
-    ManagerUnitRemoveOwnerView, ManagerUnitResidenceHistoryView, ManagerUnitChangeOwnerView, ManagerChargeHomeView, \
+    ManagerChargeHomeView, \
     ManagerFixedChargeCreateView, ManagerFixedChargeAPIView, ManagerFixedChargeUnitsAPIView, \
-    ManagerFixedChargeSendAPIView, ManagerFixedChargeCancelAPIView
+    ManagerFixedChargeSendAPIView, ManagerFixedChargeCancelAPIView, ManagerAreaChargeUnitsAPIView, \
+    ManagerAreaChargeSendAPIView, ManagerAreaChargeCancelAPIView, ManagerUnitCreateAPIView, ManagerUnitUpdateAPIView, \
+    ManagerRenterUpdateAPIView, ManagerUnitRentersAPIView, ManagerUnitListAPIView, ManagerRenterDeactivateAPIView, \
+    ManagerRenterDeleteAPIView, ManagerUnitDetailAPIView, ManagerUnitOwnerUpdateAPIView, ManagerUnitStatusAPIView
 
 urlpatterns = [
     path(
@@ -477,60 +479,122 @@ urlpatterns = [
     # مدیریت واحدها
     # =====================================================
 
+    # path(
+    #     'manager/units/',
+    #     ManagerUnitListCreateView.as_view(),
+    #     name='manager_units',
+    # ),
+    #
+    # # جزئیات / ویرایش / حذف واحد
+    # path(
+    #     'manager/units/<int:unit_id>/',
+    #     ManagerUnitDetailView.as_view(),
+    #     name='manager_unit_detail',
+    # ),
+    #
+    # # =====================================================
+    # # مستأجر
+    # # =====================================================
+    #
+    # path(
+    #     'manager/units/<int:unit_id>/renters/',
+    #     ManagerUnitAddRenterView.as_view(),
+    #     name='manager_unit_add_renter',
+    # ),
+    #
+    # path(
+    #     'manager/units/<int:unit_id>/renters/<int:renter_id>/',
+    #     ManagerRenterDetailView.as_view(),
+    #     name='manager_renter_detail',
+    # ),
+
+    # ثبت واحد و مالک
     path(
-        'manager/units/',
-        ManagerUnitListCreateView.as_view(),
-        name='manager_units',
+        'manager/units/create/',
+        ManagerUnitCreateAPIView.as_view(),
+        name='api_manager_unit_create',
     ),
 
-    # جزئیات / ویرایش / حذف واحد
+    # ویرایش واحد و مالک
+    path(
+        'manager/units/<int:unit_id>/update/',
+        ManagerUnitUpdateAPIView.as_view(),
+        name='api_manager_unit_update',
+    ),
     path(
         'manager/units/<int:unit_id>/',
-        ManagerUnitDetailView.as_view(),
-        name='manager_unit_detail',
+        ManagerUnitDetailAPIView.as_view(),
+        name='api_manager_unit_detail'
     ),
-
-    # =====================================================
-    # مستأجر
-    # =====================================================
-
-    path(
-        'manager/units/<int:unit_id>/renters/',
-        ManagerUnitAddRenterView.as_view(),
-        name='manager_unit_add_renter',
-    ),
-
-    path(
-        'manager/units/<int:unit_id>/renters/<int:renter_id>/',
-        ManagerRenterDetailView.as_view(),
-        name='manager_renter_detail',
-    ),
-
-    # =====================================================
-    # مالک
-    # =====================================================
-
     path(
         'manager/units/<int:unit_id>/owner/',
-        ManagerUnitRemoveOwnerView.as_view(),
-        name='manager_unit_remove_owner',
-    ),
-
-    # =====================================================
-    # سوابق سکونت
-    # =====================================================
-
-    path(
-        'manager/units/<int:unit_id>/residence-history/',
-        ManagerUnitResidenceHistoryView.as_view(),
-        name='manager_unit_residence_history',
+        ManagerUnitOwnerUpdateAPIView.as_view(),
+        name='api_manager_unit_owner_update',
     ),
 
     path(
-        'manager/units/<int:unit_id>/owner/change/',
-        ManagerUnitChangeOwnerView.as_view(),
-        name='manager_unit_change_owner',
+        'manager/units/<int:unit_id>/status/',
+        ManagerUnitStatusAPIView.as_view(),
+        name='api_manager_unit_status',
     ),
+
+    # لیست مستأجران و افزودن مستأجر
+    path(
+        'manager/units/<int:unit_id>/renters/',
+        ManagerUnitRentersAPIView.as_view(),
+        name='api_manager_unit_renters',
+    ),
+
+    # ویرایش مستأجر فعال
+    path(
+        'manager/renters/<int:renter_id>/update/',
+        ManagerRenterUpdateAPIView.as_view(),
+        name='api_manager_renter_update',
+    ),
+
+    path(
+        'manager/renters/<int:renter_id>/deactivate/',
+        ManagerRenterDeactivateAPIView.as_view(),
+        name='api_manager_renter_deactivate',
+    ),
+
+    path(
+        'manager/renters/<int:renter_id>/delete/',
+        ManagerRenterDeleteAPIView.as_view(),
+        name='api_manager_renter_delete',
+    ),
+    path(
+        'manager/units/',
+        ManagerUnitListAPIView.as_view(),
+        name='api_manager_unit_list',
+    ),
+
+
+    # # =====================================================
+    # # مالک
+    # # =====================================================
+    #
+    # path(
+    #     'manager/units/<int:unit_id>/owner/',
+    #     ManagerUnitRemoveOwnerView.as_view(),
+    #     name='manager_unit_remove_owner',
+    # ),
+    #
+    # # =====================================================
+    # # سوابق سکونت
+    # # =====================================================
+    #
+    # path(
+    #     'manager/units/<int:unit_id>/residence-history/',
+    #     ManagerUnitResidenceHistoryView.as_view(),
+    #     name='manager_unit_residence_history',
+    # ),
+    #
+    # path(
+    #     'manager/units/<int:unit_id>/owner/change/',
+    #     ManagerUnitChangeOwnerView.as_view(),
+    #     name='manager_unit_change_owner',
+    # ),
     # =====================================================
     # مدیریت شارژها
     # =====================================================
@@ -572,6 +636,22 @@ urlpatterns = [
         "manager/charges/fixed/<int:pk>/units/cancel/",
         ManagerFixedChargeCancelAPIView.as_view(),
         name="manager-fixed-charge-cancel",
+    ),
+
+    path(
+        "manager/charges/area/<int:pk>/units/",
+        ManagerAreaChargeUnitsAPIView.as_view(),
+        name="manager-area-charge-units",
+    ),
+    path(
+        "manager/charges/area/<int:pk>/units/send/",
+        ManagerAreaChargeSendAPIView.as_view(),
+        name="manager-area-charge-send",
+    ),
+    path(
+        "manager/charges/area/<int:pk>/units/cancel/",
+        ManagerAreaChargeCancelAPIView.as_view(),
+        name="manager-area-charge-cancel",
     ),
 
 

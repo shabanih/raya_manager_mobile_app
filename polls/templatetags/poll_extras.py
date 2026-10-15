@@ -245,7 +245,7 @@ Middle_REPORT_PREFIXES = [
     "middle_bank",
     "charge_notify",
     "middle_sewage",
-    "middle_charge_civil",
+    "charge_civil",
     "debtor_units_report",
     "unit_history_report",
     "expense_history_report",
@@ -297,8 +297,8 @@ def is_user_charge_section(url_name):
 
 CHARGE_PREFIXES = [
     "middle_add",
-    "middle_main_charges",
-    "civil_charge_manage",
+    "middle_civil",
+    "middle_main",
 ]
 SMS_PREFIXES = [
     "add_sms_credit",

@@ -10,15 +10,47 @@ from user_app.models import Unit, MyHouse, User, Bank, UserPayMoney, Renter, Uni
 
 
 class LoginSerializer(serializers.Serializer):
-    username = serializers.CharField(
+    mobile = serializers.CharField(
         required=True,
-        max_length=150
+        max_length=11,
+        trim_whitespace=True,
+        error_messages={
+            'required': 'شماره موبایل الزامی است.',
+            'blank': 'شماره موبایل را وارد کنید.',
+        }
     )
 
     password = serializers.CharField(
         required=True,
-        write_only=True
+        write_only=True,
+        trim_whitespace=False,
+        error_messages={
+            'required': 'رمز عبور الزامی است.',
+            'blank': 'رمز عبور را وارد کنید.',
+        }
     )
+
+    def validate_mobile(self, value):
+
+        # تبدیل اعداد فارسی و عربی به انگلیسی
+        translation = str.maketrans(
+            '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩',
+            '01234567890123456789'
+        )
+
+        mobile = value.translate(translation).strip()
+
+        if not mobile.isdigit():
+            raise serializers.ValidationError(
+                'شماره موبایل باید فقط شامل اعداد باشد.'
+            )
+
+        if len(mobile) != 11 or not mobile.startswith('09'):
+            raise serializers.ValidationError(
+                'شماره موبایل باید با 09 شروع شود و ۱۱ رقم باشد.'
+            )
+
+        return mobile
 
 
 class UserMeSerializer(serializers.ModelSerializer):
@@ -4097,218 +4129,195 @@ class AdminTicketMessageCreateSerializer(
 
 
 # --------------- Unit -----------------------
-class ManagerUnitListSerializer(serializers.ModelSerializer):
-    active_renter = serializers.SerializerMethodField()
-    owner = serializers.SerializerMethodField()
-    label = serializers.SerializerMethodField()
+class ManagerUnitSerializer(serializers.Serializer):
+    # -------------------------
+    # اطلاعات واحد
+    # -------------------------
+    unit = serializers.IntegerField(required=False)
+    floor_number = serializers.IntegerField(required=False)
+    area = serializers.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        required=False,
+    )
+    bedrooms_count = serializers.IntegerField(required=False)
 
-    class Meta:
-        model = Unit
-        fields = [
-            'id',
-            'unit',
-            'floor_number',
-            'area',
-            'bedrooms_count',
-            'parking_number',
-            'parking_place',
-            'extra_parking_first',
-            'extra_parking_second',
-            'parking_counts',
-            'unit_phone',
-            'unit_details',
-            'status_residence',
-            'people_count',
-            'owner',
-            'active_renter',
-            'is_renter',
-            'is_active',
-            'label',
-        ]
+    unit_phone = serializers.CharField(
+        max_length=8,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-    @staticmethod
-    def _serialize_date(value):
-        """
-        تبدیل امن تاریخ به رشته قابل ارسال در JSON.
-        مقادیر date و datetime و رشته را پشتیبانی می‌کند.
-        """
-        if value is None or value == '':
-            return None
+    parking_number = serializers.CharField(
+        max_length=10,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-        if isinstance(value, (date, datetime)):
-            return value.isoformat()
+    parking_place = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-        # اگر مقدار از قبل رشته است، همان را برگردان.
-        return str(value)
+    extra_parking_first = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-    def get_owner(self, obj):
-        return {
-            'name': obj.owner_name or '',
-            'mobile': obj.owner_mobile or '',
-            'national_code': obj.owner_national_code or '',
-            'purchase_date': self._serialize_date(
-                obj.purchase_date
-            ),
-            'people_count': obj.owner_people_count or 0,
-            'details': obj.owner_details or '',
-        }
+    extra_parking_second = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-    def get_active_renter(self, obj):
-        renter = obj.get_active_renter()
+    unit_details = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-        if not renter:
-            return None
+    parking_counts = serializers.IntegerField(required=False)
 
-        return {
-            'id': renter.id,
-            'name': renter.renter_name or '',
-            'mobile': renter.renter_mobile or '',
-            'national_code': renter.renter_national_code or '',
-            'people_count': int(
-                renter.renter_people_count or 0
-            ),
-            'start_date': self._serialize_date(
-                renter.start_date
-            ),
-            'end_date': self._serialize_date(
-                renter.end_date
-            ),
-            'contract_number': renter.contract_number or '',
-            'estate_name': renter.estate_name or '',
-            'details': renter.renter_details or '',
-        }
+    # -------------------------
+    # اطلاعات مالک
+    # -------------------------
+    owner_name = serializers.CharField(
+        max_length=100,
+        required=False,
+    )
 
-    def get_label(self, obj):
-        return obj.get_label
+    owner_mobile = serializers.RegexField(
+        regex=r'^\d{11}$',
+        required=False,
+        error_messages={
+            'invalid': 'شماره موبایل مالک باید ۱۱ رقم باشد.'
+        },
+    )
 
+    owner_password = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        trim_whitespace=False,
+    )
 
-class ManagerUnitDetailSerializer(serializers.ModelSerializer):
-    owner = serializers.SerializerMethodField()
-    active_renter = serializers.SerializerMethodField()
-    histories = serializers.SerializerMethodField()
+    owner_national_code = serializers.CharField(
+        max_length=10,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-    class Meta:
-        model = Unit
-        fields = [
-            'id',
-            'unit',
-            'floor_number',
-            'area',
-            'bedrooms_count',
-            'parking_number',
-            'parking_place',
-            'extra_parking_first',
-            'extra_parking_second',
-            'parking_counts',
-            'unit_phone',
-            'unit_details',
-            'status_residence',
-            'people_count',
-            'is_renter',
-            'is_active',
-            'owner',
-            'active_renter',
-            'histories',
-        ]
+    purchase_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+    )
 
-    def get_owner(self, obj):
-        return {
-            'name': obj.owner_name or '',
-            'mobile': obj.owner_mobile or '',
-            'national_code': obj.owner_national_code or '',
-            'purchase_date': (
-                obj.purchase_date.isoformat()
-                if hasattr(obj.purchase_date, 'isoformat')
-                else str(obj.purchase_date) if obj.purchase_date else None
-            ),
-            'people_count': obj.owner_people_count or 0,
-            'details': obj.owner_details or '',
-        }
+    owner_people_count = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
 
-    def get_active_renter(self, obj):
-        renter = obj.get_active_renter()
+    owner_details = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-        if not renter:
-            return None
+    status_residence = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
 
-        return {
-            'id': renter.id,
-            'name': renter.renter_name or '',
-            'mobile': renter.renter_mobile or '',
-            'national_code': renter.renter_national_code or '',
-            'people_count': int(
-                renter.renter_people_count or 0
-            ),
-            'start_date': (
-                renter.start_date.isoformat()
-                if renter.start_date
-                else None
-            ),
-            'end_date': (
-                renter.end_date.isoformat()
-                if renter.end_date
-                else None
-            ),
-            'contract_number': renter.contract_number or '',
-            'estate_name': renter.estate_name or '',
-            'details': renter.renter_details or '',
-        }
+    parking_counts = serializers.IntegerField(
+        required=False,
+        min_value=0,
+    )
 
-    def get_histories(self, obj):
-        histories = (
-            UnitResidenceHistory.objects
-            .filter(unit=obj)
-            .select_related('renter', 'changed_by')
-            .order_by('-from_date', '-id')
-        )
-
-        return [
-            {
-                'id': history.id,
-                'resident_type': history.resident_type,
-                'resident_type_display': (
-                    history.get_resident_type_display()
-                ),
-                'name': history.name or '',
-                'mobile': history.mobile or '',
-                'people_count': history.people_count or 0,
-                'from_date': (
-                    history.from_date.isoformat()
-                    if history.from_date
-                    else None
-                ),
-                'to_date': (
-                    history.to_date.isoformat()
-                    if history.to_date
-                    else None
-                ),
-                'is_active': history.to_date is None,
-            }
-            for history in histories
-        ]
+    people_count = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+    )
 
 
-class ManagerRenterSerializer(serializers.ModelSerializer):
-    class Meta:
-        model = Renter
-        fields = [
-            'id',
-            'unit',
-            'renter_name',
-            'renter_mobile',
-            'renter_national_code',
-            'renter_people_count',
-            'start_date',
-            'end_date',
-            'contract_number',
-            'estate_name',
-            'renter_details',
-            'renter_is_active',
-        ]
-        read_only_fields = [
-            'id',
-            'unit',
-        ]
+class ManagerRenterSerializer(serializers.Serializer):
+    renter_name = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
+    renter_mobile = serializers.RegexField(
+        regex=r'^\d{11}$',
+        required=False,
+        error_messages={
+            'invalid': 'شماره موبایل مستأجر باید ۱۱ رقم باشد.'
+        },
+    )
+
+    renter_password = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        write_only=True,
+        trim_whitespace=False,
+    )
+
+    renter_national_code = serializers.CharField(
+        max_length=10,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
+    renter_people_count = serializers.CharField(
+        max_length=10,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
+    start_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+    )
+
+    end_date = serializers.DateField(
+        required=False,
+        allow_null=True,
+    )
+
+    contract_number = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
+    estate_name = serializers.CharField(
+        max_length=100,
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
+    renter_details = serializers.CharField(
+        required=False,
+        allow_blank=True,
+        allow_null=True,
+    )
+
 
 # ================ Charge Management ============================
 class ManagerChargeHomeCardSerializer(serializers.Serializer):

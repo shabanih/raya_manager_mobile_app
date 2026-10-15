@@ -1,9 +1,12 @@
+import datetime
 import json
 import logging
+import re
 import secrets
+from datetime import date
 
 import jdatetime
-from django.db.models import Count, Q, Sum, ProtectedError
+from django.db.models import Count, Q, Sum, ProtectedError, Prefetch
 from django.utils import timezone
 from decimal import Decimal
 
@@ -18,7 +21,7 @@ from django.shortcuts import render, get_object_or_404
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 
-from admin_panel.forms import FixChargeForm
+from admin_panel.forms import FixChargeForm, AreaChargeForm
 from admin_panel.services.calculators import CALCULATORS
 from admin_panel.services.utils import (
     get_next_financial_document_number
@@ -36,7 +39,7 @@ from rest_framework.response import Response
 from absharProject import settings
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageManage, \
     SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund, \
-    FixCharge
+    FixCharge, AreaCharge, Subscription
 from middleAdmin_panel.services.bank_services import BankTransactionService
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
@@ -58,8 +61,8 @@ from .serializers import (
     ManagerPollWriteSerializer, ManagerPollDetailSerializer, SupportTicketListSerializer, SupportTicketDetailSerializer,
     UserSupportTicketListSerializer, UserSupportTicketCreateSerializer, UserSupportTicketDetailSerializer,
     AdminTicketDetailSerializer, AdminTicketCreateSerializer, AdminTicketListSerializer,
-    AdminTicketMessageCreateSerializer, ManagerUnitListSerializer, ManagerUnitDetailSerializer,
-    ManagerChargeHomeCardSerializer,
+    AdminTicketMessageCreateSerializer, ManagerUnitSerializer, ManagerRenterSerializer, ManagerChargeHomeCardSerializer,
+
 )
 
 User = get_user_model()
@@ -70,9 +73,7 @@ class LoginView(APIView):
 
     def post(self, request):
 
-        serializer = LoginSerializer(
-            data=request.data
-        )
+        serializer = LoginSerializer(data=request.data)
 
         if not serializer.is_valid():
             return Response(
@@ -84,47 +85,35 @@ class LoginView(APIView):
                 status=status.HTTP_400_BAD_REQUEST
             )
 
-        username = serializer.validated_data['username']
+        # دریافت شماره موبایل به جای username
+        mobile = serializer.validated_data['mobile']
         password = serializer.validated_data['password']
 
-        # =========================================================
-        # مدیر یا ساکن
-        # =========================================================
+        # =====================================================
+        # پیدا کردن مدیر یا ساکن بر اساس شماره موبایل
+        # =====================================================
         user = User.objects.filter(
-            username=username,
+            mobile=mobile,
             is_active=True
         ).filter(
             Q(is_middle_admin=True) |
             Q(is_unit=True)
         ).first()
 
-        if not user:
+        if not user or not check_password(password, user.password):
             return Response(
                 {
                     'success': False,
-                    'message': 'نام کاربری یا رمز عبور اشتباه است.'
+                    'message': 'شماره موبایل یا رمز عبور اشتباه است.'
                 },
                 status=status.HTTP_401_UNAUTHORIZED
             )
 
-        # =========================================================
-        # بررسی رمز
-        # =========================================================
-        if not check_password(
-                password,
-                user.password
-        ):
-            return Response(
-                {
-                    'success': False,
-                    'message': 'نام کاربری یا رمز عبور اشتباه است.'
-                },
-                status=status.HTTP_401_UNAUTHORIZED
-            )
+        # =====================================================
+        # تعیین نوع کاربر و ساختمان
+        # =====================================================
+        house = None
 
-        # =========================================================
-        # تعیین نوع کاربر
-        # =========================================================
         if user.is_middle_admin:
 
             user_type = 'manager'
@@ -146,7 +135,6 @@ class LoginView(APIView):
         elif user.is_unit:
 
             user_type = 'resident'
-
             house = user.house
 
         else:
@@ -159,9 +147,9 @@ class LoginView(APIView):
                 status=status.HTTP_403_FORBIDDEN
             )
 
-        # =========================================================
-        # JWT
-        # =========================================================
+        # =====================================================
+        # تولید JWT
+        # =====================================================
         refresh = RefreshToken.for_user(user)
 
         return Response(
@@ -169,13 +157,8 @@ class LoginView(APIView):
                 'success': True,
                 'message': 'ورود با موفقیت انجام شد.',
 
-                'access': str(
-                    refresh.access_token
-                ),
-
-                'refresh': str(
-                    refresh
-                ),
+                'access': str(refresh.access_token),
+                'refresh': str(refresh),
 
                 'user': {
                     'id': user.id,
@@ -188,17 +171,8 @@ class LoginView(APIView):
                     'is_middle_admin': user.is_middle_admin,
                     'is_unit': user.is_unit,
 
-                    'house_id': (
-                        house.id
-                        if house
-                        else None
-                    ),
-
-                    'house_name': (
-                        house.name
-                        if house
-                        else None
-                    ),
+                    'house_id': house.id if house else None,
+                    'house_name': house.name if house else None,
 
                     'house': (
                         {
@@ -207,8 +181,7 @@ class LoginView(APIView):
                             'subdomain': house.subdomain,
                             'city': house.city,
                         }
-                        if house
-                        else None
+                        if house else None
                     ),
                 }
             },
@@ -10994,10 +10967,6 @@ def get_manager_admin_ticket(user, ticket_id):
         return None
 
 
-# =========================================================
-# ایجاد اعلان
-# =========================================================
-
 def create_middle_admin_notification(
         user,
         ticket,
@@ -11016,10 +10985,6 @@ def create_middle_admin_notification(
         is_read=False,
     )
 
-
-# =========================================================
-# لیست تیکت‌های مدیر
-# =========================================================
 
 class ManagerAdminSupportTicketListView(APIView):
     permission_classes = [
@@ -11074,10 +11039,6 @@ class ManagerAdminSupportTicketListView(APIView):
             }
         )
 
-
-# =========================================================
-# ایجاد تیکت توسط مدیر
-# =========================================================
 
 class ManagerAdminSupportTicketCreateView(APIView):
     permission_classes = [
@@ -11248,10 +11209,6 @@ class ManagerAdminSupportTicketCreateView(APIView):
         )
 
 
-# =========================================================
-# جزئیات تیکت
-# =========================================================
-
 class ManagerAdminSupportTicketDetailView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -11341,10 +11298,6 @@ class ManagerAdminSupportTicketDetailView(APIView):
             'ticket': serializer.data,
         }, status=status.HTTP_200_OK)
 
-
-# =========================================================
-# ارسال پیام مدیر
-# =========================================================
 
 class ManagerAdminSupportTicketMessageView(APIView):
     authentication_classes = [JWTAuthentication]
@@ -11509,10 +11462,6 @@ class ManagerAdminSupportTicketMessageView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-# =========================================================
-# بستن تیکت توسط مدیر
-# =========================================================
-
 class ManagerAdminSupportTicketCloseView(APIView):
     permission_classes = [
         IsAuthenticated,
@@ -11574,10 +11523,6 @@ class ManagerAdminSupportTicketCloseView(APIView):
             }
         )
 
-
-# =========================================================
-# خوانده شده
-# =========================================================
 
 class ManagerAdminSupportTicketReadView(APIView):
     permission_classes = [
@@ -11653,1521 +11598,3779 @@ class ManagerAdminSupportUnreadCountView(APIView):
 
 # ================== Unit Views ========================
 
+# def duplicate_mobile_response(mobile, exclude_user_id=None):
+#     mobile = str(mobile or '').strip()
+#
+#     if not mobile:
+#         return None
+#
+#     users = User.objects.filter(mobile=mobile)
+#
+#     if exclude_user_id is not None:
+#         users = users.exclude(id=exclude_user_id)
+#
+#     if users.exists():
+#         return Response(
+#             {
+#                 'success': False,
+#                 'message': 'این شماره موبایل قبلاً ثبت شده است.',
+#                 'errors': {
+#                     'mobile': [
+#                         'این شماره موبایل قبلاً در حساب کاربری ثبت شده است.'
+#                     ]
+#                 }
+#             },
+#             status=status.HTTP_400_BAD_REQUEST
+#         )
+#
+#     return None
+#
+#
+# def parse_purchase_date(value):
+#     """
+#     دریافت تاریخ شمسی یا میلادی و تبدیل آن به datetime.date میلادی.
+#     ورودی‌های قابل قبول:
+#         1405-07-23
+#         1405/07/23
+#         2026-10-15
+#     """
+#
+#     if value is None or str(value).strip() == "":
+#         return None
+#
+#     value = str(value).strip()
+#     match = re.fullmatch(r"(\d{4})[-/](\d{1,2})[-/](\d{1,2})", value)
+#
+#     if not match:
+#         raise ValueError("قالب تاریخ خرید معتبر نیست.")
+#
+#     year, month, day = map(int, match.groups())
+#
+#     try:
+#         # سال‌های شمسی
+#         if 1200 <= year <= 1500:
+#             return jdatetime.date(
+#                 year, month, day
+#             ).togregorian()
+#
+#         # تاریخ میلادی
+#         return date(year, month, day)
+#
+#     except (ValueError, OverflowError):
+#         raise ValueError("تاریخ خرید معتبر نیست.")
+#
+# class ManagerUnitBaseView(APIView):
+#     authentication_classes = [
+#         JWTAuthentication,
+#     ]
+#
+#     permission_classes = [
+#         IsAuthenticated,
+#     ]
+#
+#     def get_manager_house(self, user):
+#         """
+#         ساختمان مربوط به مدیر سطح میانی را برمی‌گرداند.
+#
+#         در مدل User رابطه ساختمان به صورت ForeignKey
+#         با نام house تعریف شده است.
+#         """
+#
+#         if not user or not user.is_authenticated:
+#             return None
+#
+#         if not user.is_middle_admin:
+#             return None
+#
+#         house = getattr(user, 'house', None)
+#
+#         return house
+#
+#     def get_unit(self, user, unit_id):
+#         """
+#         فقط واحد متعلق به ساختمان همین مدیر
+#         """
+#
+#         house = self.get_manager_house(user)
+#
+#         if not house:
+#             return None
+#
+#         return (
+#             Unit.objects
+#             .filter(
+#                 id=unit_id,
+#                 myhouse=house,
+#             )
+#             .select_related(
+#                 'myhouse',
+#                 'user',
+#             )
+#             .first()
+#         )
+#
+#
+# class ManagerUnitListCreateView(ManagerUnitBaseView):
+#
+#     def get(self, request):
+#         house = self.get_manager_house(request.user)
+#
+#         if not house:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'ساختمان مدیر پیدا نشد.',
+#                 },
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+#
+#         search = request.query_params.get(
+#             'search', ''
+#         ).strip()
+#
+#         resident_type = request.query_params.get(
+#             'resident_type', 'all'
+#         ).strip().lower()
+#
+#         if resident_type not in ['all', 'owner', 'renter']:
+#             resident_type = 'all'
+#
+#         units = (
+#             Unit.objects
+#             .filter(myhouse=house, is_active=True)
+#             .prefetch_related('renters', 'residence_histories')
+#             .order_by('floor_number', 'unit')
+#         )
+#
+#         if resident_type == 'owner':
+#             units = units.filter(
+#                 owner_name__isnull=False
+#             ).exclude(owner_name__exact='')
+#
+#         elif resident_type == 'renter':
+#             renter_unit_ids = [
+#                 item.id
+#                 for item in units
+#                 if item.get_active_renter()
+#             ]
+#             units = units.filter(id__in=renter_unit_ids)
+#
+#         if search:
+#             from django.db.models import Q
+#
+#             units = units.filter(
+#                 Q(unit__icontains=search)
+#                 | Q(owner_name__icontains=search)
+#                 | Q(owner_mobile__icontains=search)
+#             )
+#
+#         serializer = ManagerUnitListSerializer(
+#             units,
+#             many=True
+#         )
+#
+#         return Response({
+#             'success': True,
+#             'count': units.count(),
+#             'results': serializer.data,
+#         })
+#
+#     @transaction.atomic
+#     def post(self, request):
+#         manager = request.user
+#         house = self.get_manager_house(manager)
+#
+#         if not house:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'ساختمان مدیر پیدا نشد.',
+#                 },
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+#
+#         data = request.data
+#
+#         # ==========================================
+#         # 1. شماره واحد
+#         # ==========================================
+#
+#         unit_number = data.get('unit')
+#
+#         if not unit_number:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'شماره واحد الزامی است.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         try:
+#             unit_number = int(unit_number)
+#         except (TypeError, ValueError):
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'شماره واحد نامعتبر است.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         if Unit.objects.filter(
+#             myhouse=house,
+#             unit=unit_number,
+#             is_active=True,
+#         ).exists():
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'این شماره واحد قبلاً ثبت شده است.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         # ==========================================
+#         # 2. اطلاعات مالک
+#         # ==========================================
+#
+#         owner_name = str(
+#             data.get('owner_name', '')
+#         ).strip()
+#
+#         owner_mobile = str(
+#             data.get('owner_mobile', '')
+#         ).strip()
+#
+#         owner_password = str(
+#             data.get('owner_password', '')
+#         ).strip()
+#
+#         if not owner_name:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'نام مالک الزامی است.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         if not owner_mobile:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'شماره همراه مالک الزامی است.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         if (
+#             len(owner_mobile) != 11
+#             or not owner_mobile.isdigit()
+#         ):
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'شماره همراه باید ۱۱ رقم باشد.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         # ==========================================
+#         # 3. بررسی حساب موجود
+#         # قبل از ساخت واحد
+#         # ==========================================
+#
+#         owner_user = User.objects.filter(
+#             mobile=owner_mobile
+#         ).first()
+#
+#         if owner_user:
+#
+#             is_manager_resident = (
+#                 owner_user.pk == manager.pk
+#                 and owner_user.is_resident is True
+#             )
+#
+#             if not is_manager_resident:
+#                 return Response(
+#                     {
+#                         'success': False,
+#                         'message':
+#                             'این شماره موبایل قبلاً در سیستم ثبت شده است.',
+#                         'errors': {
+#                             'owner_mobile': [
+#                                 'این شماره موبایل متعلق به حساب کاربری موجود است.'
+#                             ]
+#                         }
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+#
+#         elif not owner_password:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'برای ایجاد حساب مالک، رمز عبور الزامی است.',
+#                     'errors': {
+#                         'owner_password': [
+#                             'رمز عبور مالک را وارد کنید.'
+#                         ]
+#                     }
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         # ==========================================
+#         # 4. اعتبارسنجی مقادیر عددی
+#         # ==========================================
+#
+#         try:
+#             floor_number = int(
+#                 data.get('floor_number', 0) or 0
+#             )
+#
+#             bedrooms_count = int(
+#                 data.get('bedrooms_count', 0) or 0
+#             )
+#
+#             owner_people_count = int(
+#                 data.get('owner_people_count', 0) or 0
+#             )
+#
+#             area = data.get('area', 0) or 0
+#             area = float(area)
+#
+#             if (
+#                 bedrooms_count < 0
+#                 or owner_people_count < 0
+#                 or area < 0
+#             ):
+#                 raise ValueError
+#
+#         except (TypeError, ValueError):
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'مقادیر عددی واحد معتبر نیستند.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         # ==========================================
+#         # 5. ایجاد یا به‌روزرسانی حساب مالک
+#         # ==========================================
+#
+#         if owner_user is None:
+#
+#             owner_user = User(
+#                 mobile=owner_mobile,
+#                 username=owner_mobile,
+#                 full_name=owner_name,
+#                 house=house,
+#                 is_active=True,
+#                 manager=manager,
+#                 is_unit=True,
+#             )
+#
+#             owner_user.set_password(owner_password)
+#             owner_user.save()
+#
+#         else:
+#             # فقط مدیر ساکن مجاز است از حساب خودش استفاده کند.
+#
+#             owner_user.full_name = owner_name
+#             owner_user.is_active = True
+#             owner_user.is_unit = True
+#             owner_user.house = house
+#
+#             if owner_password:
+#                 owner_user.set_password(owner_password)
+#
+#             owner_user.save()
+#
+#         # ==========================================
+#         # 6. ساخت واحد و اتصال به حساب مالک
+#         # ==========================================
+#
+#         unit = Unit(
+#             user=owner_user,
+#             myhouse=house,
+#             unit=unit_number,
+#             floor_number=floor_number,
+#             area=area,
+#             bedrooms_count=bedrooms_count,
+#             parking_number=data.get('parking_number'),
+#             parking_place=data.get('parking_place'),
+#             extra_parking_first=data.get(
+#                 'extra_parking_first'
+#             ),
+#             extra_parking_second=data.get(
+#                 'extra_parking_second'
+#             ),
+#             unit_phone=data.get('unit_phone'),
+#             unit_details=data.get('unit_details'),
+#             owner_name=owner_name,
+#             owner_mobile=owner_mobile,
+#             owner_national_code=data.get(
+#                 'owner_national_code'
+#             ),
+#             purchase_date=data.get('purchase_date') or None,
+#             owner_people_count=owner_people_count,
+#             owner_details=data.get('owner_details'),
+#             status_residence=data.get('status_residence'),
+#             is_renter=False,
+#             is_active=True,
+#             people_count=owner_people_count,
+#         )
+#
+#         unit.save()
+#
+#         # ==========================================
+#         # 7. پاسخ نهایی
+#         # ==========================================
+#
+#         serializer = ManagerUnitDetailSerializer(unit)
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'message':
+#                     'حساب مالک و واحد با موفقیت ایجاد شدند.',
+#                 'unit': serializer.data,
+#             },
+#             status=status.HTTP_201_CREATED,
+#         )
+#
+#
+# class ManagerUnitDetailView(
+#     ManagerUnitBaseView
+# ):
+#
+#     def get(self, request, unit_id):
+#
+#         unit = self.get_unit(
+#             request.user,
+#             unit_id,
+#         )
+#
+#         if not unit:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'واحد مورد نظر پیدا نشد.',
+#                 },
+#                 status=404,
+#             )
+#
+#         serializer = ManagerUnitDetailSerializer(
+#             unit
+#         )
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'unit': serializer.data,
+#             }
+#         )
+#
+#     # =====================================================
+#     # ویرایش واحد
+#     # =====================================================
+#
+#     @transaction.atomic
+#     def put(self, request, unit_id):
+#
+#         return self._update(
+#             request,
+#             unit_id,
+#             partial=False,
+#         )
+#
+#     @transaction.atomic
+#     def patch(self, request, unit_id):
+#
+#         return self._update(
+#             request,
+#             unit_id,
+#             partial=True,
+#         )
+#
+#     def _update(
+#             self,
+#             request,
+#             unit_id,
+#             partial=False,
+#     ):
+#
+#         unit = self.get_unit(
+#             request.user,
+#             unit_id,
+#         )
+#
+#         if not unit:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'واحد مورد نظر پیدا نشد.',
+#                 },
+#                 status=404,
+#             )
+#
+#         data = request.data
+#
+#         fields = [
+#             'unit',
+#             'floor_number',
+#             'area',
+#             'bedrooms_count',
+#             'parking_number',
+#             'parking_place',
+#             'extra_parking_first',
+#             'extra_parking_second',
+#             'unit_phone',
+#             'unit_details',
+#             'owner_name',
+#             'owner_mobile',
+#             'owner_national_code',
+#             'purchase_date',
+#             'owner_people_count',
+#             'owner_details',
+#             'status_residence',
+#         ]
+#
+#         for field in fields:
+#
+#             if partial and field not in data:
+#                 continue
+#
+#             if field not in data:
+#                 continue
+#
+#             value = data.get(field)
+#
+#             if field in [
+#                 'floor_number',
+#                 'bedrooms_count',
+#                 'owner_people_count',
+#             ]:
+#                 value = int(value or 0)
+#
+#             setattr(
+#                 unit,
+#                 field,
+#                 value,
+#             )
+#
+#         unit.save()
+#
+#         serializer = ManagerUnitDetailSerializer(
+#             unit
+#         )
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'message':
+#                     'اطلاعات واحد با موفقیت ویرایش شد.',
+#                 'unit': serializer.data,
+#             }
+#         )
+#
+#     # =====================================================
+#     # حذف واحد
+#     # =====================================================
+#
+#     @transaction.atomic
+#     def delete(self, request, unit_id):
+#
+#         unit = self.get_unit(
+#             request.user,
+#             unit_id,
+#         )
+#
+#         if not unit:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'واحد مورد نظر پیدا نشد.',
+#                 },
+#                 status=404,
+#             )
+#
+#         # فعلاً حذف فیزیکی نمی‌کنیم.
+#         # چون واحد ممکن است سابقه شارژ و امور مالی داشته باشد.
+#
+#         unit.is_active = False
+#         unit.save(
+#             update_fields=[
+#                 'is_active',
+#             ]
+#         )
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'message':
+#                     'واحد با موفقیت غیرفعال شد.',
+#             }
+#         )
+#
+#
+# class ManagerUnitAddRenterView(ManagerUnitBaseView):
+#
+#     @transaction.atomic
+#     def post(self, request, unit_id):
+#
+#         manager = request.user
+#
+#         unit = self.get_unit(
+#             manager,
+#             unit_id,
+#         )
+#
+#         if not unit:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'واحد مورد نظر پیدا نشد.',
+#                 },
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+#
+#         data = request.data
+#
+#         # ==========================================
+#         # 1. دریافت اطلاعات مستأجر
+#         # ==========================================
+#
+#         name = str(
+#             data.get('renter_name', '')
+#         ).strip()
+#
+#         mobile = str(
+#             data.get('renter_mobile', '')
+#         ).strip()
+#
+#         password = str(
+#             data.get('password', '')
+#         ).strip()
+#
+#         if not name:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'نام مستأجر الزامی است.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         if not mobile:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'شماره همراه مستأجر الزامی است.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         if len(mobile) != 11 or not mobile.isdigit():
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'شماره همراه باید ۱۱ رقم باشد.',
+#                     'errors': {
+#                         'renter_mobile': [
+#                             'شماره همراه معتبر نیست.'
+#                         ]
+#                     }
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         # ==========================================
+#         # 2. بررسی شماره موبایل در حساب‌های کاربری
+#         # قبل از هرگونه تغییر در مستأجر قبلی
+#         # ==========================================
+#
+#         renter_user = User.objects.filter(
+#             mobile=mobile
+#         ).first()
+#
+#         if renter_user:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'این شماره موبایل قبلاً در سیستم ثبت شده است.',
+#                     'errors': {
+#                         'renter_mobile': [
+#                             'این شماره متعلق به یک حساب کاربری موجود است.'
+#                         ]
+#                     }
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         # ==========================================
+#         # 3. بررسی رمز عبور مستأجر جدید
+#         # ==========================================
+#
+#         if not password:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'برای ایجاد حساب مستأجر، رمز عبور الزامی است.',
+#                     'errors': {
+#                         'password': [
+#                             'رمز عبور مستأجر را وارد کنید.'
+#                         ]
+#                     }
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         # ==========================================
+#         # 4. اعتبارسنجی تعداد افراد
+#         # ==========================================
+#
+#         try:
+#             people_count = int(
+#                 data.get('renter_people_count', 0) or 0
+#             )
+#
+#             if people_count < 0:
+#                 raise ValueError
+#
+#         except (TypeError, ValueError):
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'تعداد افراد مستأجر معتبر نیست.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         today = timezone.now().date()
+#
+#         start_date = data.get('start_date') or today
+#         end_date = data.get('end_date') or None
+#
+#         # ==========================================
+#         # 5. ایجاد حساب کاربری مستأجر
+#         # ==========================================
+#
+#         renter_user = User(
+#             mobile=mobile,
+#             username=mobile,
+#             full_name=name,
+#             house=unit.myhouse,
+#             is_active=True,
+#             manager=manager,
+#             is_unit=True,
+#         )
+#
+#         renter_user.set_password(password)
+#         renter_user.save()
+#
+#         # ==========================================
+#         # 6. یافتن مستأجر فعال قبلی
+#         # ==========================================
+#
+#         active_renter = unit.get_active_renter()
+#
+#         # ==========================================
+#         # 7. خاتمه مستأجر قبلی
+#         # ==========================================
+#
+#         if active_renter:
+#
+#             active_renter.renter_is_active = False
+#
+#             if not active_renter.end_date:
+#                 active_renter.end_date = today
+#
+#             active_renter.save(
+#                 update_fields=[
+#                     'renter_is_active',
+#                     'end_date',
+#                 ]
+#             )
+#
+#             UnitResidenceHistory.objects.filter(
+#                 unit=unit,
+#                 resident_type='renter',
+#                 renter=active_renter,
+#                 to_date__isnull=True,
+#             ).update(
+#                 to_date=today
+#             )
+#
+#         # ==========================================
+#         # 8. ایجاد رکورد مستأجر
+#         # اتصال به حساب خود مستأجر
+#         # ==========================================
+#
+#         renter = Renter.objects.create(
+#             unit=unit,
+#             myhouse=unit.myhouse,
+#             user=renter_user,
+#             renter_name=name,
+#             renter_mobile=mobile,
+#             renter_national_code=data.get(
+#                 'renter_national_code'
+#             ),
+#             renter_people_count=people_count,
+#             start_date=start_date,
+#             end_date=end_date,
+#             contract_number=data.get(
+#                 'contract_number'
+#             ),
+#             estate_name=data.get(
+#                 'estate_name'
+#             ),
+#             renter_details=data.get(
+#                 'renter_details'
+#             ),
+#             renter_is_active=True,
+#         )
+#
+#         # ==========================================
+#         # 9. به‌روزرسانی اطلاعات واحد
+#         # ==========================================
+#
+#         unit.is_renter = True
+#         unit.people_count = people_count
+#
+#         unit.save(
+#             update_fields=[
+#                 'is_renter',
+#                 'people_count',
+#             ]
+#         )
+#
+#         # ==========================================
+#         # 10. ایجاد سابقه سکونت
+#         # ==========================================
+#
+#         history_exists = UnitResidenceHistory.objects.filter(
+#             unit=unit,
+#             resident_type='renter',
+#             renter=renter,
+#             to_date__isnull=True,
+#         ).exists()
+#
+#         if not history_exists:
+#
+#             UnitResidenceHistory.objects.create(
+#                 unit=unit,
+#                 resident_type='renter',
+#                 renter=renter,
+#                 name=renter.renter_name or '',
+#                 mobile=renter.renter_mobile or '',
+#                 people_count=people_count,
+#                 from_date=renter.start_date or today,
+#                 to_date=renter.end_date,
+#                 changed_by=manager,
+#             )
+#
+#         # ==========================================
+#         # 11. پاسخ موفقیت
+#         # ==========================================
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'message':
+#                     'حساب کاربری و مستأجر با موفقیت ثبت شدند.',
+#                 'renter': {
+#                     'id': renter.id,
+#                     'name': renter.renter_name,
+#                     'mobile': renter.renter_mobile,
+#                     'user_id': renter_user.id,
+#                 },
+#             },
+#             status=status.HTTP_201_CREATED,
+#         )
+#
+#
+# class ManagerRenterDetailView(
+#     ManagerUnitBaseView
+# ):
+#
+#     def get_renter(
+#             self,
+#             request,
+#             unit_id,
+#             renter_id,
+#     ):
+#
+#         unit = self.get_unit(
+#             request.user,
+#             unit_id,
+#         )
+#
+#         if not unit:
+#             return None, None
+#
+#         renter = (
+#             Renter.objects
+#             .filter(
+#                 id=renter_id,
+#                 unit=unit,
+#                 myhouse=unit.myhouse,
+#             )
+#             .first()
+#         )
+#
+#         return unit, renter
+#
+#     @transaction.atomic
+#     def patch(
+#             self,
+#             request,
+#             unit_id,
+#             renter_id,
+#     ):
+#
+#         unit, renter = self.get_renter(
+#             request,
+#             unit_id,
+#             renter_id,
+#         )
+#
+#         if not renter:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'مستأجر مورد نظر پیدا نشد.',
+#                 },
+#                 status=404,
+#             )
+#
+#         data = request.data
+#
+#         fields = [
+#             'renter_name',
+#             'renter_mobile',
+#             'renter_national_code',
+#             'renter_people_count',
+#             'start_date',
+#             'end_date',
+#             'contract_number',
+#             'estate_name',
+#             'renter_details',
+#         ]
+#
+#         for field in fields:
+#
+#             if field in data:
+#                 setattr(
+#                     renter,
+#                     field,
+#                     data.get(field)
+#                 )
+#
+#         renter.save()
+#
+#         # اگر مستأجر فعال است، اطلاعات
+#         # سابقه فعال نیز به‌روزرسانی شود.
+#
+#         history = (
+#             UnitResidenceHistory.objects
+#             .filter(
+#                 unit=unit,
+#                 renter=renter,
+#                 resident_type='renter',
+#                 to_date__isnull=True,
+#             )
+#             .first()
+#         )
+#
+#         if history:
+#             history.name = (
+#                     renter.renter_name or ''
+#             )
+#
+#             history.mobile = (
+#                     renter.renter_mobile or ''
+#             )
+#
+#             history.people_count = int(
+#                 renter.renter_people_count or 0
+#             )
+#
+#             history.from_date = (
+#                     renter.start_date
+#                     or history.from_date
+#             )
+#
+#             history.save(
+#                 update_fields=[
+#                     'name',
+#                     'mobile',
+#                     'people_count',
+#                     'from_date',
+#                 ]
+#             )
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'message':
+#                     'اطلاعات مستأجر ویرایش شد.',
+#             }
+#         )
+#
+#     # =====================================================
+#     # حذف / خاتمه مستأجر
+#     # =====================================================
+#
+#     @transaction.atomic
+#     def delete(
+#             self,
+#             request,
+#             unit_id,
+#             renter_id,
+#     ):
+#
+#         unit, renter = self.get_renter(
+#             request,
+#             unit_id,
+#             renter_id,
+#         )
+#
+#         if not renter:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'مستأجر مورد نظر پیدا نشد.',
+#                 },
+#                 status=404,
+#             )
+#
+#         today = timezone.now().date()
+#
+#         renter.renter_is_active = False
+#
+#         if not renter.end_date:
+#             renter.end_date = today
+#
+#         renter.save(
+#             update_fields=[
+#                 'renter_is_active',
+#                 'end_date',
+#             ]
+#         )
+#
+#         UnitResidenceHistory.objects.filter(
+#             unit=unit,
+#             renter=renter,
+#             resident_type='renter',
+#             to_date__isnull=True,
+#         ).update(
+#             to_date=today
+#         )
+#
+#         # آیا هنوز مستأجر فعال دیگری وجود دارد؟
+#
+#         has_active_renter = Renter.objects.filter(
+#             unit=unit,
+#             renter_is_active=True,
+#         ).exists()
+#
+#         unit.is_renter = has_active_renter
+#         unit.save()
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'message':
+#                     'مستأجر با موفقیت حذف شد.',
+#             }
+#         )
+#
+#
+#
+# class ManagerUnitRemoveOwnerView(ManagerUnitBaseView):
+#
+#     # --------------------------------------------------
+#     # پاسخ خطا
+#     # --------------------------------------------------
+#     def _error(self, message, status_code=status.HTTP_400_BAD_REQUEST):
+#         return Response(
+#             {
+#                 'success': False,
+#                 'message': message,
+#             },
+#             status=status_code,
+#         )
+#
+#     # --------------------------------------------------
+#     # پاک‌سازی موبایل
+#     # --------------------------------------------------
+#     def _clean_mobile(self, value):
+#         value = str(value or '').strip()
+#
+#         persian_digits = '۰۱۲۳۴۵۶۷۸۹'
+#         arabic_digits = '٠١٢٣٤٥٦٧٨٩'
+#
+#         for index, digit in enumerate(persian_digits):
+#             value = value.replace(digit, str(index))
+#
+#         for index, digit in enumerate(arabic_digits):
+#             value = value.replace(digit, str(index))
+#
+#         return value.replace(' ', '').replace('-', '')
+#
+#     # --------------------------------------------------
+#     # دریافت واحد متعلق به ساختمان مدیر
+#     # واحد غیرفعال هم باید قابل بازیابی باشد
+#     # --------------------------------------------------
+#     def _get_unit(self, request, unit_id):
+#         unit = self.get_unit(request.user, unit_id)
+#
+#         if unit is None:
+#             return None, self._error(
+#                 'واحد موردنظر پیدا نشد یا دسترسی به آن ندارید.',
+#                 status.HTTP_404_NOT_FOUND,
+#             )
+#
+#         return unit, None
+#
+#     # --------------------------------------------------
+#     # دریافت اطلاعات مالک
+#     # --------------------------------------------------
+#     def get(self, request, unit_id, *args, **kwargs):
+#         unit, error = self._get_unit(request, unit_id)
+#
+#         if error:
+#             return error
+#
+#         owner_user = unit.user
+#
+#         return Response({
+#             'success': True,
+#             'unit_id': unit.id,
+#             'is_active': unit.is_active,
+#             'owner': {
+#                 'id': owner_user.pk if owner_user else None,
+#                 'name': unit.owner_name or (
+#                     owner_user.full_name if owner_user else ''
+#                 ),
+#                 'mobile': unit.owner_mobile or (
+#                     owner_user.mobile if owner_user else ''
+#                 ),
+#                 'national_code': unit.owner_national_code or '',
+#                 'purchase_date': (
+#                     unit.purchase_date.isoformat()
+#                     if unit.purchase_date else None
+#                 ),
+#                 'people_count': unit.owner_people_count or 0,
+#                 'details': unit.owner_details or '',
+#             },
+#         })
+#
+#     # --------------------------------------------------
+#     # ثبت اطلاعات مالک
+#     #
+#     # چون Unit.user اجباری است، این endpoint حساب
+#     # جدیدی را کورکورانه به واحد وصل نمی‌کند.
+#     # اگر واحد حساب موجود دارد، شماره موبایل باید
+#     # متعلق به همان حساب باشد.
+#     # --------------------------------------------------
+#     @transaction.atomic
+#     def post(self, request, unit_id, *args, **kwargs):
+#         unit, error = self._get_unit(request, unit_id)
+#
+#         if error:
+#             return error
+#
+#         owner_user = unit.user
+#
+#         owner_name = str(
+#             request.data.get('owner_name', '')
+#         ).strip()
+#
+#         owner_mobile = self._clean_mobile(
+#             request.data.get('owner_mobile', '')
+#         )
+#
+#         if not owner_name:
+#             return self._error('نام مالک الزامی است.')
+#
+#         if len(owner_mobile) != 11 or not owner_mobile.isdigit():
+#             return self._error(
+#                 'شماره موبایل باید ۱۱ رقم باشد.'
+#             )
+#
+#         # جلوگیری از جایگزینی تصادفی حساب مالک
+#         if not owner_user or owner_user.mobile != owner_mobile:
+#             return self._error(
+#                 'این واحد به یک حساب کاربری متصل است. '
+#                 'برای تعویض مالک از بخش تغییر مالک استفاده کنید.'
+#             )
+#
+#         # ثبت یا تکمیل اطلاعات مالک فعلی
+#         return self._save_owner_data(
+#             request=request,
+#             unit=unit,
+#             owner_user=owner_user,
+#         )
+#
+#     # --------------------------------------------------
+#     # ویرایش مالک و فعال/غیرفعال کردن واحد
+#     # --------------------------------------------------
+#     @transaction.atomic
+#     def patch(self, request, unit_id, *args, **kwargs):
+#         unit, error = self._get_unit(request, unit_id)
+#
+#         if error:
+#             return error
+#
+#         owner_user = unit.user
+#
+#         return self._save_owner_data(
+#             request=request,
+#             unit=unit,
+#             owner_user=owner_user,
+#         )
+#
+#     # --------------------------------------------------
+#     # ذخیره هماهنگ اطلاعات مالک و واحد
+#     # --------------------------------------------------
+#     def _save_owner_data(self, request, unit, owner_user):
+#         data = request.data
+#
+#         owner_name = str(
+#             data.get('owner_name', unit.owner_name or '')
+#         ).strip()
+#
+#         owner_mobile = self._clean_mobile(
+#             data.get('owner_mobile', unit.owner_mobile or '')
+#         )
+#
+#         if not owner_name:
+#             return self._error('نام مالک الزامی است.')
+#
+#         if len(owner_mobile) != 11 or not owner_mobile.isdigit():
+#             return self._error(
+#                 'شماره موبایل باید ۱۱ رقم باشد.'
+#             )
+#
+#         # واحد طبق مدل شما باید به User متصل باشد.
+#         if owner_user is None:
+#             return self._error(
+#                 'حساب مالک این واحد مشخص نیست. '
+#                 'لطفاً ابتدا ارتباط حساب مالک و واحد را بررسی کنید.',
+#                 status.HTTP_409_CONFLICT,
+#             )
+#
+#         # موبایل نباید متعلق به کاربر دیگری باشد.
+#         if User.objects.filter(
+#             mobile=owner_mobile
+#         ).exclude(
+#             pk=owner_user.pk
+#         ).exists():
+#             return self._error(
+#                 'این شماره موبایل قبلاً در حساب کاربری دیگری ثبت شده است.'
+#             )
+#
+#         # اعتبارسنجی تعداد افراد، اگر ارسال شده باشد.
+#         people_count = unit.owner_people_count or 0
+#
+#         if 'owner_people_count' in data:
+#             try:
+#                 people_count = int(
+#                     data.get('owner_people_count') or 0
+#                 )
+#                 if people_count < 0:
+#                     raise ValueError
+#             except (TypeError, ValueError):
+#                 return self._error(
+#                     'تعداد افراد مالک باید عددی نامنفی باشد.'
+#                 )
+#
+#         password = str(data.get('owner_password') or '')
+#         password_confirm = str(
+#             data.get('owner_password_confirm') or ''
+#         )
+#
+#         if password or password_confirm:
+#             if password != password_confirm:
+#                 return self._error(
+#                     'رمز عبور و تکرار آن یکسان نیستند.'
+#                 )
+#
+#             if len(password) < 6:
+#                 return self._error(
+#                     'رمز عبور باید حداقل ۶ کاراکتر باشد.'
+#                 )
+#
+#         # وضعیت واحد
+#         is_active = unit.is_active
+#
+#         if 'is_active' in data:
+#             raw_active = data.get('is_active')
+#
+#             if isinstance(raw_active, bool):
+#                 is_active = raw_active
+#             elif str(raw_active).lower() in ('true', '1', 'yes'):
+#                 is_active = True
+#             elif str(raw_active).lower() in ('false', '0', 'no'):
+#                 is_active = False
+#             else:
+#                 return self._error(
+#                     'وضعیت فعال بودن واحد نامعتبر است.'
+#                 )
+#
+#         # تاریخ خرید:
+#         # فعلاً فقط وقتی تاریخ ارسال شده است آن را بررسی می‌کنیم.
+#         # تاریخ شمسی باید پیش از ذخیره به تاریخ میلادی تبدیل شود.
+#         purchase_date = unit.purchase_date
+#
+#         if 'purchase_date' in data:
+#             try:
+#                 purchase_date = parse_purchase_date(
+#                     data.get('purchase_date')
+#                 )
+#             except ValueError as exc:
+#                 return self._error(str(exc))
+#
+#         # --------------------------------------------------
+#         # به‌روزرسانی حساب کاربری
+#         # --------------------------------------------------
+#         owner_user.full_name = owner_name
+#         owner_user.mobile = owner_mobile
+#
+#         old_mobile = str(owner_user.username or '').strip()
+#
+#         if old_mobile == str(unit.owner_mobile or '').strip():
+#             if User.objects.filter(
+#                 username=owner_mobile
+#             ).exclude(
+#                 pk=owner_user.pk
+#             ).exists():
+#                 return self._error(
+#                     'این نام کاربری قبلاً ثبت شده است.'
+#                 )
+#
+#             owner_user.username = owner_mobile
+#
+#         if password:
+#             owner_user.set_password(password)
+#
+#         owner_user.save()
+#
+#         # --------------------------------------------------
+#         # به‌روزرسانی فیلدهای مالک و وضعیت واحد
+#         # --------------------------------------------------
+#         unit.owner_name = owner_name
+#         unit.owner_mobile = owner_mobile
+#         unit.is_active = is_active
+#         unit.owner_people_count = people_count
+#
+#         if 'owner_national_code' in data:
+#             unit.owner_national_code = (
+#                 str(data.get('owner_national_code') or '').strip()
+#                 or None
+#             )
+#
+#         if 'owner_details' in data:
+#             unit.owner_details = (
+#                 data.get('owner_details') or ''
+#             )
+#
+#         if 'purchase_date' in data:
+#             unit.purchase_date = purchase_date
+#
+#         unit.save()
+#
+#         serializer = ManagerUnitDetailSerializer(unit)
+#
+#         return Response({
+#             'success': True,
+#             'message': (
+#                 'اطلاعات مالک و وضعیت واحد با موفقیت ذخیره شد.'
+#             ),
+#             'is_active': unit.is_active,
+#             'owner': {
+#                 'id': owner_user.pk,
+#                 'name': unit.owner_name,
+#                 'mobile': unit.owner_mobile,
+#                 'national_code': unit.owner_national_code or '',
+#                 'purchase_date': (
+#                     unit.purchase_date.isoformat()
+#                     if unit.purchase_date else None
+#                 ),
+#                 'people_count': unit.owner_people_count or 0,
+#                 'details': unit.owner_details or '',
+#             },
+#             'unit': serializer.data,
+#         })
+#
+#     # --------------------------------------------------
+#     # غیرفعال کردن واحد؛ بدون حذف حساب مالک
+#     # --------------------------------------------------
+#     @transaction.atomic
+#     def delete(self, request, unit_id, *args, **kwargs):
+#         unit, error = self._get_unit(request, unit_id)
+#
+#         if error:
+#             return error
+#
+#         if not unit.is_active:
+#             return Response({
+#                 'success': True,
+#                 'message': 'واحد قبلاً غیرفعال شده است.',
+#                 'is_active': False,
+#             })
+#
+#         unit.is_active = False
+#         unit.save()
+#
+#         return Response({
+#             'success': True,
+#             'message': 'واحد غیرفعال شد؛ اطلاعات مالک حفظ شده است.',
+#             'is_active': False,
+#         })
+#
+#
+# class ManagerUnitResidenceHistoryView(
+#     ManagerUnitBaseView
+# ):
+#
+#     def get(
+#             self,
+#             request,
+#             unit_id,
+#     ):
+#
+#         unit = self.get_unit(
+#             request.user,
+#             unit_id,
+#         )
+#
+#         if not unit:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message':
+#                         'واحد مورد نظر پیدا نشد.',
+#                 },
+#                 status=404,
+#             )
+#
+#         histories = (
+#             UnitResidenceHistory.objects
+#             .filter(unit=unit)
+#             .select_related(
+#                 'renter',
+#                 'changed_by',
+#             )
+#             .order_by(
+#                 '-from_date',
+#                 '-id',
+#             )
+#         )
+#
+#         results = []
+#
+#         for history in histories:
+#             results.append(
+#                 {
+#                     'id': history.id,
+#
+#                     'resident_type':
+#                         history.resident_type,
+#
+#                     'resident_type_display':
+#                         history.get_resident_type_display(),
+#
+#                     'name':
+#                         history.name or '',
+#
+#                     'mobile':
+#                         history.mobile or '',
+#
+#                     'people_count':
+#                         history.people_count or 0,
+#
+#                     'from_date':
+#                         (
+#                             history.from_date.isoformat()
+#                             if history.from_date
+#                             else None
+#                         ),
+#
+#                     'to_date':
+#                         (
+#                             history.to_date.isoformat()
+#                             if history.to_date
+#                             else None
+#                         ),
+#
+#                     'is_active':
+#                         history.to_date is None,
+#                 }
+#             )
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'unit_id': unit.id,
+#                 'unit_number': unit.unit,
+#                 'results': results,
+#             }
+#         )
+#
+#
+# class ManagerUnitChangeOwnerView(ManagerUnitBaseView):
+#
+#     @transaction.atomic
+#     def post(self, request, unit_id):
+#
+#         manager = request.user
+#         data = request.data
+#
+#         # =====================================================
+#         # 1. پیدا کردن واحد متعلق به ساختمان مدیر
+#         # =====================================================
+#
+#         unit = self.get_unit(manager, unit_id)
+#
+#         if not unit:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'واحد مورد نظر پیدا نشد.',
+#                 },
+#                 status=status.HTTP_404_NOT_FOUND,
+#             )
+#
+#         # قفل رکورد برای جلوگیری از تغییر هم‌زمان
+#         unit = Unit.objects.select_for_update().get(pk=unit.pk)
+#
+#         # =====================================================
+#         # 2. دریافت مالک فعلی
+#         # =====================================================
+#
+#         current_owner = unit.user
+#
+#         owner_name = str(
+#             data.get('owner_name', '')
+#         ).strip()
+#
+#         owner_mobile = str(
+#             data.get('owner_mobile', '')
+#         ).strip()
+#
+#         owner_national_code = data.get('owner_national_code')
+#         owner_details = data.get('owner_details')
+#
+#         owner_national_code = data.get('owner_national_code')
+#         owner_details = data.get('owner_details')
+#
+#         # تبدیل تاریخ شمسی دریافتی از Flutter به میلادی
+#         purchase_date = None
+#
+#         if 'purchase_date' in data:
+#             try:
+#                 purchase_date = parse_purchase_date(
+#                     data.get('purchase_date')
+#                 )
+#             except ValueError as exc:
+#                 return Response(
+#                     {
+#                         'success': False,
+#                         'message': str(exc),
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+#         else:
+#             # اگر تاریخ ارسال نشده، تاریخ قبلی حفظ شود.
+#             purchase_date = unit.purchase_date
+#
+#         password = str(
+#             data.get('owner_password', '')
+#         ).strip()
+#
+#         # =====================================================
+#         # 3. اعتبارسنجی اطلاعات
+#         # =====================================================
+#
+#         if not owner_name:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'نام مالک الزامی است.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         if (
+#             len(owner_mobile) != 11
+#             or not owner_mobile.isdigit()
+#         ):
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'شماره همراه باید ۱۱ رقم باشد.',
+#                     'errors': {
+#                         'owner_mobile': [
+#                             'شماره همراه باید ۱۱ رقم باشد.'
+#                         ]
+#                     }
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         try:
+#             owner_people_count = int(
+#                 data.get('owner_people_count', 0) or 0
+#             )
+#
+#             if owner_people_count < 0:
+#                 raise ValueError
+#
+#         except (TypeError, ValueError):
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'تعداد افراد مالک معتبر نیست.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         house = unit.myhouse
+#
+#         if not house:
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': 'ساختمان این واحد مشخص نیست.',
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         today = timezone.localdate()
+#
+#         # =====================================================
+#         # 4. تشخیص ویرایش مالک فعلی یا تعویض مالک
+#         # =====================================================
+#
+#         same_owner = (
+#             current_owner is not None
+#             and str(current_owner.mobile) == owner_mobile
+#         )
+#
+#         # شماره مدیر برای ساخت حساب مالک جدید قابل استفاده نیست.
+#         # اگر مدیر خودش مالک فعلی همین واحد باشد، حساب او
+#         # از طریق این فرم تغییر داده نخواهد شد.
+#
+#         if (
+#             owner_mobile == str(manager.mobile)
+#             and not (
+#                 current_owner
+#                 and current_owner.pk == manager.pk
+#                 and same_owner
+#             )
+#         ):
+#             return Response(
+#                 {
+#                     'success': False,
+#                     'message': (
+#                         'شماره موبایل مدیر ساختمان را نمی‌توان '
+#                         'برای مالک جدید استفاده کرد.'
+#                     ),
+#                     'errors': {
+#                         'owner_mobile': [
+#                             'شماره موبایل دیگری وارد کنید.'
+#                         ]
+#                     }
+#                 },
+#                 status=status.HTTP_400_BAD_REQUEST,
+#             )
+#
+#         # =====================================================
+#         # 5. ویرایش همان مالک یا ساخت حساب جدید
+#         # =====================================================
+#
+#         if same_owner:
+#
+#             # همان حساب قبلی؛ حساب مدیر را تغییر نده.
+#             owner_user = current_owner
+#
+#             if owner_user.pk != manager.pk:
+#                 owner_user.full_name = owner_name
+#                 owner_user.house = house
+#                 owner_user.is_active = True
+#                 owner_user.is_unit = True
+#
+#                 if password:
+#                     owner_user.set_password(password)
+#
+#                 owner_user.save(
+#                     update_fields=[
+#                         'full_name',
+#                         'house',
+#                         'is_active',
+#                         'is_unit',
+#                         *(['password'] if password else []),
+#                     ]
+#                 )
+#
+#         else:
+#
+#             # شماره جدید باید در سیستم آزاد باشد.
+#             existing_user = (
+#                 User.objects.select_for_update()
+#                 .filter(mobile=owner_mobile)
+#                 .first()
+#             )
+#
+#             if existing_user:
+#                 return Response(
+#                     {
+#                         'success': False,
+#                         'message': (
+#                             'این شماره موبایل قبلاً در سیستم '
+#                             'ثبت شده است. برای مالک جدید '
+#                             'شماره ثبت‌نشده وارد کنید.'
+#                         ),
+#                         'errors': {
+#                             'owner_mobile': [
+#                                 'این شماره متعلق به حساب دیگری است.'
+#                             ]
+#                         }
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+#
+#             if not password:
+#                 return Response(
+#                     {
+#                         'success': False,
+#                         'message': (
+#                             'برای ایجاد حساب مالک جدید، '
+#                             'رمز عبور الزامی است.'
+#                         ),
+#                         'errors': {
+#                             'owner_password': [
+#                                 'رمز عبور مالک جدید الزامی است.'
+#                             ]
+#                         }
+#                     },
+#                     status=status.HTTP_400_BAD_REQUEST,
+#                 )
+#
+#             # ساخت حساب مستقل برای مالک جدید
+#             owner_user = User(
+#                 mobile=owner_mobile,
+#                 username=owner_mobile,
+#                 full_name=owner_name,
+#                 house=house,
+#                 is_active=True,
+#                 manager=manager,
+#                 is_unit=True,
+#             )
+#
+#             owner_user.set_password(password)
+#             owner_user.save()
+#
+#         # =====================================================
+#         # 6. بستن سابقه مالک قبلی در صورت تعویض مالک
+#         # =====================================================
+#
+#         if not same_owner:
+#
+#             UnitResidenceHistory.objects.filter(
+#                 unit=unit,
+#                 resident_type='owner',
+#                 to_date__isnull=True,
+#             ).update(
+#                 to_date=today,
+#             )
+#
+#         # =====================================================
+#         # 7. ذخیره اطلاعات مالک فعلی واحد
+#         # =====================================================
+#
+#         unit.owner_name = owner_name
+#         unit.owner_mobile = owner_mobile
+#         unit.owner_national_code = owner_national_code
+#         unit.owner_people_count = owner_people_count
+#         unit.owner_details = owner_details
+#         unit.user = owner_user
+#
+#         unit.purchase_date = purchase_date
+#
+#         unit.save()
+#
+#         # =====================================================
+#         # 8. ثبت یا تکمیل سابقه مالک جدید
+#         # =====================================================
+#
+#         active_history = (
+#             UnitResidenceHistory.objects
+#             .filter(
+#                 unit=unit,
+#                 resident_type='owner',
+#                 to_date__isnull=True,
+#             )
+#             .order_by('-id')
+#             .first()
+#         )
+#
+#         if active_history:
+#
+#             # اگر Unit.save خودش سابقه ساخته باشد، همان را
+#             # تکمیل می‌کنیم تا سابقه تکراری ایجاد نشود.
+#             active_history.name = owner_name
+#             active_history.mobile = owner_mobile
+#             active_history.people_count = owner_people_count
+#             active_history.changed_by = manager
+#
+#             active_history.save(
+#                 update_fields=[
+#                     'name',
+#                     'mobile',
+#                     'people_count',
+#                     'changed_by',
+#                 ]
+#             )
+#
+#         else:
+#
+#             UnitResidenceHistory.objects.create(
+#                 unit=unit,
+#                 resident_type='owner',
+#                 name=owner_name,
+#                 mobile=owner_mobile,
+#                 people_count=owner_people_count,
+#                 from_date=today,
+#                 changed_by=manager,
+#             )
+#
+#         # =====================================================
+#         # 9. پاسخ نهایی
+#         # =====================================================
+#
+#         serializer = ManagerUnitDetailSerializer(unit)
+#
+#         return Response(
+#             {
+#                 'success': True,
+#                 'message': (
+#                     'اطلاعات مالک با موفقیت ویرایش شد.'
+#                     if same_owner
+#                     else 'مالک جدید و حساب کاربری او با موفقیت ثبت شدند.'
+#                 ),
+#                 'owner_changed': not same_owner,
+#                 'owner_user_id': owner_user.pk,
+#                 'unit': serializer.data,
+#             },
+#             status=status.HTTP_200_OK,
+#         )
+#
+#
+logger = logging.getLogger(__name__)
+
+
 class ManagerUnitBaseView(APIView):
-    authentication_classes = [
-        JWTAuthentication,
-    ]
+    permission_classes = [IsAuthenticated]
 
-    permission_classes = [
-        IsAuthenticated,
-    ]
+    def error(self, message, status_code=status.HTTP_400_BAD_REQUEST):
+        return Response(
+            {
+                'success': False,
+                'message': message,
+                'data': None,
+            },
+            status=status_code,
+        )
 
-    def get_manager_house(self, user):
-        """
-        ساختمان مربوط به مدیر سطح میانی را برمی‌گرداند.
+    def success(
+            self,
+            message,
+            data=None,
+            status_code=status.HTTP_200_OK,
+    ):
+        return Response(
+            {
+                'success': True,
+                'message': message,
+                'data': data,
+            },
+            status=status_code,
+        )
 
-        در مدل User رابطه ساختمان به صورت ForeignKey
-        با نام house تعریف شده است.
-        """
-
-        if not user or not user.is_authenticated:
+    def get_house(self, request):
+        if not request.user.is_middle_admin:
             return None
 
-        if not user.is_middle_admin:
-            return None
+        return MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
 
-        house = getattr(user, 'house', None)
+    def get_unit(self, request, unit_id):
+        house = self.get_house(request)
 
-        return house
+        if house is None:
+            return None, None
 
-    def get_unit(self, user, unit_id):
+        unit = Unit.objects.filter(
+            pk=unit_id,
+            myhouse=house,
+        ).select_related(
+            'user',
+            'myhouse',
+        ).first()
+
+        return house, unit
+
+    def get_manager_owner_user(
+            self,
+            request,
+            mobile,
+            full_name,
+            house,
+            current_owner=None,
+    ):
         """
-        فقط واحد متعلق به ساختمان همین مدیر
+        پیدا کردن حساب مالک یا ایجاد حساب جدید.
+        حساب شخص دیگری نباید بازنویسی شود.
         """
 
-        house = self.get_manager_house(user)
+        owner_user = User.objects.filter(
+            mobile=mobile,
+        ).first()
 
-        if not house:
-            return None
-
-        return (
-            Unit.objects
-            .filter(
-                id=unit_id,
-                myhouse=house,
+        if owner_user:
+            is_current_owner = (
+                    current_owner is not None
+                    and owner_user.pk == current_owner.pk
             )
-            .select_related(
-                'myhouse',
-                'user',
+
+            is_manager_resident = (
+                    owner_user.pk == request.user.pk
+                    and owner_user.is_resident
             )
-            .first()
+
+            if not is_current_owner and not is_manager_resident:
+                raise ValueError(
+                    'این شماره موبایل قبلاً به کاربر دیگری تعلق دارد.'
+                )
+
+            owner_user.full_name = full_name
+            owner_user.is_active = True
+            owner_user.is_unit = True
+            owner_user.house = house
+
+            if owner_user.pk != request.user.pk:
+                owner_user.manager = request.user
+
+            owner_user.save(
+                update_fields=[
+                    'full_name',
+                    'is_active',
+                    'is_unit',
+                    'house',
+                    'manager',
+                ]
+            )
+
+            return owner_user
+
+        return User.objects.create(
+            mobile=mobile,
+            username=mobile,
+            full_name=full_name,
+            house=house,
+            manager=request.user,
+            is_active=True,
+            is_unit=True,
+        )
+
+    @staticmethod
+    def set_password_if_provided(user, password):
+        if password:
+            user.set_password(password)
+            user.save(update_fields=['password'])
+
+    @staticmethod
+    def unit_data(unit):
+        # دریافت مستأجر فعال این واحد
+        active_renter = unit.renters.filter(
+            renter_is_active=True
+        ).order_by('-id').first()
+
+        # دریافت سوابق مستأجران
+        renters = unit.renters.all().order_by('-id')
+
+        return {
+            'id': unit.pk,
+            'unit': unit.unit,
+            'is_active': unit.is_active,
+            'floor_number': unit.floor_number,
+            'area': str(unit.area or 0),
+            'bedrooms_count': unit.bedrooms_count,
+            'unit_phone': unit.unit_phone,
+            'parking_number': unit.parking_number,
+            'parking_place': unit.parking_place,
+            'extra_parking_first': unit.extra_parking_first,
+            'extra_parking_second': unit.extra_parking_second,
+
+            # اطلاعات مالک
+            'owner_name': unit.owner_name,
+            'owner_mobile': unit.owner_mobile,
+            'owner_national_code': unit.owner_national_code,
+            'owner_people_count': unit.owner_people_count,
+
+            # وضعیت واحد
+            'people_count': unit.people_count,
+            'is_renter': bool(active_renter),
+            'myhouse_id': unit.myhouse_id,
+
+            # مستأجر فعال
+            'active_renter': (
+                ManagerUnitBaseView.renter_data(active_renter)
+                if active_renter else None
+            ),
+            'purchase_date': (
+                unit.purchase_date.isoformat()
+                if unit.purchase_date else None
+            ),
+            'owner_details': unit.owner_details,
+
+            # سوابق مستأجران
+            'renters': [
+                ManagerUnitBaseView.renter_data(renter)
+                for renter in renters
+            ],
+        }
+
+    @staticmethod
+    def renter_data(renter):
+        return {
+            'id': renter.pk,
+            'unit_id': renter.unit_id,
+            'renter_name': renter.renter_name,
+            'renter_mobile': renter.renter_mobile,
+            'renter_national_code': renter.renter_national_code,
+            'renter_people_count': renter.renter_people_count,
+            'start_date': (
+                renter.start_date.isoformat()
+                if renter.start_date else None
+            ),
+            'end_date': (
+                renter.end_date.isoformat()
+                if renter.end_date else None
+            ),
+            'contract_number': renter.contract_number,
+            'estate_name': renter.estate_name,
+            'renter_details': renter.renter_details,
+            'renter_is_active': renter.renter_is_active,
+        }
+
+    @staticmethod
+    def sync_owner_history(unit, changed_by):
+        from datetime import date
+        from django.utils import timezone
+
+        # دریافت تاریخ امروز بدون وابستگی به localtime
+        today = date.today()
+
+        histories = UnitResidenceHistory.objects.filter(
+            unit=unit,
+            resident_type='owner',
+            to_date__isnull=True,
+        ).order_by('-id')
+
+        current = histories.first()
+
+        if (
+                current
+                and current.name == (unit.owner_name or '')
+                and current.mobile == (unit.owner_mobile or '')
+        ):
+            current.people_count = int(unit.owner_people_count or 0)
+            current.save(update_fields=['people_count'])
+            return
+
+        histories.update(to_date=today)
+
+        UnitResidenceHistory.objects.create(
+            unit=unit,
+            resident_type='owner',
+            name=unit.owner_name or '',
+            mobile=unit.owner_mobile or '',
+            people_count=int(unit.owner_people_count or 0),
+            from_date=today,
+            changed_by=changed_by,
         )
 
 
-# =========================================================
-# لیست واحدها
-# =========================================================
+class ManagerUnitListAPIView(ManagerUnitBaseView):
+    """
+    فهرست واحدهای ساختمان مدیر
+    GET /api/manager/units/
 
-class ManagerUnitListCreateView(
-    ManagerUnitBaseView
-):
+    Query params:
+        search: جست‌وجو
+        resident_type: all / owner / renter
+    """
+
+    permission_classes = [IsAuthenticated]
 
     def get(self, request):
-
-        house = self.get_manager_house(
-            request.user
-        )
-
-        if not house:
-            return Response(
-                {
-                    'success': False,
-                    'message': 'ساختمان مدیر پیدا نشد.',
-                },
-                status=404,
+        # -----------------------------------------
+        # بررسی مدیر و ساختمان فعال
+        # -----------------------------------------
+        if not getattr(request.user, 'is_middle_admin', False):
+            return self.error(
+                'شما اجازه دسترسی به این بخش را ندارید.',
+                status.HTTP_403_FORBIDDEN,
             )
 
-        # =====================================================
-        # پارامترهای جستجو و فیلتر
-        # =====================================================
+        house = self.get_house(request)
 
-        search = request.query_params.get(
-            'search',
-            ''
-        ).strip()
+        if not house:
+            return self.error(
+                'ساختمان فعال برای مدیر پیدا نشد.',
+                status.HTTP_404_NOT_FOUND,
+            )
 
-        resident_type = request.query_params.get(
-            'resident_type',
-            'all'
-        ).strip().lower()
-
-        # فقط مقادیر معتبر
-        if resident_type not in [
-            'all',
-            'owner',
-            'renter',
-        ]:
-            resident_type = 'all'
-
-        # =====================================================
-        # واحدهای ساختمان مدیر
-        # =====================================================
+        # -----------------------------------------
+        # دریافت واحدهای فعال ساختمان
+        # -----------------------------------------
+        active_renters = (
+            Renter.objects
+            .filter(renter_is_active=True)
+            .order_by('-id')
+        )
 
         units = (
             Unit.objects
             .filter(
                 myhouse=house,
-                is_active=True,
             )
+            .select_related('user', 'myhouse')
             .prefetch_related(
-                'renters',
-                'residence_histories',
+                Prefetch(
+                    'renters',
+                    queryset=active_renters,
+                    to_attr='active_renters_list',
+                )
             )
-            .order_by(
-                'floor_number',
-                'unit',
-            )
+            .order_by('floor_number', 'unit')
         )
 
-        # =====================================================
-        # فیلتر مالک
-        # =====================================================
-
-        if resident_type == 'owner':
-            units = units.filter(
-                owner_name__isnull=False,
-            ).exclude(
-                owner_name__exact='',
-            )
-
-        # =====================================================
-        # فیلتر مستاجر فعال
-        # =====================================================
-
-        elif resident_type == 'renter':
-            renter_unit_ids = []
-
-            for unit in units:
-                renter = unit.get_active_renter()
-
-                if renter:
-                    renter_unit_ids.append(
-                        unit.id
-                    )
-
-            units = units.filter(
-                id__in=renter_unit_ids
-            )
-
-        # =====================================================
-        # جستجو
-        # =====================================================
+        # -----------------------------------------
+        # جست‌وجو
+        # -----------------------------------------
+        search = request.query_params.get(
+            'search', ''
+        ).strip()
 
         if search:
-            from django.db.models import Q
+            search_query = Q(owner_name__icontains=search)
 
-            query = Q(
-                unit__icontains=search
+            search_query |= Q(owner_mobile__icontains=search)
+
+            search_query |= Q(unit_phone__icontains=search)
+
+            # جست‌وجو بر اساس شماره واحد
+            if search.isdigit():
+                search_query |= Q(unit=int(search))
+
+            # جست‌وجو در نام و موبایل مستأجر
+            search_query |= Q(
+                renters__renter_is_active=True
+            ) & (
+                                    Q(renters__renter_name__icontains=search)
+                                    | Q(renters__renter_mobile__icontains=search)
+                            )
+
+            units = units.filter(
+                search_query
+            ).distinct()
+
+        # -----------------------------------------
+        # فیلتر نوع سکونت
+        # -----------------------------------------
+        resident_type = request.query_params.get(
+            'resident_type', 'all'
+        ).strip().lower()
+
+        if resident_type == 'owner':
+            # واحدهایی که مستأجر فعال ندارند
+            units = units.exclude(
+                renters__renter_is_active=True
             )
 
-            query |= Q(
-                owner_name__icontains=search
+        elif resident_type == 'renter':
+            # واحدهایی که مستأجر فعال دارند
+            units = units.filter(
+                renters__renter_is_active=True
+            ).distinct()
+
+        elif resident_type != 'all':
+            return self.error(
+                'نوع فیلتر سکونت معتبر نیست.',
+                status.HTTP_400_BAD_REQUEST,
             )
 
-            query |= Q(
-                owner_mobile__icontains=search
+        # -----------------------------------------
+        # ساخت پاسخ
+        # -----------------------------------------
+        results = []
+
+        for unit in units:
+            active_renters_for_unit = getattr(
+                unit,
+                'active_renters_list',
+                [],
             )
 
-            units = units.filter(query)
+            renter = (
+                active_renters_for_unit[0]
+                if active_renters_for_unit
+                else None
+            )
 
-        # =====================================================
-        # Serializer
-        # =====================================================
-
-        serializer = ManagerUnitListSerializer(
-            units,
-            many=True,
-        )
-
-        return Response(
-            {
-                'success': True,
-                'count': units.count(),
-                'results': serializer.data,
+            # اطلاعات مالک
+            owner_data = {
+                'name': unit.owner_name or '',
+                'mobile': unit.owner_mobile or '',
+                'national_code': (
+                        unit.owner_national_code or ''
+                ),
+                'people_count': (
+                        unit.owner_people_count or 0
+                ),
             }
-        )
 
-    # =====================================================
-    # ایجاد واحد
-    # =====================================================
-
-    @transaction.atomic
-    def post(self, request):
-
-        user = request.user
-
-        house = self.get_manager_house(user)
-
-        if not house:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'ساختمان مدیر پیدا نشد.',
-                },
-                status=404,
+            # اطلاعات مستأجر فعال
+            active_renter_data = (
+                self.renter_data(renter)
+                if renter
+                else None
             )
 
-        data = request.data
-
-        unit_number = data.get('unit')
-
-        if not unit_number:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'شماره واحد الزامی است.',
-                },
-                status=400,
-            )
-
-        try:
-            unit_number = int(unit_number)
-        except (TypeError, ValueError):
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'شماره واحد نامعتبر است.',
-                },
-                status=400,
-            )
-
-        exists = Unit.objects.filter(
-            myhouse=house,
-            unit=unit_number,
-            is_active=True,
-        ).exists()
-
-        if exists:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'این شماره واحد قبلاً ثبت شده است.',
-                },
-                status=400,
-            )
-
-        owner_name = str(
-            data.get('owner_name', '')
-        ).strip()
-
-        owner_mobile = str(
-            data.get('owner_mobile', '')
-        ).strip()
-
-        if not owner_name:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'نام مالک الزامی است.',
-                },
-                status=400,
-            )
-
-        if not owner_mobile:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'شماره همراه مالک الزامی است.',
-                },
-                status=400,
-            )
-
-        unit = Unit(
-            user=user,
-            myhouse=house,
-
-            unit=unit_number,
-
-            floor_number=int(
-                data.get('floor_number', 0)
-                or 0
-            ),
-
-            area=data.get(
-                'area',
-                0
-            ),
-
-            bedrooms_count=int(
-                data.get('bedrooms_count', 0)
-                or 0
-            ),
-
-            parking_number=data.get(
-                'parking_number'
-            ),
-
-            parking_place=data.get(
-                'parking_place'
-            ),
-
-            extra_parking_first=data.get(
-                'extra_parking_first'
-            ),
-
-            extra_parking_second=data.get(
-                'extra_parking_second'
-            ),
-
-            unit_phone=data.get(
-                'unit_phone'
-            ),
-
-            unit_details=data.get(
-                'unit_details'
-            ),
-
-            owner_name=owner_name,
-
-            owner_mobile=owner_mobile,
-
-            owner_national_code=data.get(
-                'owner_national_code'
-            ),
-
-            purchase_date=data.get(
-                'purchase_date'
-            ) or None,
-
-            owner_people_count=int(
-                data.get(
-                    'owner_people_count',
-                    0
+            if active_renter_data:
+                # برای هماهنگی با Flutter
+                active_renter_data['name'] = (
+                        renter.renter_name or ''
                 )
-                or 0
-            ),
+                active_renter_data['mobile'] = (
+                        renter.renter_mobile or ''
+                )
 
-            owner_details=data.get(
-                'owner_details'
-            ),
+            # اطلاعات اصلی واحد
+            item = self.unit_data(unit)
 
-            status_residence=data.get(
-                'status_residence'
-            ),
+            # ساختار سازگار با صفحه Flutter
+            # ساختار سازگار با صفحه Flutter
+            item.update({
+                'owner': owner_data,
+                'active_renter': active_renter_data,
+                'has_active_renter': renter is not None,
+                'is_renter': renter is not None,
 
-            is_renter=False,
 
-            is_active=True,
-        )
+            })
 
-        unit.save()
+            results.append(item)
 
-        serializer = ManagerUnitDetailSerializer(
-            unit
-        )
-
-        return Response(
+        return self.success(
+            'فهرست واحدها با موفقیت دریافت شد.',
             {
-                'success': True,
-                'message':
-                    'واحد با موفقیت ایجاد شد.',
-                'unit': serializer.data,
+                'count': len(results),
+                'results': results,
             },
-            status=201,
         )
 
 
-# =========================================================
-# جزئیات / ویرایش / حذف واحد
-# =========================================================
+class ManagerUnitCreateAPIView(ManagerUnitBaseView):
 
-class ManagerUnitDetailView(
-    ManagerUnitBaseView
-):
+    def post(self, request):
+        house = self.get_house(request)
 
-    def get(self, request, unit_id):
-
-        unit = self.get_unit(
-            request.user,
-            unit_id,
-        )
-
-        if not unit:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'واحد مورد نظر پیدا نشد.',
-                },
-                status=404,
+        if house is None:
+            return self.error(
+                'ساختمان فعال یا دسترسی مدیر پیدا نشد.',
+                status.HTTP_403_FORBIDDEN,
             )
 
-        serializer = ManagerUnitDetailSerializer(
-            unit
-        )
+        serializer = ManagerUnitSerializer(data=request.data)
 
-        return Response(
-            {
-                'success': True,
-                'unit': serializer.data,
-            }
-        )
-
-    # =====================================================
-    # ویرایش واحد
-    # =====================================================
-
-    @transaction.atomic
-    def put(self, request, unit_id):
-
-        return self._update(
-            request,
-            unit_id,
-            partial=False,
-        )
-
-    @transaction.atomic
-    def patch(self, request, unit_id):
-
-        return self._update(
-            request,
-            unit_id,
-            partial=True,
-        )
-
-    def _update(
-            self,
-            request,
-            unit_id,
-            partial=False,
-    ):
-
-        unit = self.get_unit(
-            request.user,
-            unit_id,
-        )
-
-        if not unit:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'واحد مورد نظر پیدا نشد.',
-                },
-                status=404,
+        if not serializer.is_valid():
+            return self.error(
+                'اطلاعات فرم معتبر نیست.',
+                status.HTTP_400_BAD_REQUEST,
             )
 
-        data = request.data
+        data = serializer.validated_data
 
-        fields = [
+        required_fields = [
             'unit',
             'floor_number',
             'area',
             'bedrooms_count',
-            'parking_number',
-            'parking_place',
-            'extra_parking_first',
-            'extra_parking_second',
-            'unit_phone',
-            'unit_details',
             'owner_name',
             'owner_mobile',
-            'owner_national_code',
-            'purchase_date',
-            'owner_people_count',
-            'owner_details',
-            'status_residence',
         ]
 
-        for field in fields:
-
-            if partial and field not in data:
-                continue
-
-            if field not in data:
-                continue
-
-            value = data.get(field)
-
-            if field in [
-                'floor_number',
-                'bedrooms_count',
-                'owner_people_count',
-            ]:
-                value = int(value or 0)
-
-            setattr(
-                unit,
-                field,
-                value,
-            )
-
-        unit.user = request.user
-
-        unit.save()
-
-        serializer = ManagerUnitDetailSerializer(
-            unit
-        )
-
-        return Response(
-            {
-                'success': True,
-                'message':
-                    'اطلاعات واحد با موفقیت ویرایش شد.',
-                'unit': serializer.data,
-            }
-        )
-
-    # =====================================================
-    # حذف واحد
-    # =====================================================
-
-    @transaction.atomic
-    def delete(self, request, unit_id):
-
-        unit = self.get_unit(
-            request.user,
-            unit_id,
-        )
-
-        if not unit:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'واحد مورد نظر پیدا نشد.',
-                },
-                status=404,
-            )
-
-        # فعلاً حذف فیزیکی نمی‌کنیم.
-        # چون واحد ممکن است سابقه شارژ و امور مالی داشته باشد.
-
-        unit.is_active = False
-        unit.save(
-            update_fields=[
-                'is_active',
-            ]
-        )
-
-        return Response(
-            {
-                'success': True,
-                'message':
-                    'واحد با موفقیت غیرفعال شد.',
-            }
-        )
-
-
-# =========================================================
-# افزودن مستأجر
-# =========================================================
-
-class ManagerUnitAddRenterView(
-    ManagerUnitBaseView
-):
-
-    @transaction.atomic
-    def post(self, request, unit_id):
-
-        user = request.user
-
-        unit = self.get_unit(
-            user,
-            unit_id,
-        )
-
-        if not unit:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'واحد مورد نظر پیدا نشد.',
-                },
-                status=404,
-            )
-
-        data = request.data
-
-        name = str(
-            data.get('renter_name', '')
-        ).strip()
-
-        mobile = str(
-            data.get('renter_mobile', '')
-        ).strip()
-
-        if not name:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'نام مستأجر الزامی است.',
-                },
-                status=400,
-            )
-
-        if not mobile:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'شماره همراه مستأجر الزامی است.',
-                },
-                status=400,
-            )
-
-        # اگر مستأجر فعال وجود دارد،
-        # ابتدا آن را خاتمه می‌دهیم.
-
-        active_renter = unit.get_active_renter()
-
-        today = timezone.now().date()
-
-        if active_renter:
-
-            active_renter.renter_is_active = False
-
-            if not active_renter.end_date:
-                active_renter.end_date = today
-
-            active_renter.save(
-                update_fields=[
-                    'renter_is_active',
-                    'end_date',
-                ]
-            )
-
-            UnitResidenceHistory.objects.filter(
-                unit=unit,
-                resident_type='renter',
-                renter=active_renter,
-                to_date__isnull=True,
-            ).update(
-                to_date=today
-            )
-
-        renter = Renter.objects.create(
-            unit=unit,
-            myhouse=unit.myhouse,
-            user=user,
-
-            renter_name=name,
-
-            renter_mobile=mobile,
-
-            renter_national_code=data.get(
-                'renter_national_code'
-            ),
-
-            renter_people_count=str(
-                data.get(
-                    'renter_people_count',
-                    0
-                )
-                or 0
-            ),
-
-            start_date=data.get(
-                'start_date'
-            ) or today,
-
-            end_date=data.get(
-                'end_date'
-            ) or None,
-
-            contract_number=data.get(
-                'contract_number'
-            ),
-
-            estate_name=data.get(
-                'estate_name'
-            ),
-
-            renter_details=data.get(
-                'renter_details'
-            ),
-
-            renter_is_active=True,
-        )
-
-        unit.is_renter = True
-        unit.save()
-
-        return Response(
-            {
-                'success': True,
-                'message':
-                    'مستأجر با موفقیت اضافه شد.',
-                'renter': {
-                    'id': renter.id,
-                    'name': renter.renter_name,
-                    'mobile': renter.renter_mobile,
-                },
-            },
-            status=201,
-        )
-
-
-# =========================================================
-# ویرایش مستأجر
-# =========================================================
-
-class ManagerRenterDetailView(
-    ManagerUnitBaseView
-):
-
-    def get_renter(
-            self,
-            request,
-            unit_id,
-            renter_id,
-    ):
-
-        unit = self.get_unit(
-            request.user,
-            unit_id,
-        )
-
-        if not unit:
-            return None, None
-
-        renter = (
-            Renter.objects
-            .filter(
-                id=renter_id,
-                unit=unit,
-                myhouse=unit.myhouse,
-            )
-            .first()
-        )
-
-        return unit, renter
-
-    @transaction.atomic
-    def patch(
-            self,
-            request,
-            unit_id,
-            renter_id,
-    ):
-
-        unit, renter = self.get_renter(
-            request,
-            unit_id,
-            renter_id,
-        )
-
-        if not renter:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'مستأجر مورد نظر پیدا نشد.',
-                },
-                status=404,
-            )
-
-        data = request.data
-
-        fields = [
-            'renter_name',
-            'renter_mobile',
-            'renter_national_code',
-            'renter_people_count',
-            'start_date',
-            'end_date',
-            'contract_number',
-            'estate_name',
-            'renter_details',
+        missing = [
+            field for field in required_fields
+            if field not in data
         ]
 
-        for field in fields:
+        if missing:
+            return self.error(
+                'اطلاعات ضروری وارد نشده است.',
+                status.HTTP_400_BAD_REQUEST,
+            )
 
-            if field in data:
-                setattr(
-                    renter,
-                    field,
-                    data.get(field)
+        try:
+            with transaction.atomic():
+
+                subscription = Subscription.objects.filter(
+                    user=request.user,
+                ).order_by('-created_at').first()
+
+                if subscription is None:
+                    return self.error(
+                        'اشتراکی برای مدیر پیدا نشد.',
+                        status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # برای حفظ رفتار ویوی فعلی:
+                # آخرین اشتراک مدیر بررسی می‌شود.
+                current_count = Unit.objects.filter(
+                    myhouse=house,
+                ).count()
+
+                if current_count >= subscription.units_count:
+                    return self.error(
+                        f'ظرفیت اشتراک شما '
+                        f'{subscription.units_count} واحد است.',
+                        status.HTTP_400_BAD_REQUEST,
+                    )
+
+                owner_name = data['owner_name']
+                owner_mobile = data['owner_mobile']
+
+                owner_user = self.get_manager_owner_user(
+                    request=request,
+                    mobile=owner_mobile,
+                    full_name=owner_name,
+                    house=house,
                 )
 
-        renter.save()
+                self.set_password_if_provided(
+                    owner_user,
+                    data.get('owner_password'),
+                )
 
-        # اگر مستأجر فعال است، اطلاعات
-        # سابقه فعال نیز به‌روزرسانی شود.
-
-        history = (
-            UnitResidenceHistory.objects
-            .filter(
-                unit=unit,
-                renter=renter,
-                resident_type='renter',
-                to_date__isnull=True,
-            )
-            .first()
-        )
-
-        if history:
-            history.name = (
-                    renter.renter_name or ''
-            )
-
-            history.mobile = (
-                    renter.renter_mobile or ''
-            )
-
-            history.people_count = int(
-                renter.renter_people_count or 0
-            )
-
-            history.from_date = (
-                    renter.start_date
-                    or history.from_date
-            )
-
-            history.save(
-                update_fields=[
-                    'name',
-                    'mobile',
-                    'people_count',
-                    'from_date',
+                unit_fields = [
+                    'unit',
+                    'floor_number',
+                    'area',
+                    'bedrooms_count',
+                    'unit_phone',
+                    'parking_number',
+                    'parking_place',
+                    'extra_parking_first',
+                    'extra_parking_second',
+                    'unit_details',
+                    'owner_name',
+                    'owner_mobile',
+                    'owner_national_code',
+                    'purchase_date',
+                    'owner_people_count',
+                    'owner_details',
+                    'status_residence',
                 ]
-            )
 
-        return Response(
-            {
-                'success': True,
-                'message':
-                    'اطلاعات مستأجر ویرایش شد.',
-            }
-        )
-
-    # =====================================================
-    # حذف / خاتمه مستأجر
-    # =====================================================
-
-    @transaction.atomic
-    def delete(
-            self,
-            request,
-            unit_id,
-            renter_id,
-    ):
-
-        unit, renter = self.get_renter(
-            request,
-            unit_id,
-            renter_id,
-        )
-
-        if not renter:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'مستأجر مورد نظر پیدا نشد.',
-                },
-                status=404,
-            )
-
-        today = timezone.now().date()
-
-        renter.renter_is_active = False
-
-        if not renter.end_date:
-            renter.end_date = today
-
-        renter.save(
-            update_fields=[
-                'renter_is_active',
-                'end_date',
-            ]
-        )
-
-        UnitResidenceHistory.objects.filter(
-            unit=unit,
-            renter=renter,
-            resident_type='renter',
-            to_date__isnull=True,
-        ).update(
-            to_date=today
-        )
-
-        # آیا هنوز مستأجر فعال دیگری وجود دارد؟
-
-        has_active_renter = Renter.objects.filter(
-            unit=unit,
-            renter_is_active=True,
-        ).exists()
-
-        unit.is_renter = has_active_renter
-        unit.save()
-
-        return Response(
-            {
-                'success': True,
-                'message':
-                    'مستأجر با موفقیت حذف شد.',
-            }
-        )
-
-
-# =========================================================
-# حذف مالک
-# =========================================================
-
-# =========================================================
-# مدیریت مالک واحد
-
-class ManagerUnitRemoveOwnerView(APIView):
-    permission_classes = [IsAuthenticated]
-
-    # =========================================================
-    # بررسی دسترسی مدیر به واحد
-    # =========================================================
-    def _get_unit(self, request, unit_id):
-
-        if not getattr(request.user, 'is_middle_admin', False):
-            return None, Response(
-                {
-                    'detail': 'شما دسترسی مدیریت واحدها را ندارید.'
-                },
-                status=status.HTTP_403_FORBIDDEN
-            )
-
-        house = getattr(request.user, 'house', None)
-
-        if not house:
-            return None, Response(
-                {
-                    'detail': 'ساختمان مدیر مشخص نیست.'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        unit = Unit.objects.filter(
-            id=unit_id,
-            myhouse=house,
-            is_active=True,
-        ).first()
-
-        if not unit:
-            return None, Response(
-                {
-                    'detail': 'واحد موردنظر پیدا نشد.'
-                },
-                status=status.HTTP_404_NOT_FOUND
-            )
-
-        return unit, None
-
-    # =========================================================
-    # POST
-    #
-    # افزودن مالک جدید
-    #
-    # اگر مالک قبلی وجود داشته باشد:
-    # Unit.save() خودش History قبلی را می‌بندد.
-    #
-    # اگر مستأجر فعال وجود داشته باشد:
-    # Unit.save() خودش مستأجر را غیرفعال می‌کند.
-    # =========================================================
-    @transaction.atomic
-    def post(self, request, unit_id):
-
-        unit, error = self._get_unit(
-            request,
-            unit_id
-        )
-
-        if error:
-            return error
-
-        name = (
-                request.data.get('owner_name')
-                or ''
-        ).strip()
-
-        mobile = (
-                request.data.get('owner_mobile')
-                or ''
-        ).strip()
-
-        if not name:
-            return Response(
-                {
-                    'detail': 'نام مالک الزامی است.'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        if not mobile:
-            return Response(
-                {
-                    'detail': 'شماره موبایل مالک الزامی است.'
-                },
-                status=status.HTTP_400_BAD_REQUEST
-            )
-
-        # -----------------------------------------------------
-        # اطلاعات مالک جدید
-        # -----------------------------------------------------
-        unit.owner_name = name
-        unit.owner_mobile = mobile
-
-        unit.owner_national_code = (
-                request.data.get(
-                    'owner_national_code'
-                )
-                or ''
-        ).strip()
-
-        unit.owner_people_count = (
-                request.data.get(
-                    'owner_people_count'
-                )
-                or 0
-        )
-
-        unit.owner_details = (
-                request.data.get(
-                    'owner_details'
-                )
-                or ''
-        )
-
-        purchase_date = request.data.get(
-            'purchase_date'
-        )
-
-        if purchase_date:
-            unit.purchase_date = purchase_date
-
-        # -----------------------------------------------------
-        # بسیار مهم:
-        #
-        # تمام منطق مالک جدید + مستأجر فعال
-        # داخل Unit.save() انجام می‌شود.
-        # -----------------------------------------------------
-        unit.save()
-
-        return Response(
-            {
-                'detail': 'مالک با موفقیت ثبت شد.',
-                'owner_name': unit.owner_name,
-                'owner_mobile': unit.owner_mobile,
-                'owner_national_code': (
-                    unit.owner_national_code
-                ),
-                'owner_people_count': (
-                    unit.owner_people_count
-                ),
-                'owner_details': (
-                    unit.owner_details
-                ),
-                'purchase_date': (
-                    unit.purchase_date
-                ),
-            },
-            status=status.HTTP_201_CREATED
-        )
-
-    # =========================================================
-    # PATCH
-    #
-    # ویرایش مالک فعلی
-    #
-    # اگر نام و موبایل هر دو تغییر کنند:
-    # Unit.save() مالک جدید تشخیص می‌دهد.
-    #
-    # در غیر این صورت:
-    # همان مالک و History ویرایش می‌شود.
-    # =========================================================
-    @transaction.atomic
-    def patch(self, request, unit_id):
-
-        unit, error = self._get_unit(
-            request,
-            unit_id
-        )
-
-        if error:
-            return error
-
-        # -----------------------------------------------------
-        # فقط فیلدهایی که ارسال شده‌اند تغییر کنند
-        # -----------------------------------------------------
-
-        if 'owner_name' in request.data:
-
-            owner_name = (
-                    request.data.get('owner_name')
-                    or ''
-            ).strip()
-
-            if not owner_name:
-                return Response(
-                    {
-                        'detail': 'نام مالک نمی‌تواند خالی باشد.'
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            unit.owner_name = owner_name
-
-        if 'owner_mobile' in request.data:
-
-            owner_mobile = (
-                    request.data.get('owner_mobile')
-                    or ''
-            ).strip()
-
-            if not owner_mobile:
-                return Response(
-                    {
-                        'detail': 'شماره موبایل مالک نمی‌تواند خالی باشد.'
-                    },
-                    status=status.HTTP_400_BAD_REQUEST
-                )
-
-            unit.owner_mobile = owner_mobile
-
-        if 'owner_national_code' in request.data:
-            unit.owner_national_code = (
-                    request.data.get(
-                        'owner_national_code'
-                    )
-                    or ''
-            ).strip()
-
-        if 'owner_people_count' in request.data:
-            unit.owner_people_count = (
-                    request.data.get(
-                        'owner_people_count'
-                    )
-                    or 0
-            )
-
-        if 'owner_details' in request.data:
-            unit.owner_details = (
-                    request.data.get(
-                        'owner_details'
-                    )
-                    or ''
-            )
-
-        if 'purchase_date' in request.data:
-            purchase_date = request.data.get(
-                'purchase_date'
-            )
-
-            unit.purchase_date = purchase_date
-
-        # -----------------------------------------------------
-        # تمام منطق تشخیص مالک جدید یا ویرایش مالک
-        # داخل Unit.save()
-        # -----------------------------------------------------
-        old_name = unit.owner_name
-        old_mobile = unit.owner_mobile
-
-        unit.save()
-
-        return Response(
-            {
-                'detail': 'اطلاعات مالک با موفقیت بروزرسانی شد.',
-                'owner_name': unit.owner_name,
-                'owner_mobile': unit.owner_mobile,
-                'owner_national_code': (
-                    unit.owner_national_code
-                ),
-                'owner_people_count': (
-                    unit.owner_people_count
-                ),
-                'owner_details': (
-                    unit.owner_details
-                ),
-                'purchase_date': (
-                    unit.purchase_date
-                ),
-            },
-            status=status.HTTP_200_OK
-        )
-
-    # =========================================================
-    # DELETE
-    #
-    # پایان مالک فعلی
-    #
-    # اینجا چون مالک حذف می‌شود، باید History فعلی بسته شود.
-    # =========================================================
-    @transaction.atomic
-    def delete(self, request, unit_id):
-
-        unit, error = self._get_unit(
-            request,
-            unit_id
-        )
-
-        if error:
-            return error
-
-        today = timezone.now().date()
-
-        # -----------------------------------------------------
-        # بستن History مالک فعلی
-        # -----------------------------------------------------
-        UnitResidenceHistory.objects.filter(
-            unit=unit,
-            resident_type='owner',
-            to_date__isnull=True,
-        ).update(
-            to_date=today
-        )
-
-        # -----------------------------------------------------
-        # حذف اطلاعات مالک از Unit
-        # -----------------------------------------------------
-        unit.owner_name = ''
-        unit.owner_mobile = ''
-        unit.owner_national_code = ''
-        unit.owner_people_count = 0
-        unit.owner_details = ''
-        unit.purchase_date = None
-
-        # -----------------------------------------------------
-        # این save نباید باعث ایجاد History مالک جدید شود.
-        # چون نام و موبایل عمداً خالی شده‌اند.
-        # -----------------------------------------------------
-        unit.save()
-
-        return Response(
-            {
-                'detail': 'مالک با موفقیت حذف شد.'
-            },
-            status=status.HTTP_200_OK
-        )
-
-
-# =========================================================
-# سوابق سکونت
-# =========================================================
-
-class ManagerUnitResidenceHistoryView(
-    ManagerUnitBaseView
-):
-
-    def get(
-            self,
-            request,
-            unit_id,
-    ):
-
-        unit = self.get_unit(
-            request.user,
-            unit_id,
-        )
-
-        if not unit:
-            return Response(
-                {
-                    'success': False,
-                    'message':
-                        'واحد مورد نظر پیدا نشد.',
-                },
-                status=404,
-            )
-
-        histories = (
-            UnitResidenceHistory.objects
-            .filter(unit=unit)
-            .select_related(
-                'renter',
-                'changed_by',
-            )
-            .order_by(
-                '-from_date',
-                '-id',
-            )
-        )
-
-        results = []
-
-        for history in histories:
-            results.append(
-                {
-                    'id': history.id,
-
-                    'resident_type':
-                        history.resident_type,
-
-                    'resident_type_display':
-                        history.get_resident_type_display(),
-
-                    'name':
-                        history.name or '',
-
-                    'mobile':
-                        history.mobile or '',
-
-                    'people_count':
-                        history.people_count or 0,
-
-                    'from_date':
-                        (
-                            history.from_date.isoformat()
-                            if history.from_date
-                            else None
-                        ),
-
-                    'to_date':
-                        (
-                            history.to_date.isoformat()
-                            if history.to_date
-                            else None
-                        ),
-
-                    'is_active':
-                        history.to_date is None,
+                unit_values = {
+                    field: data[field]
+                    for field in unit_fields
+                    if field in data
                 }
+
+                unit = Unit(
+                    **unit_values,
+                    user=owner_user,
+                    myhouse=house,
+                    is_renter=False,
+                    people_count=int(
+                        data.get('owner_people_count') or 0
+                    ),
+                )
+
+                unit.save()
+
+                # Unit.save() در زمان ایجاد، سابقه مالک را می‌سازد.
+                return self.success(
+                    'واحد و مالک با موفقیت ثبت شدند.',
+                    self.unit_data(unit),
+                    status.HTTP_201_CREATED,
+                )
+
+        except ValueError as exc:
+            return self.error(str(exc))
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Manager unit create failed'
+            )
+            return self.error(
+                'خطا در ثبت واحد و مالک.',
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        return Response(
-            {
-                'success': True,
-                'unit_id': unit.id,
-                'unit_number': unit.unit,
-                'results': results,
-            }
+
+class ManagerUnitDetailAPIView(ManagerUnitBaseView):
+
+    def get(self, request, unit_id):
+        house, unit = self.get_unit(request, unit_id)
+
+        if house is None:
+            return self.error(
+                'ساختمان برای مدیر پیدا نشد یا دسترسی مجاز نیست.',
+                status_code=status.HTTP_403_FORBIDDEN
+            )
+
+        if unit is None:
+            return self.error(
+                'واحد موردنظر پیدا نشد.',
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        return self.success(
+            'اطلاعات واحد با موفقیت دریافت شد.',
+            self.unit_data(unit)
         )
 
 
-class ManagerUnitChangeOwnerView(
-    ManagerUnitBaseView
-):
+class ManagerUnitUpdateAPIView(ManagerUnitBaseView):
+    # فقط مشخصات خود واحد؛ بدون اطلاعات مالک و مستأجر
+    EDITABLE_FIELDS = (
+        'unit',
+        'floor_number',
+        'area',
+        'bedrooms_count',
+        'unit_phone',
+        'parking_number',
+        'parking_place',
+        'extra_parking_first',
+        'extra_parking_second',
+        'unit_details',
+    )
 
-    @transaction.atomic
-    def post(self, request, unit_id):
+    def patch(self, request, unit_id):
+        house, unit = self.get_unit(request, unit_id)
 
-        user = request.user
+        if house is None:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
 
-        unit = self.get_unit(
-            user,
-            unit_id,
+        if unit is None:
+            return self.error(
+                'واحد پیدا نشد.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        # فقط فیلدهای مجاز از درخواست دریافت می‌شوند.
+        # فیلدهای مالک، مستأجر، تاریخ خرید و رمز نادیده گرفته می‌شوند.
+        submitted_data = {
+            field: request.data[field]
+            for field in self.EDITABLE_FIELDS
+            if field in request.data
+        }
+
+        if not submitted_data:
+            return self.error(
+                'هیچ فیلد مجازی برای ویرایش ارسال نشده است.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ManagerUnitSerializer(
+            instance=unit,
+            data=submitted_data,
+            partial=True,
         )
 
-        if not unit:
+        if not serializer.is_valid():
+            return self.error(
+                'اطلاعات فرم معتبر نیست.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+
+        # کنترل نهایی فیلدها؛ فقط همین ستون‌ها مجازند.
+        data = {
+            field: value
+            for field, value in data.items()
+            if field in self.EDITABLE_FIELDS
+        }
+
+        if not data:
+            return self.error(
+                'اطلاعات قابل ویرایشی دریافت نشد.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+
+                # قفل رکورد برای جلوگیری از تداخل ویرایش‌ها
+                locked_unit = (
+                    Unit.objects
+                    .select_for_update()
+                    .filter(
+                        pk=unit.pk,
+                        myhouse=house,
+                    )
+                    .first()
+                )
+
+                if locked_unit is None:
+                    return self.error(
+                        'واحد پیدا نشد یا دسترسی به آن وجود ندارد.',
+                        status.HTTP_404_NOT_FOUND,
+                    )
+
+                # فقط ستون‌های مشخصات واحد به‌روزرسانی می‌شوند.
+                # عمداً Unit.save() و سیگنال‌های ذخیره اجرا نمی‌شوند.
+                updated_count = (
+                    Unit.objects
+                    .filter(
+                        pk=locked_unit.pk,
+                        myhouse=house,
+                    )
+                    .update(**data)
+                )
+
+                if updated_count == 0:
+                    return self.error(
+                        'تغییری در اطلاعات واحد ذخیره نشد.',
+                        status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # دریافت اطلاعات تازه از دیتابیس
+                locked_unit.refresh_from_db()
+
+                # ساخت پاسخ نیز داخل try قرار دارد تا خطاهای
+                # احتمالی unit_data در لاگ ثبت شوند.
+                response_data = self.unit_data(locked_unit)
+
+                return self.success(
+                    'مشخصات واحد با موفقیت ویرایش شد.',
+                    response_data,
+                )
+
+        except Exception:
+            # traceback کامل در لاگ Django ثبت می‌شود.
+            logger.exception(
+                'خطا هنگام ویرایش مشخصات واحد؛ unit_id=%s',
+                unit_id,
+            )
+
             return Response(
                 {
                     'success': False,
-                    'message':
-                        'واحد مورد نظر پیدا نشد.',
+                    'message': (
+                        'هنگام ذخیره مشخصات واحد خطایی رخ داد. '
+                        'جزئیات خطا در لاگ سرور ثبت شده است.'
+                    ),
+                    'data': None,
                 },
-                status=404,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        data = request.data
+
+class ManagerUnitOwnerUpdateAPIView(ManagerUnitBaseView):
+    """
+    ویرایش اطلاعات مالک واحد.
+    تغییر مشخصات مالک مستقل از تغییر شماره موبایل است.
+    """
+
+    OWNER_EDITABLE_FIELDS = (
+        'owner_name',
+        'owner_mobile',
+        'owner_national_code',
+        'owner_people_count',
+        'owner_details',
+        'purchase_date',
+    )
+
+    @staticmethod
+    def _normalize_mobile(value):
+        import re
+
+        value = str(value or '').strip()
+
+        translation = str.maketrans(
+            '۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩',
+            '01234567890123456789',
+        )
+        value = value.translate(translation)
+
+        return re.sub(r'\D', '', value)
+
+
+
+    def post(self, request, unit_id):
+        """
+        ثبت مالک جدید برای واحد، با امکان جایگزینی مالک قبلی.
+        """
+
+        house, unit = self.get_unit(request, unit_id)
+
+        if house is None:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if unit is None:
+            return self.error(
+                'واحد پیدا نشد.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        submitted_data = {
+            field: request.data[field]
+            for field in self.OWNER_EDITABLE_FIELDS
+            if field in request.data
+        }
+
+        owner_password = str(
+            request.data.get('owner_password') or ''
+        ).strip()
 
         owner_name = str(
-            data.get(
-                'owner_name',
-                ''
-            )
+            submitted_data.get('owner_name') or ''
         ).strip()
 
         owner_mobile = str(
-            data.get(
-                'owner_mobile',
-                ''
-            )
+            submitted_data.get('owner_mobile') or ''
         ).strip()
 
-        if not owner_name:
+        if not owner_name or not self._normalize_mobile(owner_mobile):
+            return self.error(
+                'نام و شماره موبایل مالک الزامی است.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        if not owner_password:
+            return self.error(
+                'رمز عبور مالک جدید را وارد کنید.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ManagerUnitSerializer(
+            instance=unit,
+            data=submitted_data,
+            partial=True,
+        )
+
+        if not serializer.is_valid():
             return Response(
                 {
                     'success': False,
-                    'message':
-                        'نام مالک جدید الزامی است.',
+                    'message': 'اطلاعات مالک معتبر نیست.',
+                    'errors': serializer.errors,
+                    'data': None,
                 },
-                status=400,
+                status=status.HTTP_400_BAD_REQUEST,
             )
 
-        if not owner_mobile:
+        owner_data = {
+            field: value
+            for field, value in serializer.validated_data.items()
+            if field in self.OWNER_EDITABLE_FIELDS
+        }
+
+        owner_name = str(
+            owner_data.get('owner_name', owner_name) or ''
+        ).strip()
+
+        owner_mobile = str(
+            owner_data.get('owner_mobile', owner_mobile) or ''
+        ).strip()
+
+        try:
+            with transaction.atomic():
+                locked_unit = (
+                    Unit.objects
+                    .select_for_update()
+                    .filter(
+                        pk=unit.pk,
+                        myhouse=house,
+                    )
+                    .first()
+                )
+
+                if locked_unit is None:
+                    return self.error(
+                        'واحد پیدا نشد.',
+                        status.HTTP_404_NOT_FOUND,
+                    )
+
+                old_owner_user = locked_unit.user
+
+                # گرفتن یا ایجاد حساب کاربری مالک جدید.
+                # شماره متعلق به حساب نامرتبط نباید تصاحب شود.
+                owner_user = self.get_manager_owner_user(
+                    request=request,
+                    mobile=owner_mobile,
+                    full_name=owner_name,
+                    house=house,
+                    current_owner=old_owner_user,
+                )
+
+                self.set_password_if_provided(
+                    owner_user,
+                    owner_password,
+                )
+
+                # بستن سابقه مالک قبلی پیش از تغییر اطلاعات واحد
+                today = date.today()
+
+                UnitResidenceHistory.objects.filter(
+                    unit=locked_unit,
+                    resident_type='owner',
+                    to_date__isnull=True,
+                ).update(to_date=today)
+
+                # ذخیره اطلاعات مالک جدید
+                db_updates = dict(owner_data)
+                db_updates['user_id'] = owner_user.pk
+
+                Unit.objects.filter(
+                    pk=locked_unit.pk,
+                    myhouse=house,
+                ).update(**db_updates)
+
+                locked_unit.refresh_from_db()
+
+                # ثبت سابقه مالک جدید
+                UnitResidenceHistory.objects.create(
+                    unit=locked_unit,
+                    resident_type='owner',
+                    name=locked_unit.owner_name or '',
+                    mobile=locked_unit.owner_mobile or '',
+                    people_count=int(
+                        locked_unit.owner_people_count or 0
+                    ),
+                    from_date=today,
+                    changed_by=request.user,
+                )
+
+                return self.success(
+                    'مالک جدید با موفقیت ثبت شد.',
+                    self.unit_data(locked_unit),
+                    status_code=status.HTTP_201_CREATED,
+                )
+
+        except ValueError as exc:
+            logger.exception(
+                'خطا هنگام افزودن مالک؛ unit_id=%s',
+                unit_id,
+            )
+
+            return self.error(
+                str(exc),
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception:
+            logger.exception(
+                'خطا هنگام افزودن مالک؛ unit_id=%s',
+                unit_id,
+            )
+
             return Response(
                 {
                     'success': False,
-                    'message':
-                        'شماره همراه مالک جدید الزامی است.',
+                    'message': 'هنگام افزودن مالک خطایی رخ داد.',
+                    'data': None,
                 },
-                status=400,
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
-        today = timezone.now().date()
 
-        # -------------------------------------------------
-        # بستن سابقه مالک فعلی
-        # -------------------------------------------------
 
-        UnitResidenceHistory.objects.filter(
-            unit=unit,
-            resident_type='owner',
-            to_date__isnull=True,
-        ).update(
-            to_date=today,
+    def patch(self, request, unit_id):
+        house, unit = self.get_unit(request, unit_id)
+
+        if house is None:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if unit is None:
+            return self.error(
+                'واحد پیدا نشد.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        submitted_data = {
+            field: request.data[field]
+            for field in self.OWNER_EDITABLE_FIELDS
+            if field in request.data
+        }
+
+        owner_password = str(
+            request.data.get('owner_password') or ''
+        ).strip()
+
+        if not submitted_data and not owner_password:
+            return self.error(
+                'اطلاعاتی برای ویرایش مالک ارسال نشده است.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        serializer = ManagerUnitSerializer(
+            instance=unit,
+            data=submitted_data,
+            partial=True,
         )
 
-        # -------------------------------------------------
-        # اطلاعات مالک جدید
-        # -------------------------------------------------
+        if not serializer.is_valid():
+            return Response(
+                {
+                    'success': False,
+                    'message': 'اطلاعات مالک معتبر نیست.',
+                    'errors': serializer.errors,
+                    'data': None,
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
 
-        unit.owner_name = owner_name
+        data = serializer.validated_data
 
-        unit.owner_mobile = owner_mobile
+        owner_data = {
+            field: value
+            for field, value in data.items()
+            if field in self.OWNER_EDITABLE_FIELDS
+        }
 
-        unit.owner_national_code = data.get(
-            'owner_national_code'
+        try:
+            with transaction.atomic():
+
+                locked_unit = (
+                    Unit.objects
+                    .select_for_update()
+                    .filter(
+                        pk=unit.pk,
+                        myhouse=house,
+                    )
+                    .first()
+                )
+
+                if locked_unit is None:
+                    return self.error(
+                        'واحد پیدا نشد.',
+                        status.HTTP_404_NOT_FOUND,
+                    )
+
+                old_owner_user = locked_unit.user
+
+                old_owner_name = (
+                        locked_unit.owner_name or ''
+                ).strip()
+
+                old_owner_mobile = self._normalize_mobile(
+                    locked_unit.owner_mobile
+                )
+
+                owner_name = str(
+                    owner_data.get(
+                        'owner_name',
+                        locked_unit.owner_name or '',
+                    ) or ''
+                ).strip()
+
+                owner_mobile = str(
+                    owner_data.get(
+                        'owner_mobile',
+                        locked_unit.owner_mobile or '',
+                    ) or ''
+                ).strip()
+
+                normalized_new_mobile = self._normalize_mobile(
+                    owner_mobile
+                )
+
+                name_changed = (
+                        owner_name != old_owner_name
+                )
+
+                mobile_changed = (
+                        normalized_new_mobile != old_owner_mobile
+                )
+
+                # فقط فیلدهای مجاز مالک ذخیره می‌شوند.
+                update_fields = dict(owner_data)
+
+                # بررسی حساب کاربری فقط هنگام تغییر شماره موبایل
+                if mobile_changed:
+                    if not owner_name or not normalized_new_mobile:
+                        return self.error(
+                            'نام و شماره موبایل مالک الزامی است.',
+                            status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    owner_user = self.get_manager_owner_user(
+                        request=request,
+                        mobile=owner_mobile,
+                        full_name=owner_name,
+                        house=house,
+                        current_owner=old_owner_user,
+                    )
+
+                    update_fields['user'] = owner_user
+                    locked_unit.user = owner_user
+
+                elif name_changed and old_owner_user is not None:
+                    # تغییر نام حساب مالک فعلی بدون تغییر موبایل
+                    old_owner_user.full_name = owner_name
+                    old_owner_user.save(
+                        update_fields=['full_name']
+                    )
+
+                # تغییر رمز عبور فقط در صورت ارسال رمز جدید
+                if owner_password:
+                    password_user = (
+                        locked_unit.user
+                        if mobile_changed
+                        else old_owner_user
+                    )
+
+                    if password_user is None:
+                        return self.error(
+                            'برای این واحد حساب کاربری مالک ثبت نشده است.',
+                            status.HTTP_400_BAD_REQUEST,
+                        )
+
+                    self.set_password_if_provided(
+                        password_user,
+                        owner_password,
+                    )
+
+                # ذخیره تمام فیلدهای ارسالی، حتی اگر مقدارشان
+                # با مقدار فعلی برابر باشد.
+                if update_fields:
+                    db_updates = {}
+
+                    for field, value in update_fields.items():
+                        if field == 'user':
+                            db_updates['user_id'] = (
+                                value.pk if value else None
+                            )
+                        else:
+                            db_updates[field] = value
+
+                    Unit.objects.filter(
+                        pk=locked_unit.pk,
+                        myhouse=house,
+                    ).update(**db_updates)
+
+                locked_unit.refresh_from_db()
+
+                self.sync_owner_history(
+                    locked_unit,
+                    request.user,
+                )
+
+                return self.success(
+                    'اطلاعات مالک با موفقیت ذخیره شد.',
+                    self.unit_data(locked_unit),
+                )
+
+        except ValueError as exc:
+            logger.exception(
+                'خطای اعتبارسنجی هنگام ویرایش مالک؛ unit_id=%s',
+                unit_id,
+            )
+
+            return self.error(
+                str(exc),
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception:
+            logger.exception(
+                'خطا هنگام ویرایش مالک؛ unit_id=%s',
+                unit_id,
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message': (
+                        'هنگام ویرایش مالک خطایی رخ داد. '
+                        'جزئیات در لاگ Django ثبت شده است.'
+                    ),
+                    'data': None,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ManagerUnitStatusAPIView(ManagerUnitBaseView):
+
+    def post(self, request, unit_id):
+        house, unit = self.get_unit(request, unit_id)
+
+        if house is None:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if unit is None:
+            return self.error(
+                'واحد پیدا نشد.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        is_active = request.data.get('is_active')
+
+        # فقط مقدار بولی واقعی پذیرفته شود.
+        if not isinstance(is_active, bool):
+            return self.error(
+                'وضعیت فعال بودن واحد معتبر نیست.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                locked_unit = (
+                    Unit.objects
+                    .select_for_update()
+                    .filter(
+                        pk=unit_id,
+                        myhouse=house,
+                    )
+                    .first()
+                )
+
+                if locked_unit is None:
+                    return self.error(
+                        'واحد پیدا نشد.',
+                        status.HTTP_404_NOT_FOUND,
+                    )
+
+                # عمداً save مدل اجرا نمی‌شود تا منطق تاریخچه
+                # مالک و مستأجر به اشتباه اجرا نشود.
+                Unit.objects.filter(
+                    pk=locked_unit.pk,
+                    myhouse=house,
+                ).update(is_active=is_active)
+
+                return self.success(
+                    (
+                        'واحد با موفقیت فعال شد.'
+                        if is_active
+                        else 'واحد با موفقیت غیرفعال شد.'
+                    ),
+                    {
+                        'unit_id': locked_unit.pk,
+                        'unit': locked_unit.unit,
+                        'is_active': is_active,
+                    },
+                )
+
+        except Exception:
+            logger.exception(
+                'خطا در تغییر وضعیت واحد؛ unit_id=%s',
+                unit_id,
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message': 'تغییر وضعیت واحد انجام نشد.',
+                    'data': None,
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ManagerUnitRentersAPIView(ManagerUnitBaseView):
+
+    def get(self, request, unit_id):
+        house, unit = self.get_unit(request, unit_id)
+
+        if house is None:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if unit is None:
+            return self.error(
+                'واحد پیدا نشد.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        renters = unit.renters.filter(
+
+        ).select_related(
+            'user',
+        ).order_by(
+            '-renter_is_active',
+            '-start_date',
+            '-created_at',
         )
 
-        unit.owner_people_count = int(
-            data.get(
-                'owner_people_count',
-                0
-            )
-            or 0
-        )
+        active_renter = renters.filter(
+            renter_is_active=True,
+        ).first()
 
-        unit.owner_details = data.get(
-            'owner_details'
-        )
-
-        if data.get('purchase_date'):
-            unit.purchase_date = data.get(
-                'purchase_date'
-            )
-
-        unit.user = user
-
-        # -------------------------------------------------
-        # ذخیره واحد
-        # -------------------------------------------------
-
-        unit.save()
-
-        # -------------------------------------------------
-        # ایجاد سابقه مالک جدید
-        #
-        # چون save() ممکن است خودش سابقه ایجاد کند،
-        # ابتدا بررسی می‌کنیم رکورد فعال ایجاد شده یا نه.
-        # -------------------------------------------------
-
-        active_owner_history = (
-            UnitResidenceHistory.objects
-            .filter(
-                unit=unit,
-                resident_type='owner',
-                to_date__isnull=True,
-            )
-            .order_by('-id')
-            .first()
-        )
-
-        if active_owner_history:
-
-            active_owner_history.name = (
-                    unit.owner_name or ''
-            )
-
-            active_owner_history.mobile = (
-                    unit.owner_mobile or ''
-            )
-
-            active_owner_history.people_count = int(
-                unit.owner_people_count or 0
-            )
-
-            active_owner_history.changed_by = user
-
-            active_owner_history.save(
-                update_fields=[
-                    'name',
-                    'mobile',
-                    'people_count',
-                    'changed_by',
-                ]
-            )
-
-        else:
-
-            UnitResidenceHistory.objects.create(
-                unit=unit,
-                resident_type='owner',
-                name=unit.owner_name or '',
-                mobile=unit.owner_mobile or '',
-                people_count=int(
-                    unit.owner_people_count or 0
-                ),
-                from_date=today,
-                changed_by=user,
-            )
-
-        serializer = ManagerUnitDetailSerializer(
-            unit
-        )
-
-        return Response(
+        return self.success(
+            'فهرست مستأجران دریافت شد.',
             {
-                'success': True,
-                'message':
-                    'مالک واحد با موفقیت تغییر کرد.',
-                'unit': serializer.data,
-            }
+                'unit': self.unit_data(unit),
+                'active_renter': (
+                    self.renter_data(active_renter)
+                    if active_renter else None
+                ),
+                'renters': [
+                    self.renter_data(renter)
+                    for renter in renters
+                ],
+            },
         )
+
+    def post(self, request, unit_id):
+        house, unit = self.get_unit(request, unit_id)
+
+        if house is None:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if unit is None:
+            return self.error(
+                'واحد پیدا نشد.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = ManagerRenterSerializer(
+            data=request.data,
+        )
+
+        if not serializer.is_valid():
+            return self.error(
+                'اطلاعات مستأجر معتبر نیست.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+
+        required_fields = [
+            'renter_name',
+            'renter_mobile',
+        ]
+
+        if any(field not in data for field in required_fields):
+            return self.error(
+                'نام و شماره موبایل مستأجر الزامی است.',
+            )
+
+        start_date = data.get('start_date') or timezone.localdate()
+        end_date = data.get('end_date')
+
+        if end_date and end_date < start_date:
+            return self.error(
+                'تاریخ پایان اجاره نمی‌تواند قبل از تاریخ شروع باشد.',
+            )
+
+        try:
+            with transaction.atomic():
+
+                unit = Unit.objects.select_for_update().get(
+                    pk=unit.pk,
+                    myhouse=house,
+                )
+
+                mobile = data['renter_mobile']
+
+                # جلوگیری از ثبت یک شماره به‌عنوان مستأجر فعال
+                # در واحد دیگر.
+                if Renter.objects.filter(
+                        user__mobile=mobile,
+                        renter_is_active=True,
+                ).exclude(
+                    unit=unit,
+                ).exists():
+                    return self.error(
+                        'این شماره در واحد دیگری مستأجر فعال است.',
+                    )
+
+                renter_user = User.objects.filter(
+                    mobile=mobile,
+                ).first()
+
+                if renter_user:
+                    # حساب کاربری مالک یا شخص دیگری نباید
+                    # به‌عنوان مستأجر بازنویسی شود.
+                    same_unit_history = Renter.objects.filter(
+                        unit=unit,
+                        user=renter_user,
+                    ).exists()
+
+                    if not same_unit_history:
+                        return self.error(
+                            'این شماره موبایل قبلاً به کاربر دیگری تعلق دارد.',
+                        )
+
+                    renter_user.full_name = data['renter_name']
+                    renter_user.is_active = True
+                    renter_user.is_unit = True
+                    renter_user.house = house
+
+                    if renter_user.pk != request.user.pk:
+                        renter_user.manager = request.user
+
+                    renter_user.save(
+                        update_fields=[
+                            'full_name',
+                            'is_active',
+                            'is_unit',
+                            'house',
+                            'manager',
+                        ]
+                    )
+
+                else:
+                    renter_user = User.objects.create(
+                        mobile=mobile,
+                        username=mobile,
+                        full_name=data['renter_name'],
+                        house=house,
+                        manager=request.user,
+                        is_active=True,
+                        is_unit=True,
+                    )
+
+                password = data.get('renter_password')
+
+                if password:
+                    self.set_password_if_provided(
+                        renter_user,
+                        password,
+                    )
+
+                # بستن مستأجر فعال قبلی
+                today = date.today()
+
+                old_renters = list(
+                    Renter.objects.select_for_update().filter(
+                        unit=unit,
+                        renter_is_active=True,
+
+                    )
+                )
+
+                for old_renter in old_renters:
+                    old_renter.renter_is_active = False
+                    old_renter.end_date = (
+                            old_renter.end_date or today
+                    )
+
+                    old_renter.save(
+                        update_fields=[
+                            'renter_is_active',
+                            'end_date',
+                        ]
+                    )
+
+                    UnitResidenceHistory.objects.filter(
+                        unit=unit,
+                        renter=old_renter,
+                        to_date__isnull=True,
+                    ).update(
+                        to_date=today,
+                    )
+
+                renter = Renter.objects.create(
+                    unit=unit,
+                    myhouse=house,
+                    user=renter_user,
+                    renter_name=data['renter_name'],
+                    renter_mobile=mobile,
+                    renter_national_code=data.get(
+                        'renter_national_code'
+                    ),
+                    renter_people_count=data.get(
+                        'renter_people_count'
+                    ),
+                    start_date=start_date,
+                    end_date=end_date,
+                    contract_number=data.get(
+                        'contract_number'
+                    ),
+                    estate_name=data.get('estate_name'),
+                    renter_details=data.get('renter_details'),
+                    renter_is_active=True,
+                )
+
+                UnitResidenceHistory.objects.create(
+                    unit=unit,
+                    resident_type='renter',
+                    renter=renter,
+                    name=renter.renter_name or '',
+                    mobile=renter.renter_mobile or '',
+                    people_count=int(
+                        renter.renter_people_count or 0
+                    ),
+                    from_date=start_date,
+                    to_date=None,
+                    changed_by=request.user,
+                )
+
+                unit.is_renter = True
+
+                try:
+                    unit.people_count = int(
+                        renter.renter_people_count or 0
+                    )
+                except (ValueError, TypeError):
+                    unit.people_count = 0
+
+                unit.save(
+                    update_fields=[
+                        'is_renter',
+                        'people_count',
+                    ]
+                )
+
+                return self.success(
+                    'مستأجر با موفقیت ثبت شد.',
+                    {
+                        'unit': self.unit_data(unit),
+                        'renter': self.renter_data(renter),
+                    },
+                    status.HTTP_201_CREATED,
+                )
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Manager renter create failed'
+            )
+            return self.error(
+                'خطا در ثبت مستأجر.',
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ManagerRenterDeactivateAPIView(ManagerUnitBaseView):
+
+    def patch(self, request, renter_id):
+        if not request.user.is_middle_admin:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        renter = Renter.objects.select_related(
+            'unit',
+            'unit__myhouse',
+        ).filter(
+            pk=renter_id,
+            unit__myhouse__user=request.user,
+            unit__myhouse__is_active=True,
+        ).first()
+
+        if renter is None:
+            return self.error(
+                'مستأجر پیدا نشد یا دسترسی ندارید.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        today = date.today()
+
+        try:
+            with transaction.atomic():
+                renter = Renter.objects.select_for_update().get(
+                    pk=renter.pk,
+                )
+
+                unit = Unit.objects.select_for_update().get(
+                    pk=renter.unit_id,
+                    myhouse__user=request.user,
+                    myhouse__is_active=True,
+                )
+
+                renter.renter_is_active = False
+                renter.end_date = renter.end_date or today
+
+                renter.save(update_fields=[
+                    'renter_is_active',
+                    'end_date',
+                ])
+
+                UnitResidenceHistory.objects.filter(
+                    unit=unit,
+                    renter=renter,
+                    to_date__isnull=True,
+                ).update(to_date=today)
+
+                # فقط اگر مستأجر دیگری فعال نیست،
+                # وضعیت سکونت واحد را تغییر می‌دهیم.
+                another_active_renter = Renter.objects.filter(
+                    unit=unit,
+                    renter_is_active=True,
+                ).exclude(pk=renter.pk).exists()
+
+                if not another_active_renter:
+                    unit.is_renter = False
+                    unit.people_count = unit.owner_people_count or 0
+
+                    unit.save(update_fields=[
+                        'is_renter',
+                        'people_count',
+                    ])
+
+                return self.success(
+                    'مستأجر با موفقیت غیرفعال شد.',
+                    {
+                        'renter': self.renter_data(renter),
+                    },
+                )
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Manager renter deactivate failed'
+            )
+            return self.error(
+                'خطا در غیرفعال‌سازی مستأجر.',
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ManagerRenterDeleteAPIView(ManagerUnitBaseView):
+
+    def delete(self, request, renter_id):
+        if not request.user.is_middle_admin:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        renter = Renter.objects.select_related(
+            'unit',
+            'unit__myhouse',
+        ).filter(
+            pk=renter_id,
+            is_deleted=False,
+            unit__myhouse__user=request.user,
+            unit__myhouse__is_active=True,
+        ).first()
+
+        if renter is None:
+            return self.error(
+                'مستأجر پیدا نشد یا قبلاً حذف شده است.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        today = date.today()
+
+        try:
+            with transaction.atomic():
+                renter = Renter.objects.select_for_update().get(
+                    pk=renter.pk,
+                    is_deleted=False,
+                )
+
+                unit = Unit.objects.select_for_update().get(
+                    pk=renter.unit_id,
+                    myhouse__user=request.user,
+                    myhouse__is_active=True,
+                )
+
+                # بستن تاریخچه باز، بدون حذف رکورد تاریخچه
+                UnitResidenceHistory.objects.filter(
+                    unit=unit,
+                    renter=renter,
+                    to_date__isnull=True,
+                ).update(to_date=today)
+
+                renter.renter_is_active = False
+                renter.is_deleted = True
+                renter.end_date = renter.end_date or today
+
+                renter.save(update_fields=[
+                    'renter_is_active',
+                    'is_deleted',
+                    'end_date',
+                ])
+
+                another_active_renter = Renter.objects.filter(
+                    unit=unit,
+                    renter_is_active=True,
+                    is_deleted=False,
+                ).exists()
+
+                if not another_active_renter:
+                    unit.is_renter = False
+                    unit.people_count = unit.owner_people_count or 0
+
+                    unit.save(update_fields=[
+                        'is_renter',
+                        'people_count',
+                    ])
+
+                return self.success(
+                    'مستأجر با موفقیت حذف نرم شد.',
+                    {
+                        'renter_id': renter.pk,
+                        'is_deleted': True,
+                    },
+                )
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Manager renter soft delete failed'
+            )
+            return self.error(
+                'خطا در حذف مستأجر.',
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ManagerRenterUpdateAPIView(ManagerUnitBaseView):
+
+    def patch(self, request, renter_id):
+        renter = Renter.objects.select_related(
+            'unit',
+            'unit__myhouse',
+            'user',
+        ).filter(
+            pk=renter_id,
+            renter_is_active=True,
+            unit__myhouse__user=request.user,
+            unit__myhouse__is_active=True,
+        ).first()
+
+        if not request.user.is_middle_admin:
+            return self.error(
+                'دسترسی مدیر معتبر نیست.',
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        if renter is None:
+            return self.error(
+                'مستأجر فعال پیدا نشد یا دسترسی به آن ندارید.',
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        serializer = ManagerRenterSerializer(
+            data=request.data,
+            partial=True,
+        )
+
+        if not serializer.is_valid():
+            return self.error(
+                'اطلاعات مستأجر معتبر نیست.',
+                status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        unit = renter.unit
+        house = unit.myhouse
+
+        try:
+            with transaction.atomic():
+
+                renter = Renter.objects.select_for_update().get(
+                    pk=renter.pk,
+                    unit__myhouse=house,
+                    renter_is_active=True,
+                )
+
+                old_mobile = renter.user.mobile
+
+                new_mobile = data.get(
+                    'renter_mobile',
+                    renter.renter_mobile,
+                )
+
+                new_name = data.get(
+                    'renter_name',
+                    renter.renter_name,
+                )
+
+                renter_user = renter.user
+
+                if new_mobile != old_mobile:
+                    other_user = User.objects.filter(
+                        mobile=new_mobile,
+                    ).exclude(
+                        pk=renter_user.pk,
+                    ).first()
+
+                    if other_user:
+                        return self.error(
+                            'شماره موبایل به کاربر دیگری تعلق دارد.',
+                        )
+
+                if Renter.objects.filter(
+                        user__mobile=new_mobile,
+                        renter_is_active=True,
+                ).exclude(
+                    pk=renter.pk,
+                ).exclude(
+                    unit=unit,
+                ).exists():
+                    return self.error(
+                        'این شماره در واحد دیگری مستأجر فعال است.',
+                    )
+
+                renter_user.mobile = new_mobile
+                renter_user.username = new_mobile
+                renter_user.full_name = new_name or renter_user.full_name
+                renter_user.house = house
+                renter_user.is_active = True
+                renter_user.is_unit = True
+
+                if renter_user.pk != request.user.pk:
+                    renter_user.manager = request.user
+
+                if data.get('renter_password'):
+                    renter_user.set_password(
+                        data['renter_password']
+                    )
+
+                renter_user.save()
+
+                editable_fields = [
+                    'renter_name',
+                    'renter_mobile',
+                    'renter_national_code',
+                    'renter_people_count',
+                    'start_date',
+                    'end_date',
+                    'contract_number',
+                    'estate_name',
+                    'renter_details',
+                ]
+
+                for field in editable_fields:
+                    if field in data:
+                        setattr(renter, field, data[field])
+
+                if (
+                        renter.start_date
+                        and renter.end_date
+                        and renter.end_date < renter.start_date
+                ):
+                    return self.error(
+                        'تاریخ پایان اجاره نمی‌تواند قبل از تاریخ شروع باشد.',
+                    )
+
+                renter.save()
+
+                # تاریخچه باز همین مستأجر را به‌روز می‌کنیم.
+                history = UnitResidenceHistory.objects.filter(
+                    unit=unit,
+                    renter=renter,
+                    to_date__isnull=True,
+                ).order_by('-id').first()
+
+                if history is None:
+                    history = UnitResidenceHistory.objects.create(
+                        unit=unit,
+                        resident_type='renter',
+                        renter=renter,
+                        name=renter.renter_name or '',
+                        mobile=renter.renter_mobile or '',
+                        people_count=int(
+                            renter.renter_people_count or 0
+                        ),
+                        from_date=(
+                                renter.start_date
+                                or timezone.localdate()
+                        ),
+                        to_date=None,
+                        changed_by=request.user,
+                    )
+                else:
+                    history.name = renter.renter_name or ''
+                    history.mobile = renter.renter_mobile or ''
+                    history.people_count = int(
+                        renter.renter_people_count or 0
+                    )
+                    history.from_date = (
+                            renter.start_date
+                            or history.from_date
+                    )
+                    history.save(
+                        update_fields=[
+                            'name',
+                            'mobile',
+                            'people_count',
+                            'from_date',
+                        ]
+                    )
+
+                try:
+                    unit.people_count = int(
+                        renter.renter_people_count or 0
+                    )
+                except (ValueError, TypeError):
+                    unit.people_count = 0
+
+                unit.is_renter = True
+                unit.save(
+                    update_fields=[
+                        'is_renter',
+                        'people_count',
+                    ]
+                )
+
+                return self.success(
+                    'اطلاعات مستأجر فعال با موفقیت ویرایش شد.',
+                    {
+                        'unit': self.unit_data(unit),
+                        'renter': self.renter_data(renter),
+                    },
+                )
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                'Manager renter update failed'
+            )
+            return self.error(
+                'خطا در ویرایش مستأجر.',
+                status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
 
 
 # ================ Charge Management ============================
@@ -13380,9 +15583,6 @@ class ManagerFixedChargeCreateView(APIView):
             )
 
 
-logger = logging.getLogger(__name__)
-
-
 class ManagerFixedChargeAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -13521,8 +15721,6 @@ class ManagerFixedChargeAPIView(APIView):
                     and not related.filter(is_paid=True).exists()
             ),
         }
-
-
 
     # --------------------------------------------------
     # ذخیره یا همگام‌سازی UnifiedChargeها
@@ -14049,9 +16247,9 @@ class ManagerFixedChargeUnitsAPIView(APIView):
                     uc.total_charge_month
                     if uc
                     else (
-                        (charge.fix_amount or Decimal("0")) +
-                        (getattr(charge, "civil", 0) or Decimal("0")) +
-                        (charge.other_cost_amount or Decimal("0"))
+                            (charge.fix_amount or Decimal("0")) +
+                            (getattr(charge, "civil", 0) or Decimal("0")) +
+                            (charge.other_cost_amount or Decimal("0"))
                     )
                 ),
 
@@ -14075,8 +16273,6 @@ class ManagerFixedChargeUnitsAPIView(APIView):
             "count": len(results),
             "results": results,
         })
-
-
 
 
 class ManagerFixedChargeSendAPIView(APIView):
@@ -14220,23 +16416,23 @@ class ManagerFixedChargeSendAPIView(APIView):
                         )
 
                         civil_amount = (
-                            getattr(charge, "civil", 0)
-                            or Decimal("0")
+                                getattr(charge, "civil", 0)
+                                or Decimal("0")
                         )
 
                         other_amount = (
-                            getattr(
-                                charge,
-                                "other_cost_amount",
-                                0,
-                            )
-                            or Decimal("0")
+                                getattr(
+                                    charge,
+                                    "other_cost_amount",
+                                    0,
+                                )
+                                or Decimal("0")
                         )
 
                         total = (
-                            base_amount
-                            + civil_amount
-                            + other_amount
+                                base_amount
+                                + civil_amount
+                                + other_amount
                         )
 
                         document_number = (
@@ -14367,8 +16563,8 @@ class ManagerFixedChargeSendAPIView(APIView):
             )
 
             def save_sms_metadata(
-                total_sms,
-                total_price,
+                    total_sms,
+                    total_price,
             ):
                 """
                 این callback فقط در مسیر موفقیت سرویس
@@ -14381,8 +16577,8 @@ class ManagerFixedChargeSendAPIView(APIView):
                 # هزینه کل را به نسبت تعداد گیرندگان
                 # بین شارژهای پیامک‌شده تقسیم می‌کنیم.
                 per_charge_price = (
-                    Decimal(str(total_price))
-                    / Decimal(total_sms)
+                        Decimal(str(total_price))
+                        / Decimal(total_sms)
                 )
 
                 for sms_charge in sms_eligible_charges:
@@ -14441,8 +16637,8 @@ class ManagerFixedChargeSendAPIView(APIView):
                 "sms_sent": False,
                 "sms_sent_count": 0,
                 "detail": (
-                    "اعلان سیستمی ثبت شد؛ ارسال پیامک موفق نبود: "
-                    + sms_result.message
+                        "اعلان سیستمی ثبت شد؛ ارسال پیامک موفق نبود: "
+                        + sms_result.message
                 ),
             })
 
@@ -14458,7 +16654,6 @@ class ManagerFixedChargeSendAPIView(APIView):
             "detail":
                 "اعلان سیستمی ثبت شد و پیامک با موفقیت ارسال شد.",
         })
-
 
 
 class ManagerFixedChargeCancelAPIView(APIView):
@@ -14546,4 +16741,1123 @@ class ManagerFixedChargeCancelAPIView(APIView):
             "ok": True,
             "cancelled_count": cancelled_count,
             "detail": "اطلاع‌رسانی واحدهای انتخاب‌شده لغو شد.",
+        })
+
+
+# ============== Area Charge ========================
+class ManagerAreaChargeAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    # --------------------------------------------------
+    # ساختمان و دسترسی مدیر
+    # --------------------------------------------------
+
+    def get_house(self, request):
+        if not getattr(request.user, "is_middle_admin", False):
+            return None
+
+        return getattr(request.user, "house", None)
+
+    def check_manager(self, request):
+        if not getattr(request.user, "is_middle_admin", False):
+            return Response(
+                {"detail": "شما اجازه مدیریت شارژها را ندارید."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        if not getattr(request.user, "house", None):
+            return Response(
+                {"detail": "ساختمان مدیر مشخص نشده است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return None
+
+    def get_charge(self, request, pk):
+        return AreaCharge.objects.filter(
+            pk=pk,
+            user=request.user,
+        ).first()
+
+    def get_active_units(self, house):
+        return Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).distinct()
+
+    def get_content_type(self):
+        return ContentType.objects.get_for_model(AreaCharge)
+
+    # --------------------------------------------------
+    # بررسی وضعیت اعلان و پرداخت
+    # --------------------------------------------------
+
+    def has_notification(self, charge):
+        return UnifiedCharge.objects.filter(
+            content_type=self.get_content_type(),
+            object_id=charge.pk,
+            send_notification=True,
+        ).exists()
+
+    def has_payment(self, charge):
+        return UnifiedCharge.objects.filter(
+            content_type=self.get_content_type(),
+            object_id=charge.pk,
+            is_paid=True,
+        ).exists()
+
+    # --------------------------------------------------
+    # محاسبه مبلغ یک واحد
+    # --------------------------------------------------
+
+    def calculate_unit_amount(self, unit, charge):
+        area = getattr(unit, "area", None)
+
+        if area is None:
+            raise ValueError(
+                f"متراژ واحد {unit.pk} مشخص نشده است."
+            )
+
+        area_amount = Decimal(str(charge.area_amount or 0))
+        unit_area = Decimal(str(area))
+
+        base_amount = unit_area * area_amount
+
+        other_amount = Decimal(
+            str(charge.other_cost_amount or 0)
+        )
+
+        total_amount = base_amount + other_amount
+
+        return base_amount, other_amount, total_amount
+
+    # --------------------------------------------------
+    # خروجی JSON
+    # --------------------------------------------------
+
+    def serialize_charge(self, charge):
+        content_type = self.get_content_type()
+
+        related = UnifiedCharge.objects.filter(
+            content_type=content_type,
+            object_id=charge.pk,
+        )
+
+        unit_count = (
+            related.values("unit_id").distinct().count()
+        )
+
+        notified_units_count = (
+            related.filter(
+                send_notification=True
+            ).values("unit_id").distinct().count()
+        )
+
+        return {
+            "id": charge.pk,
+            "name": charge.name or "",
+            "charge_type": "area",
+            "area_amount": charge.area_amount or 0,
+            "total_area": charge.total_area or 0,
+            "unit_count": unit_count,
+            "notified_units_count": notified_units_count,
+            "send_notification": notified_units_count > 0,
+            "other_cost_amount": charge.other_cost_amount or 0,
+            "payment_penalty_amount": (
+                    charge.payment_penalty_amount or 0
+            ),
+            "payment_deadline": (
+                charge.payment_deadline.isoformat()
+                if charge.payment_deadline else None
+            ),
+            "details": charge.details or "",
+            "created_at": (
+                charge.created_at.isoformat()
+                if charge.created_at else None
+            ),
+            "can_edit": not self.has_notification(charge),
+            "can_delete": (
+                    not self.has_notification(charge)
+                    and not self.has_payment(charge)
+            ),
+        }
+
+    # --------------------------------------------------
+    # ساخت یا همگام‌سازی UnifiedCharge
+    # --------------------------------------------------
+
+    def sync_unified_charges(
+            self,
+            request,
+            charge,
+            units,
+    ):
+        content_type = self.get_content_type()
+
+        with transaction.atomic():
+            for unit in units.iterator():
+                base_amount, other_amount, total_amount = (
+                    self.calculate_unit_amount(unit, charge)
+                )
+
+                lookup = {
+                    "user": request.user,
+                    "unit": unit,
+                    "content_type": content_type,
+                    "object_id": charge.pk,
+                }
+
+                unified_charge = (
+                    UnifiedCharge.objects.select_for_update()
+                    .filter(**lookup)
+                    .first()
+                )
+
+                if unified_charge:
+                    # شارژ دارای پرداخت را بازنویسی نمی‌کنیم.
+                    if unified_charge.is_paid:
+                        continue
+
+                    # پس از ارسال اعلان، مبلغ و اطلاعات مالی
+                    # رکورد قبلی را تغییر نمی‌دهیم.
+                    if unified_charge.send_notification:
+                        continue
+
+                    unified_charge.house = unit.myhouse
+                    unified_charge.charge_type = "area"
+                    unified_charge.amount = base_amount
+                    unified_charge.base_charge = total_amount
+                    unified_charge.other_cost_amount = other_amount
+                    unified_charge.penalty_percent = (
+                            charge.payment_penalty_amount or 0
+                    )
+                    unified_charge.penalty_amount = 0
+                    unified_charge.total_charge_month = total_amount
+                    unified_charge.details = charge.details or ""
+                    unified_charge.title = charge.name or "شارژ متراژی"
+                    unified_charge.payment_deadline_date = (
+                        charge.payment_deadline
+                    )
+
+                    # عمداً فیلد civil را تغییر نمی‌دهیم.
+                    # توکن پرداخت، شماره سند و وضعیت پیامک حفظ می‌شوند.
+                    unified_charge.save()
+
+                else:
+                    UnifiedCharge.objects.create(
+                        **lookup,
+                        house=unit.myhouse,
+                        bank=None,
+                        charge_type="area",
+                        amount=base_amount,
+                        base_charge=total_amount,
+                        other_cost_amount=other_amount,
+                        penalty_percent=(
+                                charge.payment_penalty_amount or 0
+                        ),
+                        penalty_amount=0,
+                        total_charge_month=total_amount,
+                        details=charge.details or "",
+                        title=charge.name or "شارژ متراژی",
+                        payment_deadline_date=charge.payment_deadline,
+                        payment_token=secrets.token_urlsafe(12),
+                        send_notification=False,
+                    )
+
+    # --------------------------------------------------
+    # GET: فهرست و جزئیات
+    # --------------------------------------------------
+
+    def get(self, request, pk=None):
+        denied = self.check_manager(request)
+        if denied:
+            return denied
+
+        if pk is not None:
+            charge = self.get_charge(request, pk)
+
+            if not charge:
+                return Response(
+                    {"detail": "شارژ متراژی پیدا نشد."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            return Response(self.serialize_charge(charge))
+
+        charges = (
+            AreaCharge.objects
+            .filter(user=request.user)
+            .order_by("-created_at")
+        )
+
+        results = [
+            self.serialize_charge(charge)
+            for charge in charges
+        ]
+
+        return Response({
+            "count": len(results),
+            "results": results,
+        })
+
+    # --------------------------------------------------
+    # POST: ایجاد شارژ متراژی
+    # --------------------------------------------------
+
+    def post(self, request, pk=None):
+        denied = self.check_manager(request)
+        if denied:
+            return denied
+
+        if pk is not None:
+            return Response(
+                {"detail": "برای ایجاد شارژ از مسیر بدون شناسه استفاده کنید."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        house = self.get_house(request)
+        units = self.get_active_units(house)
+
+        if not units.exists():
+            return Response(
+                {"detail": "هیچ واحد فعالی در ساختمان وجود ندارد."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        form = AreaChargeForm(data=request.data)
+
+        if not form.is_valid():
+            return Response(
+                {
+                    "detail": "اطلاعات فرم معتبر نیست.",
+                    "errors": {
+                        key: [str(error) for error in errors]
+                        for key, errors in form.errors.items()
+                    },
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                charge = form.save(commit=False)
+                charge.user = request.user
+                charge.unit_count = units.count()
+
+                # مجموع متراژ واحدهای فعال
+                total_area = Decimal("0")
+
+                for unit in units.iterator():
+                    area = getattr(unit, "area", None)
+
+                    if area is None:
+                        raise ValueError(
+                            f"متراژ واحد {unit.pk} مشخص نشده است."
+                        )
+
+                    total_area += Decimal(str(area))
+
+                charge.total_area = total_area
+                charge.save()
+
+                self.sync_unified_charges(
+                    request=request,
+                    charge=charge,
+                    units=units,
+                )
+
+            return Response(
+                {
+                    "detail": "شارژ متراژی با موفقیت ثبت شد.",
+                    "charge": self.serialize_charge(charge),
+                },
+                status=status.HTTP_201_CREATED,
+            )
+
+        except Exception:
+            logger.exception("خطا در ثبت شارژ متراژی")
+
+            return Response(
+                {
+                    "detail": (
+                        "ثبت شارژ انجام نشد. "
+                        "گزارش خطای سرور را بررسی کنید."
+                    )
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # --------------------------------------------------
+    # PATCH: ویرایش شارژ متراژی
+    # --------------------------------------------------
+
+    def patch(self, request, pk=None):
+        denied = self.check_manager(request)
+        if denied:
+            return denied
+
+        if pk is None:
+            return Response(
+                {"detail": "شناسه شارژ ارسال نشده است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                charge = (
+                    AreaCharge.objects.select_for_update()
+                    .filter(pk=pk, user=request.user)
+                    .first()
+                )
+
+                if not charge:
+                    return Response(
+                        {"detail": "شارژ متراژی پیدا نشد."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                if self.has_notification(charge):
+                    return Response(
+                        {
+                            "detail": (
+                                "برای این شارژ اعلان ارسال شده "
+                                "و امکان ویرایش وجود ندارد."
+                            ),
+                            "code": "charge_already_notified",
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                if self.has_payment(charge):
+                    return Response(
+                        {
+                            "detail": (
+                                "برای این شارژ پرداخت ثبت شده "
+                                "و امکان ویرایش وجود ندارد."
+                            ),
+                            "code": "charge_already_paid",
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                house = self.get_house(request)
+                units = self.get_active_units(house)
+
+                if not units.exists():
+                    return Response(
+                        {"detail": "هیچ واحد فعالی در ساختمان وجود ندارد."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                data = request.data.copy()
+
+                current_values = {
+                    "name": charge.name or "",
+                    "area_amount": charge.area_amount or 0,
+                    "details": charge.details or "",
+                    "payment_penalty_amount": (
+                            charge.payment_penalty_amount or 0
+                    ),
+                    "other_cost_amount": (
+                            charge.other_cost_amount or 0
+                    ),
+                }
+
+                for field, value in current_values.items():
+                    if field not in data:
+                        data[field] = value
+
+                if "payment_deadline" not in data:
+                    if charge.payment_deadline:
+                        jalali_deadline = jdatetime.date.fromgregorian(
+                            date=charge.payment_deadline
+                        )
+                        data["payment_deadline"] = (
+                            jalali_deadline.strftime("%Y/%m/%d")
+                        )
+
+                form = AreaChargeForm(
+                    data=data,
+                    instance=charge,
+                )
+
+                if not form.is_valid():
+                    return Response(
+                        {
+                            "detail": "اطلاعات فرم معتبر نیست.",
+                            "errors": {
+                                key: [str(error) for error in errors]
+                                for key, errors in form.errors.items()
+                            },
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                charge = form.save(commit=False)
+                charge.unit_count = units.count()
+
+                total_area = Decimal("0")
+
+                for unit in units.iterator():
+                    area = getattr(unit, "area", None)
+
+                    if area is None:
+                        raise ValueError(
+                            f"متراژ واحد {unit.pk} مشخص نشده است."
+                        )
+
+                    total_area += Decimal(str(area))
+
+                charge.total_area = total_area
+                charge.save()
+
+                self.sync_unified_charges(
+                    request=request,
+                    charge=charge,
+                    units=units,
+                )
+
+            return Response({
+                "detail": "شارژ متراژی با موفقیت ویرایش شد.",
+                "charge": self.serialize_charge(charge),
+            })
+
+        except Exception:
+            logger.exception("خطا در ویرایش شارژ متراژی")
+
+            return Response(
+                {"detail": "ویرایش شارژ انجام نشد. گزارش سرور را بررسی کنید."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+    # --------------------------------------------------
+    # DELETE: حذف شارژ متراژی
+    # --------------------------------------------------
+
+    def delete(self, request, pk=None):
+        denied = self.check_manager(request)
+        if denied:
+            return denied
+
+        if pk is None:
+            return Response(
+                {"detail": "شناسه شارژ ارسال نشده است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            with transaction.atomic():
+                charge = (
+                    AreaCharge.objects.select_for_update()
+                    .filter(pk=pk, user=request.user)
+                    .first()
+                )
+
+                if not charge:
+                    return Response(
+                        {"detail": "شارژ متراژی پیدا نشد."},
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                if self.has_notification(charge):
+                    return Response(
+                        {
+                            "detail": (
+                                "برای این شارژ اعلان ارسال شده "
+                                "و امکان حذف وجود ندارد."
+                            ),
+                            "code": "charge_already_notified",
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                if self.has_payment(charge):
+                    return Response(
+                        {
+                            "detail": (
+                                "برای این شارژ پرداخت ثبت شده "
+                                "و امکان حذف وجود ندارد."
+                            ),
+                            "code": "charge_already_paid",
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
+
+                charge_name = charge.name or "شارژ متراژی"
+                charge.delete()
+
+            return Response({
+                "detail": f"{charge_name} با موفقیت حذف شد."
+            })
+
+        except ProtectedError:
+            return Response(
+                {
+                    "detail": (
+                        "به دلیل وابستگی‌های مالی، "
+                        "حذف این شارژ امکان‌پذیر نیست."
+                    )
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        except Exception:
+            logger.exception("خطا در حذف شارژ متراژی")
+
+            return Response(
+                {"detail": "حذف شارژ انجام نشد. گزارش سرور را بررسی کنید."},
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ManagerAreaChargeUnitsAPIView(APIView):
+    """
+    GET /api/manager/charges/area/<pk>/units/
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        if not getattr(request.user, "is_middle_admin", False):
+            return Response(
+                {"detail": "شما اجازه مدیریت شارژها را ندارید."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        house = getattr(request.user, "house", None)
+
+        if not house:
+            return Response(
+                {"detail": "ساختمان مدیر مشخص نشده است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        charge = AreaCharge.objects.filter(
+            pk=pk,
+            user=request.user,
+        ).first()
+
+        if not charge:
+            return Response(
+                {"detail": "شارژ متراژی پیدا نشد."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        units = Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+        ).distinct()
+
+        search = request.query_params.get("search", "").strip()
+        resident_type = request.query_params.get(
+            "resident_type", "all"
+        ).strip()
+
+        if search:
+            units = units.filter(
+                Q(unit__icontains=search)
+                | Q(owner_name__icontains=search)
+                | Q(renters__renter_name__icontains=search)
+            ).distinct()
+
+        if resident_type == "owner":
+            units = units.exclude(
+                renters__renter_is_active=True
+            )
+
+        elif resident_type == "renter":
+            units = units.filter(
+                renters__renter_is_active=True
+            ).distinct()
+
+        elif resident_type == "empty":
+            units = units.filter(status_residence="empty")
+
+        content_type = ContentType.objects.get_for_model(
+            AreaCharge
+        )
+
+        existing = UnifiedCharge.objects.filter(
+            content_type=content_type,
+            object_id=charge.pk,
+            unit_id__in=units.values("id"),
+        ).select_related("unit")
+
+        charge_by_unit = {
+            item.unit_id: item for item in existing
+        }
+
+        results = []
+
+        for unit in units.order_by("unit"):
+            uc = charge_by_unit.get(unit.pk)
+
+            renter = unit.renters.filter(
+                renter_is_active=True
+            ).first()
+
+            area = getattr(unit, "area", None)
+
+            base_amount = (
+                    Decimal(str(area or 0))
+                    * Decimal(str(charge.area_amount or 0))
+            )
+
+            other_amount = Decimal(
+                str(charge.other_cost_amount or 0)
+            )
+
+            calculated_total = base_amount + other_amount
+
+            # اگر سند ثبت شده است، مبلغ ذخیره‌شده را نمایش بده.
+            current_amount = (
+                uc.total_charge_month
+                if uc
+                else calculated_total
+            )
+
+            results.append({
+                "id": unit.pk,
+                "unit": str(unit.unit),
+                "area": str(area if area is not None else ""),
+                "owner_name": unit.owner_name or "",
+                "renter_name": (
+                    renter.renter_name if renter else ""
+                ),
+                "resident_type": (
+                    "renter" if renter
+                    else (
+                        "empty"
+                        if unit.status_residence == "empty"
+                        else "owner"
+                    )
+                ),
+
+                "is_notified": bool(
+                    uc and uc.send_notification
+                ),
+
+                "send_sms": bool(uc and uc.send_sms),
+
+                "send_sms_date": (
+                    uc.send_sms_date.isoformat()
+                    if uc and uc.send_sms_date
+                    else None
+                ),
+
+                "is_paid": bool(uc and uc.is_paid),
+
+                "current_charge": str(current_amount),
+
+                "financial_document_number": (
+                    uc.financial_document_number
+                    if uc else None
+                ),
+            })
+
+        return Response({
+            "charge_id": charge.pk,
+            "charge_name": charge.name,
+            "charge_type": "area",
+            "area_amount": str(charge.area_amount or 0),
+            "total_area": str(charge.total_area or 0),
+            "payment_deadline": (
+                charge.payment_deadline.isoformat()
+                if charge.payment_deadline else None
+            ),
+            "count": len(results),
+            "results": results,
+        })
+
+
+class ManagerAreaChargeSendAPIView(APIView):
+    """
+    POST /api/manager/charges/area/<pk>/units/send/
+
+    {
+        "unit_ids": [1, 2, 3],
+        "send_sms": true
+    }
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if not getattr(request.user, "is_middle_admin", False):
+            return Response(
+                {"detail": "شما اجازه مدیریت شارژها را ندارید."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        house = getattr(request.user, "house", None)
+
+        charge = AreaCharge.objects.filter(
+            pk=pk,
+            user=request.user,
+        ).first()
+
+        if not house or not charge:
+            return Response(
+                {"detail": "شارژ یا ساختمان پیدا نشد."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        raw_ids = request.data.get("unit_ids", [])
+
+        if not isinstance(raw_ids, list) or not raw_ids:
+            return Response(
+                {"detail": "حداقل یک واحد را انتخاب کنید."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            selected_ids = {int(value) for value in raw_ids}
+
+            if any(value <= 0 for value in selected_ids):
+                raise ValueError
+
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "شناسه واحدها معتبر نیست."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        send_sms = request.data.get("send_sms", False)
+
+        if not isinstance(send_sms, bool):
+            return Response(
+                {"detail": "مقدار send_sms باید بولی باشد."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        units = Unit.objects.filter(
+            myhouse=house,
+            is_active=True,
+            id__in=selected_ids,
+        ).distinct()
+
+        units_by_id = {unit.pk: unit for unit in units}
+
+        if set(units_by_id) != selected_ids:
+            return Response(
+                {
+                    "detail":
+                        "برخی واحدها نامعتبرند یا به ساختمان شما تعلق ندارند."
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = ContentType.objects.get_for_model(
+            AreaCharge
+        )
+
+        notified_charges = []
+
+        try:
+            with transaction.atomic():
+                for unit_id in sorted(selected_ids):
+                    unit = units_by_id[unit_id]
+
+                    area = getattr(unit, "area", None)
+
+                    if area is None:
+                        raise ValueError(
+                            f"متراژ واحد {unit.pk} مشخص نشده است."
+                        )
+
+                    base_amount = (
+                            Decimal(str(area))
+                            * Decimal(str(charge.area_amount or 0))
+                    )
+
+                    other_amount = Decimal(
+                        str(charge.other_cost_amount or 0)
+                    )
+
+                    total_amount = base_amount + other_amount
+
+                    uc = (
+                        UnifiedCharge.objects.select_for_update()
+                        .filter(
+                            content_type=content_type,
+                            object_id=charge.pk,
+                            unit=unit,
+                        )
+                        .first()
+                    )
+
+                    if uc is None:
+                        document_number = (
+                            get_next_financial_document_number(
+                                unit.myhouse
+                            )
+                        )
+
+                        uc = UnifiedCharge.objects.create(
+                            user=request.user,
+                            unit=unit,
+                            house=unit.myhouse,
+                            bank=None,
+                            financial_document_number=document_number,
+                            content_type=content_type,
+                            object_id=charge.pk,
+                            charge_type="area",
+                            amount=base_amount,
+                            base_charge=total_amount,
+                            other_cost_amount=other_amount,
+                            penalty_percent=(
+                                    charge.payment_penalty_amount or 0
+                            ),
+                            penalty_amount=0,
+                            total_charge_month=total_amount,
+                            details=charge.details or "",
+                            title=charge.name or "شارژ متراژی",
+                            payment_deadline_date=charge.payment_deadline,
+                            payment_token=secrets.token_urlsafe(12),
+                            send_notification=False,
+                        )
+
+                    elif not uc.financial_document_number:
+                        uc.financial_document_number = (
+                            get_next_financial_document_number(
+                                unit.myhouse
+                            )
+                        )
+
+                        uc.save(
+                            update_fields=[
+                                "financial_document_number"
+                            ]
+                        )
+
+                    # سند پرداخت‌شده نباید از نو محاسبه شود.
+                    if uc.is_paid:
+                        notified_charges.append(uc)
+                        continue
+
+                    # مبلغ و مشخصات مالی سند موجود حفظ می‌شود.
+                    uc.send_notification = True
+                    uc.send_notification_date = (
+                        timezone.now().date()
+                    )
+                    uc.save(
+                        update_fields=[
+                            "send_notification",
+                            "send_notification_date",
+                        ]
+                    )
+
+                    notified_charges.append(uc)
+
+        except Exception:
+            logger.exception(
+                "خطا در ثبت اعلان شارژ متراژی"
+            )
+
+            return Response(
+                {
+                    "detail":
+                        "ثبت اعلان انجام نشد. گزارش خطای سرور را بررسی کنید."
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+        if not send_sms:
+            return Response({
+                "ok": True,
+                "sent_count": len(notified_charges),
+                "sms_requested": False,
+                "sms_sent": False,
+                "detail": "اعلان سیستمی شارژ ثبت شد.",
+            })
+
+        sms_eligible_charges = [
+            uc for uc in notified_charges
+            if normalize_mobile(uc.get_mobile())
+        ]
+
+        if not sms_eligible_charges:
+            return Response({
+                "ok": True,
+                "sent_count": len(notified_charges),
+                "sms_requested": True,
+                "sms_sent": False,
+                "sms_sent_count": 0,
+                "detail":
+                    "اعلان ثبت شد، اما شماره موبایل معتبری برای پیامک وجود ندارد.",
+            })
+
+        try:
+            from django.conf import settings
+
+            unit_sms_price = Decimal(
+                str(settings.SMS_PRICE)
+            )
+
+            def save_sms_metadata(total_sms, total_price):
+                if total_sms <= 0:
+                    return
+
+                per_charge_price = (
+                        Decimal(str(total_price))
+                        / Decimal(total_sms)
+                )
+
+                for sms_charge in sms_eligible_charges:
+                    sms_charge.send_sms = True
+                    sms_charge.send_sms_date = (
+                        timezone.now().date()
+                    )
+                    sms_charge.sms_count = 1
+                    sms_charge.sms_price = unit_sms_price
+                    sms_charge.sms_total_price = per_charge_price
+
+                UnifiedCharge.objects.bulk_update(
+                    sms_eligible_charges,
+                    [
+                        "send_sms",
+                        "send_sms_date",
+                        "sms_count",
+                        "sms_price",
+                        "sms_total_price",
+                    ],
+                )
+
+            sms_result = SmsService.send_for_unified_charges(
+                user=request.user,
+                unified_charges=sms_eligible_charges,
+                meta_callback=save_sms_metadata,
+            )
+
+        except Exception:
+            logger.exception(
+                "خطا در ارسال پیامک شارژ متراژی"
+            )
+
+            return Response({
+                "ok": True,
+                "sent_count": len(notified_charges),
+                "sms_requested": True,
+                "sms_sent": False,
+                "sms_sent_count": 0,
+                "detail":
+                    "اعلان سیستمی ثبت شد، اما ارسال پیامک با خطا مواجه شد.",
+            })
+
+        if not sms_result.success:
+            return Response({
+                "ok": True,
+                "sent_count": len(notified_charges),
+                "sms_requested": True,
+                "sms_sent": False,
+                "sms_sent_count": 0,
+                "detail": (
+                        "اعلان ثبت شد، اما ارسال پیامک موفق نبود: "
+                        + sms_result.message
+                ),
+            })
+
+        return Response({
+            "ok": True,
+            "sent_count": len(notified_charges),
+            "sms_requested": True,
+            "sms_sent": True,
+            "sms_sent_count": sms_result.total_sms,
+            "sms_total_price": str(sms_result.total_price),
+            "detail":
+                "اعلان سیستمی ثبت شد و پیامک با موفقیت ارسال شد.",
+        })
+
+
+class ManagerAreaChargeCancelAPIView(APIView):
+    """
+    POST /api/manager/charges/area/<pk>/units/cancel/
+
+    {
+        "unit_ids": [1, 2, 3]
+    }
+    """
+
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        if not getattr(request.user, "is_middle_admin", False):
+            return Response(
+                {"detail": "شما اجازه مدیریت شارژها را ندارید."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        house = getattr(request.user, "house", None)
+
+        charge = AreaCharge.objects.filter(
+            pk=pk,
+            user=request.user,
+        ).first()
+
+        if not house or not charge:
+            return Response(
+                {"detail": "شارژ یا ساختمان پیدا نشد."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        raw_ids = request.data.get("unit_ids", [])
+
+        if not isinstance(raw_ids, list) or not raw_ids:
+            return Response(
+                {"detail": "واحدهای موردنظر را انتخاب کنید."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            selected_ids = {int(value) for value in raw_ids}
+
+            if any(value <= 0 for value in selected_ids):
+                raise ValueError
+
+        except (TypeError, ValueError):
+            return Response(
+                {"detail": "شناسه واحدها معتبر نیست."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        valid_ids = set(
+            Unit.objects.filter(
+                myhouse=house,
+                is_active=True,
+                id__in=selected_ids,
+            ).values_list("id", flat=True).distinct()
+        )
+
+        if valid_ids != selected_ids:
+            return Response(
+                {"detail": "یک یا چند واحد معتبر نیست."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        content_type = ContentType.objects.get_for_model(
+            AreaCharge
+        )
+
+        with transaction.atomic():
+            qs = UnifiedCharge.objects.select_for_update().filter(
+                content_type=content_type,
+                object_id=charge.pk,
+                unit_id__in=selected_ids,
+            )
+
+            cancelled_count = qs.filter(
+                send_notification=True
+            ).update(
+                send_notification=False,
+                send_notification_date=None,
+            )
+
+        return Response({
+            "ok": True,
+            "cancelled_count": cancelled_count,
+            "detail": "اعلان سیستمی واحدهای انتخاب‌شده لغو شد.",
         })
