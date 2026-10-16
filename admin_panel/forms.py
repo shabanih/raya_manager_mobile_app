@@ -2309,7 +2309,7 @@ class SewageForm(forms.ModelForm):
 class FixChargeForm(forms.ModelForm):
     name = forms.CharField(error_messages=error_message, max_length=100, widget=forms.TextInput(attrs=attr),
                            required=True,
-                           label='عنوان شارژ ')
+                           label='ماه و سال شارژ')
     fix_amount = forms.IntegerField(error_messages=error_message,
                                     widget=forms.TextInput(attrs=attr),
                                     required=True,
@@ -2345,13 +2345,25 @@ class FixChargeForm(forms.ModelForm):
     def clean_payment_deadline(self):
         deadline = self.cleaned_data.get('payment_deadline')
 
-        if deadline:
-            today = jdatetime.date.today()
+        # اگر ویرایش است و تاریخ تغییر نکرده، بررسی نکن
+        if self.instance.pk and 'payment_deadline' not in self.changed_data:
+            return deadline
 
-            if deadline < today:
-                raise forms.ValidationError('مهلت پرداخت نمی‌تواند قبل از امروز باشد')
+        if deadline and deadline < jdatetime.date.today():
+            raise forms.ValidationError('مهلت پرداخت نمی‌تواند قبل از امروز باشد')
 
         return deadline
+
+    # def clean_name(self):
+    #     name = self.cleaned_data.get("name", "").strip()
+
+    #     # اگر فاصله داشته باشد
+    #     if " " in name:
+    #         raise forms.ValidationError(
+    #             'سال و ماه شارژ را بدون فاصله وارد کنید. مثال: "فروردین1405"'
+    #         )
+
+    #     return name
 
 
 class AreaChargeForm(forms.ModelForm):
@@ -2398,13 +2410,25 @@ class AreaChargeForm(forms.ModelForm):
     def clean_payment_deadline(self):
         deadline = self.cleaned_data.get('payment_deadline')
 
-        if deadline:
-            today = jdatetime.date.today()
+        # اگر ویرایش است و تاریخ تغییر نکرده، بررسی نکن
+        if self.instance.pk and 'payment_deadline' not in self.changed_data:
+            return deadline
 
-            if deadline < today:
-                raise forms.ValidationError('مهلت پرداخت نمی‌تواند قبل از امروز باشد')
+        if deadline and deadline < jdatetime.date.today():
+            raise forms.ValidationError('مهلت پرداخت نمی‌تواند قبل از امروز باشد')
 
         return deadline
+
+    # def clean_name(self):
+    #     name = self.cleaned_data.get("name", "").strip()
+
+    #     # اگر فاصله داشته باشد
+    #     if " " in name:
+    #         raise forms.ValidationError(
+    #             'سال و ماه شارژ را بدون فاصله وارد کنید. مثال: "فروردین1405"'
+    #         )
+
+    #     return name
 
 
 class PersonChargeForm(forms.ModelForm):

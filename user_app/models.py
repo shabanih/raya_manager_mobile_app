@@ -244,7 +244,11 @@ class Unit(models.Model):
 
     unit_phone = models.CharField(max_length=8, null=True, blank=True, verbose_name='')
     floor_number = models.IntegerField()
-    area = models.IntegerField()
+    area = models.DecimalField(
+        max_digits=10,
+        decimal_places=2,
+        verbose_name='متراژ'
+    )
     bedrooms_count = models.IntegerField()
     parking_number = models.CharField(max_length=10, null=True, blank=True)
     # parking_count = models.IntegerField()

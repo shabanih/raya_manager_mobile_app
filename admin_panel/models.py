@@ -866,7 +866,13 @@ class FixCharge(BaseCharge):
 
 class AreaCharge(BaseCharge):
     area_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='مبلغ شارژ به ازای هر متر')
-    total_area = models.PositiveIntegerField(null=True, blank=True)
+    total_area = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='مجموع متراژ'
+    )
     charge_type = 'area'
     display_fields = ['area_amount']
 

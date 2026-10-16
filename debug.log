@@ -115410,3 +115410,316 @@ django.core.exceptions.FieldError: Cannot resolve keyword 'is_deleted' into fiel
 D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
 Watching for file changes with StatReloader
 D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\urls.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Internal Server Error: /api/manager/renters/5/delete/
+Traceback (most recent call last):
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\core\handlers\exception.py", line 55, in inner
+    response = get_response(request)
+               ^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\core\handlers\base.py", line 197, in _get_response
+    response = wrapped_callback(request, *callback_args, **callback_kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\views\decorators\csrf.py", line 65, in _view_wrapper
+    return view_func(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\views\generic\base.py", line 104, in view
+    return self.dispatch(request, *args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\rest_framework\views.py", line 515, in dispatch
+    response = self.handle_exception(exc)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\rest_framework\views.py", line 475, in handle_exception
+    self.raise_uncaught_exception(exc)
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\rest_framework\views.py", line 486, in raise_uncaught_exception
+    raise exc
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\rest_framework\views.py", line 512, in dispatch
+    response = handler(request, *args, **kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\mobileApp\views.py", line 15347, in delete
+    ).filter(
+      ^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\query.py", line 1481, in filter
+    return self._filter_or_exclude(False, args, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\query.py", line 1499, in _filter_or_exclude
+    clone._filter_or_exclude_inplace(negate, args, kwargs)
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\query.py", line 1506, in _filter_or_exclude_inplace
+    self._query.add_q(Q(*args, **kwargs))
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\sql\query.py", line 1643, in add_q
+    clause, _ = self._add_q(q_object, can_reuse)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\sql\query.py", line 1675, in _add_q
+    child_clause, needed_inner = self.build_filter(
+                                 ^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\sql\query.py", line 1523, in build_filter
+    lookups, parts, reffed_expression = self.solve_lookup_type(arg, summarize)
+                                        ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\sql\query.py", line 1330, in solve_lookup_type
+    _, field, _, lookup_parts = self.names_to_path(lookup_splitted, self.get_meta())
+                                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\sql\query.py", line 1802, in names_to_path
+    raise FieldError(
+django.core.exceptions.FieldError: Cannot resolve keyword 'is_deleted' into field. Choices are: contract_number, created_at, end_date, estate_name, first_charge_renter, id, myhouse, myhouse_id, renter_bank, renter_bank_id, renter_details, renter_is_active, renter_mobile, renter_name, renter_national_code, renter_payment_date, renter_people_count, renter_transaction_no, start_date, unit, unit_id, unitresidencehistory, user, user_id
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Manager renter soft delete failed
+Traceback (most recent call last):
+  File "D:\Django_project\absharProject\mobileApp\views.py", line 15384, in delete
+    renter.save(update_fields=[
+  File "D:\Django_project\absharProject\user_app\models.py", line 639, in save
+    super().save(*args, **kwargs)
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\db\models\base.py", line 880, in save
+    raise ValueError(
+ValueError: The following fields do not exist in this model, are m2m fields, primary keys, or are non-concrete fields: is_deleted
+Internal Server Error: /api/manager/renters/5/delete/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Bad Request: /api/manager/units/14/renters/
+Manager renter create failed
+Traceback (most recent call last):
+  File "D:\Django_project\absharProject\mobileApp\views.py", line 14887, in post
+    today = timezone.localdate()
+            ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\utils\timezone.py", line 197, in localdate
+    return localtime(value, timezone).date()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\utils\timezone.py", line 183, in localtime
+    raise ValueError("localtime() cannot be applied to a naive datetime")
+ValueError: localtime() cannot be applied to a naive datetime
+Internal Server Error: /api/manager/units/14/renters/
+Manager renter create failed
+Traceback (most recent call last):
+  File "D:\Django_project\absharProject\mobileApp\views.py", line 14887, in post
+    today = timezone.localdate()
+            ^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\utils\timezone.py", line 197, in localdate
+    return localtime(value, timezone).date()
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "D:\Django_project\absharProject\.venv\Lib\site-packages\django\utils\timezone.py", line 183, in localtime
+    raise ValueError("localtime() cannot be applied to a naive datetime")
+ValueError: localtime() cannot be applied to a naive datetime
+Internal Server Error: /api/manager/units/14/renters/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Unauthorized: /api/auth/login/
+Bad Request: /api/manager/units/create/
+D:\Django_project\absharProject\user_app\models.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /api/manager/area-charges/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /api/manager/area-charges/
+Not Found: /api/manager/charges/area/
+D:\Django_project\absharProject\mobileApp\urls.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\urls.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\urls.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Watching for file changes with StatReloader
+Unauthorized: /api/auth/login/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+D:\Django_project\absharProject\admin_panel\forms.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Bad Request: /api/manager/charges/area/
+Bad Request: /api/manager/charges/area/
+Bad Request: /api/manager/charges/area/
+Bad Request: /api/manager/charges/area/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Bad Request: /api/manager/charges/area/
+Watching for file changes with StatReloader
+Bad Request: /api/manager/charges/area/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Unauthorized: /api/manager/charges/area/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+D:\Django_project\absharProject\admin_panel\models.py changed, reloading.
+Watching for file changes with StatReloader
+Bad Request: /api/manager/charges/area/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\urls.py changed, reloading.
+Watching for file changes with StatReloader
+Not Found: /apimanager/charges/person/
+Not Found: /apimanager/charges/person/
+Not Found: /apimanager/charges/person/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+Not Found: /ws/tickets/
+Not Found: /ws/tickets/admin/
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+Unauthorized: /api/manager/charges/person/

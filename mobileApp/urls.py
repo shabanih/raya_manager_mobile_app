@@ -25,7 +25,9 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerFixedChargeSendAPIView, ManagerFixedChargeCancelAPIView, ManagerAreaChargeUnitsAPIView, \
     ManagerAreaChargeSendAPIView, ManagerAreaChargeCancelAPIView, ManagerUnitCreateAPIView, ManagerUnitUpdateAPIView, \
     ManagerRenterUpdateAPIView, ManagerUnitRentersAPIView, ManagerUnitListAPIView, ManagerRenterDeactivateAPIView, \
-    ManagerRenterDeleteAPIView, ManagerUnitDetailAPIView, ManagerUnitOwnerUpdateAPIView, ManagerUnitStatusAPIView
+    ManagerRenterDeleteAPIView, ManagerUnitDetailAPIView, ManagerUnitOwnerUpdateAPIView, ManagerUnitStatusAPIView, \
+    ManagerRenterActivateAPIView, ManagerAreaChargeAPIView, ManagerPersonChargeAPIView, ManagerPersonChargeUnitsAPIView, \
+    ManagerPersonChargeCancelAPIView, ManagerPersonChargeSendAPIView
 
 urlpatterns = [
     path(
@@ -557,6 +559,11 @@ urlpatterns = [
         ManagerRenterDeactivateAPIView.as_view(),
         name='api_manager_renter_deactivate',
     ),
+    path(
+        'manager/renters/<int:renter_id>/activate/',
+        ManagerRenterActivateAPIView.as_view(),
+        name='manager-renter-activate',
+    ),
 
     path(
         'manager/renters/<int:renter_id>/delete/',
@@ -569,35 +576,8 @@ urlpatterns = [
         name='api_manager_unit_list',
     ),
 
+    # ============= Charge Urls ======================
 
-    # # =====================================================
-    # # مالک
-    # # =====================================================
-    #
-    # path(
-    #     'manager/units/<int:unit_id>/owner/',
-    #     ManagerUnitRemoveOwnerView.as_view(),
-    #     name='manager_unit_remove_owner',
-    # ),
-    #
-    # # =====================================================
-    # # سوابق سکونت
-    # # =====================================================
-    #
-    # path(
-    #     'manager/units/<int:unit_id>/residence-history/',
-    #     ManagerUnitResidenceHistoryView.as_view(),
-    #     name='manager_unit_residence_history',
-    # ),
-    #
-    # path(
-    #     'manager/units/<int:unit_id>/owner/change/',
-    #     ManagerUnitChangeOwnerView.as_view(),
-    #     name='manager_unit_change_owner',
-    # ),
-    # =====================================================
-    # مدیریت شارژها
-    # =====================================================
     path(
         'manager/charges/',
         ManagerChargeHomeView.as_view(),
@@ -637,7 +617,17 @@ urlpatterns = [
         ManagerFixedChargeCancelAPIView.as_view(),
         name="manager-fixed-charge-cancel",
     ),
-
+    # ============= Area Charge Urls ======================
+    path(
+        "manager/charges/area/",
+        ManagerAreaChargeAPIView.as_view(),
+        name="manager-area-charges",
+    ),
+    path(
+        "manager/charges/area/<int:pk>/",
+        ManagerAreaChargeAPIView.as_view(),
+        name="manager-area-charge-detail",
+    ),
     path(
         "manager/charges/area/<int:pk>/units/",
         ManagerAreaChargeUnitsAPIView.as_view(),
@@ -653,6 +643,35 @@ urlpatterns = [
         ManagerAreaChargeCancelAPIView.as_view(),
         name="manager-area-charge-cancel",
     ),
+    # ============= Person Charge Urls ======================
+    path(
+        "manager/charges/person/",
+        ManagerPersonChargeAPIView.as_view(),
+        name="manager-person-charges",
+    ),
 
+    path(
+        "manager/charges/person/<int:pk>/",
+        ManagerPersonChargeAPIView.as_view(),
+        name="manager-person-charge-detail",
+    ),
 
+    path(
+        "manager/charges/person/<int:pk>/units/",
+        ManagerPersonChargeUnitsAPIView.as_view(),
+        name="manager-person-charge-units",
+    ),
+
+    path(
+        "manager/charges/person/<int:pk>/units/send/",
+        ManagerPersonChargeSendAPIView.as_view(),
+        name="manager-person-charge-send",
+    ),
+
+    path(
+        "manager/charges/person/<int:pk>/units/cancel/",
+        ManagerPersonChargeCancelAPIView.as_view(),
+        name="manager-person-charge-cancel",
+    ),
+    # ============= Person Charge Urls ======================
 ]
