@@ -27,7 +27,14 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerRenterUpdateAPIView, ManagerUnitRentersAPIView, ManagerUnitListAPIView, ManagerRenterDeactivateAPIView, \
     ManagerRenterDeleteAPIView, ManagerUnitDetailAPIView, ManagerUnitOwnerUpdateAPIView, ManagerUnitStatusAPIView, \
     ManagerRenterActivateAPIView, ManagerAreaChargeAPIView, ManagerPersonChargeAPIView, ManagerPersonChargeUnitsAPIView, \
-    ManagerPersonChargeCancelAPIView, ManagerPersonChargeSendAPIView
+    ManagerPersonChargeCancelAPIView, ManagerPersonChargeSendAPIView, ManagerFixAreaChargeAPIView, \
+    ManagerFixAreaChargeUnitsAPIView, ManagerFixAreaChargeSendAPIView, ManagerFixAreaChargeCancelAPIView, \
+    ManagerFixPersonChargeAPIView, ManagerFixPersonChargeUnitsAPIView, ManagerFixPersonChargeSendAPIView, \
+    ManagerFixPersonChargeCancelAPIView, ManagerPersonAreaChargeAPIView, ManagerPersonAreaChargeUnitsAPIView, \
+    ManagerPersonAreaChargeSendAPIView, ManagerPersonAreaChargeCancelAPIView, ManagerFixPersonAreaChargeAPIView, \
+    ManagerFixPersonAreaChargeUnitsAPIView, ManagerFixPersonAreaChargeSendAPIView, \
+    ManagerFixPersonAreaChargeCancelAPIView, ManagerFixVariableChargeAPIView, ManagerFixVariableChargeUnitsAPIView, \
+    ManagerFixVariableChargeSendAPIView, ManagerFixVariableChargeCancelAPIView
 
 urlpatterns = [
     path(
@@ -673,5 +680,141 @@ urlpatterns = [
         ManagerPersonChargeCancelAPIView.as_view(),
         name="manager-person-charge-cancel",
     ),
-    # ============= Person Charge Urls ======================
+    # ============= Fix Area Charge Urls ======================
+
+    path(
+        "manager/charges/fix-area/",
+        ManagerFixAreaChargeAPIView.as_view(),
+        name="manager-fix-area-charge-list-create",
+    ),
+
+    path(
+        "manager/charges/fix-area/<int:pk>/",
+        ManagerFixAreaChargeAPIView.as_view(),
+        name="manager-fix-area-charge-detail",
+    ),
+
+    path(
+        "manager/charges/fix-area/<int:pk>/units/",
+        ManagerFixAreaChargeUnitsAPIView.as_view(),
+        name="manager-fix-area-charge-units",
+    ),
+    path(
+        "manager/charges/fix-area/<int:pk>/units/send/",
+        ManagerFixAreaChargeSendAPIView.as_view(),
+        name="manager-fix-area-charge-send",
+    ),
+
+    path(
+        "manager/charges/fix-area/<int:pk>/units/cancel/",
+        ManagerFixAreaChargeCancelAPIView.as_view(),
+        name="manager-fix-area-charge-cancel",
+    ),
+    # ============= Fix Person Charge Urls ======================
+    path(
+        "manager/charges/fix-person/",
+        ManagerFixPersonChargeAPIView.as_view(),
+        name="manager-fix-person-charge-list",
+    ),
+    path(
+        "manager/charges/fix-person/<int:pk>/",
+        ManagerFixPersonChargeAPIView.as_view(),
+        name="manager-fix-person-charge-detail",
+    ),
+    path(
+        "manager/charges/fix-person/<int:pk>/units/",
+        ManagerFixPersonChargeUnitsAPIView.as_view(),
+        name="manager-fix-person-charge-units",
+    ),
+    path(
+        "manager/charges/fix-person/<int:pk>/units/send/",
+        ManagerFixPersonChargeSendAPIView.as_view(),
+        name="manager-fix-person-charge-send",
+    ),
+    path(
+        "manager/charges/fix-person/<int:pk>/units/cancel/",
+        ManagerFixPersonChargeCancelAPIView.as_view(),
+        name="manager-fix-person-charge-cancel",
+    ),
+
+
+    path(
+        "manager/person-area-charges/",
+        ManagerPersonAreaChargeAPIView.as_view(),
+        name="manager-person-area-charges",
+    ),
+    path(
+        "manager/person-area-charges/<int:pk>/",
+        ManagerPersonAreaChargeAPIView.as_view(),
+        name="manager-person-area-charge-detail",
+    ),
+    path(
+        "manager/person-area-charges/<int:pk>/units/",
+        ManagerPersonAreaChargeUnitsAPIView.as_view(),
+        name="manager-person-area-charge-units",
+    ),
+    path(
+        "manager/person-area-charges/<int:pk>/send/",
+        ManagerPersonAreaChargeSendAPIView.as_view(),
+        name="manager-person-area-charge-send",
+    ),
+    path(
+        "manager/person-area-charges/<int:pk>/cancel/",
+        ManagerPersonAreaChargeCancelAPIView.as_view(),
+        name="manager-person-area-charge-cancel",
+    ),
+
+    path(
+        "manager/fix-person-area-charges/",
+        ManagerFixPersonAreaChargeAPIView.as_view(),
+        name="manager-fix-person-area-charges",
+    ),
+    path(
+        "manager/fix-person-area-charges/<int:pk>/",
+        ManagerFixPersonAreaChargeAPIView.as_view(),
+        name="manager-fix-person-area-charge-detail",
+    ),
+    path(
+        "manager/fix-person-area-charges/<int:pk>/units/",
+        ManagerFixPersonAreaChargeUnitsAPIView.as_view(),
+        name="manager-fix-person-area-charge-units",
+    ),
+    path(
+        "manager/fix-person-area-charges/<int:pk>/send/",
+        ManagerFixPersonAreaChargeSendAPIView.as_view(),
+        name="manager-fix-person-area-charge-send",
+    ),
+    path(
+        "manager/fix-person-area-charges/<int:pk>/cancel/",
+        ManagerFixPersonAreaChargeCancelAPIView.as_view(),
+        name="manager-fix-person-area-charge-cancel",
+    ),
+
+    path(
+        "manager/fix-variable-charges/",
+        ManagerFixVariableChargeAPIView.as_view(),
+        name="manager-fix-variable-charge-list",
+    ),
+    path(
+        "manager/fix-variable-charges/<int:pk>/",
+        ManagerFixVariableChargeAPIView.as_view(),
+        name="manager-fix-variable-charge-detail",
+    ),
+    path(
+        "manager/fix-variable-charges/<int:pk>/units/",
+        ManagerFixVariableChargeUnitsAPIView.as_view(),
+        name="manager-fix-variable-charge-units",
+    ),
+    path(
+        "manager/fix-variable-charges/<int:pk>/send/",
+        ManagerFixVariableChargeSendAPIView.as_view(),
+        name="manager-fix-variable-charge-send",
+    ),
+    path(
+        "manager/fix-variable-charges/<int:pk>/cancel/",
+        ManagerFixVariableChargeCancelAPIView.as_view(),
+        name="manager-fix-variable-charge-cancel",
+    ),
+
+
 ]

@@ -895,7 +895,13 @@ class FixPersonCharge(BaseCharge):
 class FixAreaCharge(BaseCharge):
     fix_charge_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='مبلغ شارژ به ازای هر واحد')
     area_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='مبلغ شارژ به ازای هر متر')
-    total_area = models.PositiveIntegerField(null=True, blank=True, )
+    total_area = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='مجموع متراژ'
+    )
     total_people = models.PositiveIntegerField(null=True, blank=True)
     charge_type = 'fix_area'
     display_fields = ['fix_charge_amount', 'area_amount']
@@ -904,7 +910,13 @@ class FixAreaCharge(BaseCharge):
 class ChargeByPersonArea(BaseCharge):
     area_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='مبلغ شارژ به ازای هر متر')
     person_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='مبلغ شارژ به ازای هر نفر')
-    total_area = models.PositiveIntegerField(null=True, blank=True)
+    total_area = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='مجموع متراژ'
+    )
     total_people = models.PositiveIntegerField(null=True, blank=True)
     charge_type = 'person_area'
     display_fields = ['area_amount', 'person_amount', ]
@@ -914,7 +926,13 @@ class ChargeByFixPersonArea(BaseCharge):
     fix_charge_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='مبلغ شارژ به ازای هر واحد')
     area_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='مبلغ شارژ به ازای هر متر')
     person_amount = models.PositiveIntegerField(null=True, blank=True, verbose_name='مبلغ شارژ به ازای هر نفر')
-    total_area = models.PositiveIntegerField(null=True, blank=True)
+    total_area = models.DecimalField(
+        max_digits=12,
+        decimal_places=2,
+        null=True,
+        blank=True,
+        verbose_name='مجموع متراژ'
+    )
     total_people = models.PositiveIntegerField(null=True, blank=True)
     parking_count = models.PositiveIntegerField(null=True, blank=True)
     charge_type = 'fix_person_area'
