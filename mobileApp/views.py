@@ -20,7 +20,7 @@ from django.contrib.auth.hashers import check_password
 
 from admin_panel.forms import FixChargeForm, AreaChargeForm, PersonChargeForm, FixAreaChargeForm, FixPersonChargeForm, \
     PersonAreaChargeForm, PersonAreaFixChargeForm, VariableFixChargeForm
-from admin_panel.services.calculators import CALCULATORS
+from admin_panel.services.calculators import CALCULATORS, BaseCalculator
 from admin_panel.services.utils import (
     get_next_financial_document_number
 )
@@ -21760,38 +21760,30 @@ class ManagerFixPersonAreaChargeCancelAPIView(APIView):
         })
 
 # ============== Fix Variable Charge ========================
-def calculate_fix_variable_unit_amount(unit, charge):
-    area = Decimal(str(unit.area or 0))
-    people = int(unit.people_count or 0)
 
-    fixed_amount = Decimal(
-        str(charge.unit_fix_amount or 0)
-    )
-    person_amount = Decimal(
-        str(charge.unit_variable_person_amount or 0)
-    )
-    area_amount = Decimal(
-        str(charge.unit_variable_area_amount or 0)
-    )
 
-    base_amount = (
-        fixed_amount
-        + (person_amount * people)
-        + (area_amount * area)
-    )
+# class ChargeFixVariableCalculator(BaseCalculator):
+#     def calculate(self, unit, charge_obj):
+#         area = Decimal(str(getattr(unit, "area", 0) or 0))
+#         people = Decimal(str(getattr(unit, "people_count", 0) or 0))
+#
+#         fix = Decimal(str(charge_obj.unit_fix_amount or 0))
+#         person_var = Decimal(
+#             str(charge_obj.unit_variable_person_amount or 0)
+#         )
+#         area_var = Decimal(
+#             str(charge_obj.unit_variable_area_amount or 0)
+#         )
+#
+#         return fix + (people * person_var) + (area * area_var)
 
-    other_amount = Decimal(
-        str(charge.other_cost_amount or 0)
-    )
 
-    return {
-        "base_amount": base_amount,
-        "other_amount": other_amount,
-        "total_amount": base_amount + other_amount,
-    }
+
 class ManagerFixVariableChargeAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
+
+    CHARGE_TYPE = "fix_variable"
 
     def check_manager(self, request):
         if not getattr(request.user, "is_middle_admin", False):
@@ -21821,12 +21813,15 @@ class ManagerFixVariableChargeAPIView(APIView):
         ).distinct()
 
     def get_content_type(self):
-        return ContentType.objects.get_for_model(ChargeFixVariable)
+        return ContentType.objects.get_for_model(
+            ChargeFixVariable
+        )
 
     def related_charges(self, charge):
         return UnifiedCharge.objects.filter(
             content_type=self.get_content_type(),
             object_id=charge.pk,
+            user=charge.user,
         )
 
     def has_notification(self, charge):
@@ -21838,6 +21833,27 @@ class ManagerFixVariableChargeAPIView(APIView):
         return self.related_charges(charge).filter(
             is_paid=True
         ).exists()
+
+    def calculate_amounts(self, unit, charge):
+        """
+        محاسبه مبلغ از Calculator مرکزی.
+        فرمول پایه در این ویو تکرار نمی‌شود.
+        """
+        calculator = CALCULATORS[self.CHARGE_TYPE]
+
+        base_amount = Decimal(
+            str(calculator.calculate(unit, charge) or 0)
+        )
+
+        other_amount = Decimal(
+            str(getattr(charge, "other_cost_amount", 0) or 0)
+        )
+
+        return {
+            "base_amount": base_amount,
+            "other_amount": other_amount,
+            "total_amount": base_amount + other_amount,
+        }
 
     def update_charge_totals(self, charge, units):
         total_area = Decimal("0")
@@ -21860,12 +21876,14 @@ class ManagerFixVariableChargeAPIView(APIView):
         ])
 
     def sync_unified_charges(self, request, charge, units):
+        """
+        همگام‌سازی با استفاده از Calculator مرکزی.
+        رکورد پرداخت‌شده یا اعلان‌شده تغییر نمی‌کند.
+        """
         content_type = self.get_content_type()
 
         for unit in units.iterator():
-            amounts = calculate_fix_variable_unit_amount(
-                unit, charge
-            )
+            amounts = self.calculate_amounts(unit, charge)
 
             lookup = {
                 "user": request.user,
@@ -21882,11 +21900,13 @@ class ManagerFixVariableChargeAPIView(APIView):
 
             values = {
                 "house": unit.myhouse,
-                "charge_type": "fix_variable",
+                "charge_type": self.CHARGE_TYPE,
                 "amount": amounts["base_amount"],
                 "base_charge": amounts["total_amount"],
                 "other_cost_amount": amounts["other_amount"],
-                "penalty_percent": charge.payment_penalty_amount or 0,
+                "penalty_percent": (
+                    charge.payment_penalty_amount or 0
+                ),
                 "penalty_amount": 0,
                 "total_charge_month": amounts["total_amount"],
                 "details": charge.details or "",
@@ -21917,8 +21937,10 @@ class ManagerFixVariableChargeAPIView(APIView):
         return {
             "id": charge.pk,
             "name": charge.name or "",
-            "charge_type": "fix_variable",
-            "unit_fix_amount": str(charge.unit_fix_amount or 0),
+            "charge_type": self.CHARGE_TYPE,
+            "unit_fix_amount": str(
+                charge.unit_fix_amount or 0
+            ),
             "unit_variable_person_amount": str(
                 charge.unit_variable_person_amount or 0
             ),
@@ -21930,14 +21952,18 @@ class ManagerFixVariableChargeAPIView(APIView):
             ),
             "total_area": str(charge.total_area or 0),
             "total_people": charge.total_people or 0,
-            "unit_count": related.values("unit_id").distinct().count(),
+            "unit_count": related.values(
+                "unit_id"
+            ).distinct().count(),
             "notified_units_count": related.filter(
                 send_notification=True
             ).values("unit_id").distinct().count(),
             "paid_units_count": related.filter(
                 is_paid=True
             ).values("unit_id").distinct().count(),
-            "other_cost_amount": str(charge.other_cost_amount or 0),
+            "other_cost_amount": str(
+                charge.other_cost_amount or 0
+            ),
             "civil": str(charge.civil or 0),
             "payment_penalty_amount": str(
                 charge.payment_penalty_amount or 0
@@ -21968,6 +21994,7 @@ class ManagerFixVariableChargeAPIView(APIView):
 
         if pk is not None:
             charge = self.get_charge(request, pk)
+
             if not charge:
                 return Response(
                     {"detail": "شارژ ثابت و متغیر پیدا نشد."},
@@ -21981,8 +22008,8 @@ class ManagerFixVariableChargeAPIView(APIView):
         ).order_by("-created_at")
 
         results = [
-            self.serialize_charge(charge)
-            for charge in charges
+            self.serialize_charge(item)
+            for item in charges
         ]
 
         return Response({
@@ -21997,11 +22024,17 @@ class ManagerFixVariableChargeAPIView(APIView):
 
         if pk is not None:
             return Response(
-                {"detail": "برای ایجاد شارژ از مسیر بدون شناسه استفاده کنید."},
+                {
+                    "detail": (
+                        "برای ایجاد شارژ از مسیر بدون شناسه "
+                        "استفاده کنید."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
         units = self.get_units(request)
+
         if not units.exists():
             return Response(
                 {"detail": "هیچ واحد فعالی در ساختمان وجود ندارد."},
@@ -22009,6 +22042,7 @@ class ManagerFixVariableChargeAPIView(APIView):
             )
 
         form = VariableFixChargeForm(data=request.data)
+
         if not form.is_valid():
             return Response({
                 "detail": "اطلاعات فرم معتبر نیست.",
@@ -22025,7 +22059,9 @@ class ManagerFixVariableChargeAPIView(APIView):
                 charge.save()
 
                 self.update_charge_totals(charge, units)
-                self.sync_unified_charges(request, charge, units)
+                self.sync_unified_charges(
+                    request, charge, units
+                )
 
             return Response({
                 "detail": "شارژ ثابت و متغیر با موفقیت ثبت شد.",
@@ -22035,7 +22071,12 @@ class ManagerFixVariableChargeAPIView(APIView):
         except Exception:
             logger.exception("خطا در ایجاد ChargeFixVariable")
             return Response(
-                {"detail": "ثبت شارژ انجام نشد. گزارش سرور را بررسی کنید."},
+                {
+                    "detail": (
+                        "ثبت شارژ انجام نشد. "
+                        "گزارش سرور را بررسی کنید."
+                    )
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -22064,7 +22105,10 @@ class ManagerFixVariableChargeAPIView(APIView):
                         status=status.HTTP_404_NOT_FOUND,
                     )
 
-                if self.has_notification(charge) or self.has_payment(charge):
+                if (
+                    self.has_notification(charge)
+                    or self.has_payment(charge)
+                ):
                     return Response({
                         "detail": (
                             "به دلیل ارسال اعلان یا ثبت پرداخت، "
@@ -22072,6 +22116,14 @@ class ManagerFixVariableChargeAPIView(APIView):
                         ),
                         "code": "charge_locked",
                     }, status=status.HTTP_409_CONFLICT)
+
+                units = self.get_units(request)
+
+                if not units.exists():
+                    return Response(
+                        {"detail": "هیچ واحد فعالی وجود ندارد."},
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
 
                 data = request.data.copy()
 
@@ -22084,12 +22136,16 @@ class ManagerFixVariableChargeAPIView(APIView):
                     "unit_variable_area_amount": (
                         charge.unit_variable_area_amount or 0
                     ),
-                    "extra_parking_amount": charge.extra_parking_amount or 0,
+                    "extra_parking_amount": (
+                        charge.extra_parking_amount or 0
+                    ),
                     "details": charge.details or "",
                     "payment_penalty_amount": (
                         charge.payment_penalty_amount or 0
                     ),
-                    "other_cost_amount": charge.other_cost_amount or 0,
+                    "other_cost_amount": (
+                        charge.other_cost_amount or 0
+                    ),
                     "civil": charge.civil or 0,
                 }
 
@@ -22097,11 +22153,13 @@ class ManagerFixVariableChargeAPIView(APIView):
                     if field not in data:
                         data[field] = default
 
-                if "payment_deadline" not in data:
-                    if charge.payment_deadline:
-                        data["payment_deadline"] = (
-                            charge.payment_deadline.strftime("%Y-%m-%d")
-                        )
+                if (
+                    "payment_deadline" not in data
+                    and charge.payment_deadline
+                ):
+                    data["payment_deadline"] = (
+                        charge.payment_deadline.strftime("%Y-%m-%d")
+                    )
 
                 form = VariableFixChargeForm(
                     data=data,
@@ -22118,16 +22176,11 @@ class ManagerFixVariableChargeAPIView(APIView):
                     }, status=status.HTTP_400_BAD_REQUEST)
 
                 charge = form.save()
-                units = self.get_units(request)
-
-                if not units.exists():
-                    return Response(
-                        {"detail": "هیچ واحد فعالی وجود ندارد."},
-                        status=status.HTTP_400_BAD_REQUEST,
-                    )
 
                 self.update_charge_totals(charge, units)
-                self.sync_unified_charges(request, charge, units)
+                self.sync_unified_charges(
+                    request, charge, units
+                )
 
             return Response({
                 "detail": "شارژ ثابت و متغیر با موفقیت ویرایش شد.",
@@ -22137,7 +22190,12 @@ class ManagerFixVariableChargeAPIView(APIView):
         except Exception:
             logger.exception("خطا در ویرایش ChargeFixVariable")
             return Response(
-                {"detail": "ویرایش شارژ انجام نشد. گزارش سرور را بررسی کنید."},
+                {
+                    "detail": (
+                        "ویرایش شارژ انجام نشد. "
+                        "گزارش سرور را بررسی کنید."
+                    )
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -22166,7 +22224,10 @@ class ManagerFixVariableChargeAPIView(APIView):
                         status=status.HTTP_404_NOT_FOUND,
                     )
 
-                if self.has_notification(charge) or self.has_payment(charge):
+                if (
+                    self.has_notification(charge)
+                    or self.has_payment(charge)
+                ):
                     return Response({
                         "detail": (
                             "به دلیل ارسال اعلان یا ثبت پرداخت، "
@@ -22178,20 +22239,32 @@ class ManagerFixVariableChargeAPIView(APIView):
                 name = charge.name or "شارژ ثابت و متغیر"
                 charge.delete()
 
-            return Response({"detail": f"{name} با موفقیت حذف شد."})
+            return Response({
+                "detail": f"{name} با موفقیت حذف شد."
+            })
 
         except ProtectedError:
             return Response(
-                {"detail": "به دلیل وابستگی‌های مالی، حذف شارژ ممکن نیست."},
+                {
+                    "detail": (
+                        "به دلیل وابستگی‌های مالی، "
+                        "حذف شارژ ممکن نیست."
+                    )
+                },
                 status=status.HTTP_409_CONFLICT,
             )
+
         except Exception:
             logger.exception("خطا در حذف ChargeFixVariable")
             return Response(
-                {"detail": "حذف شارژ انجام نشد. گزارش سرور را بررسی کنید."},
+                {
+                    "detail": (
+                        "حذف شارژ انجام نشد. "
+                        "گزارش سرور را بررسی کنید."
+                    )
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
-
 
 class ManagerFixVariableChargeUnitsAPIView(APIView):
     authentication_classes = [JWTAuthentication]
@@ -22205,6 +22278,7 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
             )
 
         house = getattr(request.user, "house", None)
+
         if not house:
             return Response(
                 {"detail": "ساختمان مدیر مشخص نشده است."},
@@ -22228,7 +22302,9 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
         ).distinct()
 
         search = request.query_params.get("search", "").strip()
-        resident_type = request.query_params.get("resident_type", "all").strip()
+        resident_type = request.query_params.get(
+            "resident_type", "all"
+        ).strip()
 
         if search:
             units = units.filter(
@@ -22238,68 +22314,124 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
             ).distinct()
 
         if resident_type == "owner":
-            units = units.exclude(renters__renter_is_active=True)
+            units = units.exclude(
+                renters__renter_is_active=True
+            )
+
         elif resident_type == "renter":
             units = units.filter(
                 renters__renter_is_active=True
             ).distinct()
+
         elif resident_type == "empty":
             units = units.filter(status_residence="empty")
 
-        content_type = ContentType.objects.get_for_model(ChargeFixVariable)
+        content_type = ContentType.objects.get_for_model(
+            ChargeFixVariable
+        )
 
         existing = UnifiedCharge.objects.filter(
+            user=request.user,
             content_type=content_type,
             object_id=charge.pk,
             unit_id__in=units.values("id"),
         ).select_related("unit")
 
-        charge_by_unit = {item.unit_id: item for item in existing}
+        charge_by_unit = {
+            item.unit_id: item
+            for item in existing
+        }
+
+        # استفاده از Calculator مرکزی
+        calculator = CALCULATORS["fix_variable"]
+
+        fixed_amount = Decimal(
+            str(charge.unit_fix_amount or 0)
+        )
+        person_rate = Decimal(
+            str(charge.unit_variable_person_amount or 0)
+        )
+        area_rate = Decimal(
+            str(charge.unit_variable_area_amount or 0)
+        )
+        parking_amount = Decimal(
+            str(charge.extra_parking_amount or 0)
+        )
+        other_amount = Decimal(
+            str(charge.other_cost_amount or 0)
+        )
+
         results = []
 
         for unit in units.order_by("unit"):
             uc = charge_by_unit.get(unit.pk)
             renter = unit.get_active_renter()
-            amounts = calculate_fix_variable_unit_amount(unit, charge)
+
+            area = Decimal(str(unit.area or 0))
+            people = int(unit.people_count or 0)
+
+            # مبلغ پایه فقط از Calculator گرفته می‌شود
+            base_amount = Decimal(
+                str(calculator.calculate(unit, charge) or 0)
+            )
+
+            # این دو مقدار فقط جزئیات نمایشی هستند
+            person_total = person_rate * people
+            area_total = area_rate * area
+
+            # مطابق رفتار فعلی: پارکینگ جدا نمایش داده می‌شود
+            calculated_total = base_amount + other_amount
+
+            if renter:
+                current_resident_type = "renter"
+            elif unit.status_residence == "empty":
+                current_resident_type = "empty"
+            else:
+                current_resident_type = "owner"
 
             results.append({
                 "id": unit.pk,
                 "unit": str(unit.unit),
-                "area": str(unit.area or 0),
-                "people_count": int(unit.people_count or 0),
+                "area": str(area),
+                "people_count": people,
                 "owner_name": unit.owner_name or "",
-                "renter_name": renter.renter_name if renter else "",
-                "resident_type": (
-                    "renter" if renter else (
-                        "empty" if unit.status_residence == "empty"
-                        else "owner"
-                    )
+                "renter_name": (
+                    renter.renter_name if renter else ""
                 ),
-                "unit_fix_amount": str(amounts["fix_amount"]),
-                "unit_variable_person_amount": str(
-                    charge.unit_variable_person_amount or 0
+                "resident_type": current_resident_type,
+
+                "unit_fix_amount": str(fixed_amount),
+                "unit_variable_person_amount": str(person_rate),
+                "unit_variable_area_amount": str(area_rate),
+
+                "person_total": str(person_total),
+                "area_total": str(area_total),
+                "extra_parking_amount": str(parking_amount),
+
+                "base_amount": str(base_amount),
+                "other_cost_amount": str(other_amount),
+                "calculated_total": str(calculated_total),
+
+                "is_notified": bool(
+                    uc and uc.send_notification
                 ),
-                "unit_variable_area_amount": str(
-                    charge.unit_variable_area_amount or 0
+                "send_sms": bool(
+                    uc and uc.send_sms
                 ),
-                "person_total": str(amounts["person_total"]),
-                "area_total": str(amounts["area_total"]),
-                "extra_parking_amount": str(amounts["parking_total"]),
-                "base_amount": str(amounts["base_amount"]),
-                "other_cost_amount": str(amounts["other_amount"]),
-                "calculated_total": str(amounts["total_amount"]),
-                "is_notified": bool(uc and uc.send_notification),
-                "send_sms": bool(uc and uc.send_sms),
                 "send_sms_date": (
                     uc.send_sms_date.isoformat()
-                    if uc and uc.send_sms_date else None
+                    if uc and uc.send_sms_date
+                    else None
                 ),
                 "is_paid": bool(uc and uc.is_paid),
+
                 "current_charge": str(
-                    uc.total_charge_month if uc else amounts["total_amount"]
+                    uc.total_charge_month
+                    if uc else calculated_total
                 ),
                 "financial_document_number": (
-                    uc.financial_document_number if uc else None
+                    uc.financial_document_number
+                    if uc else None
                 ),
             })
 
@@ -22307,15 +22439,21 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
             "charge_id": charge.pk,
             "charge_name": charge.name or "",
             "charge_type": "fix_variable",
-            "unit_fix_amount": str(charge.unit_fix_amount or 0),
+            "unit_fix_amount": str(
+                charge.unit_fix_amount or 0
+            ),
             "unit_variable_person_amount": str(
                 charge.unit_variable_person_amount or 0
             ),
             "unit_variable_area_amount": str(
                 charge.unit_variable_area_amount or 0
             ),
-            "extra_parking_amount": str(charge.extra_parking_amount or 0),
-            "other_cost_amount": str(charge.other_cost_amount or 0),
+            "extra_parking_amount": str(
+                charge.extra_parking_amount or 0
+            ),
+            "other_cost_amount": str(
+                charge.other_cost_amount or 0
+            ),
             "total_area": str(charge.total_area or 0),
             "total_people": charge.total_people or 0,
             "payment_deadline": (
@@ -22325,6 +22463,7 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
             "count": len(results),
             "results": results,
         })
+
 
 
 class ManagerFixVariableChargeSendAPIView(APIView):
@@ -22339,6 +22478,7 @@ class ManagerFixVariableChargeSendAPIView(APIView):
             )
 
         house = getattr(request.user, "house", None)
+
         if not house:
             return Response(
                 {"detail": "ساختمان مدیر مشخص نشده است."},
@@ -22357,6 +22497,7 @@ class ManagerFixVariableChargeSendAPIView(APIView):
             )
 
         raw_ids = request.data.get("unit_ids", [])
+
         if not isinstance(raw_ids, list) or not raw_ids:
             return Response(
                 {"detail": "حداقل یک واحد را انتخاب کنید."},
@@ -22365,8 +22506,10 @@ class ManagerFixVariableChargeSendAPIView(APIView):
 
         try:
             selected_ids = {int(value) for value in raw_ids}
+
             if any(value <= 0 for value in selected_ids):
                 raise ValueError
+
         except (TypeError, ValueError):
             return Response(
                 {"detail": "شناسه واحدها معتبر نیست."},
@@ -22374,6 +22517,7 @@ class ManagerFixVariableChargeSendAPIView(APIView):
             )
 
         send_sms = request.data.get("send_sms", False)
+
         if not isinstance(send_sms, bool):
             return Response(
                 {"detail": "مقدار send_sms باید بولی باشد."},
@@ -22385,22 +22529,48 @@ class ManagerFixVariableChargeSendAPIView(APIView):
             is_active=True,
             id__in=selected_ids,
         ).distinct()
+
         units_by_id = {unit.pk: unit for unit in units}
 
         if set(units_by_id) != selected_ids:
             return Response(
-                {"detail": "برخی واحدها نامعتبرند یا متعلق به ساختمان شما نیستند."},
+                {
+                    "detail": (
+                        "برخی واحدها نامعتبرند یا متعلق "
+                        "به ساختمان شما نیستند."
+                    )
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        content_type = ContentType.objects.get_for_model(ChargeFixVariable)
+        content_type = ContentType.objects.get_for_model(
+            ChargeFixVariable
+        )
+
+        calculator = CALCULATORS["fix_variable"]
         notified_charges = []
 
         try:
             with transaction.atomic():
                 for unit_id in sorted(selected_ids):
                     unit = units_by_id[unit_id]
-                    amounts = calculate_fix_variable_unit_amount(unit, charge)
+
+                    # مبلغ پایه از Calculator مرکزی
+                    base_amount = Decimal(
+                        str(calculator.calculate(unit, charge) or 0)
+                    )
+
+                    other_amount = Decimal(
+                        str(
+                            getattr(
+                                charge,
+                                "other_cost_amount",
+                                0,
+                            ) or 0
+                        )
+                    )
+
+                    total_amount = base_amount + other_amount
 
                     lookup = {
                         "user": request.user,
@@ -22421,34 +22591,47 @@ class ManagerFixVariableChargeSendAPIView(APIView):
                             house=unit.myhouse,
                             bank=None,
                             financial_document_number=(
-                                get_next_financial_document_number(unit.myhouse)
+                                get_next_financial_document_number(
+                                    unit.myhouse
+                                )
                             ),
                             charge_type="fix_variable",
-                            amount=amounts["base_amount"],
-                            base_charge=amounts["total_amount"],
-                            other_cost_amount=amounts["other_amount"],
-                            penalty_percent=charge.payment_penalty_amount or 0,
+                            amount=base_amount,
+                            base_charge=total_amount,
+                            other_cost_amount=other_amount,
+                            penalty_percent=(
+                                charge.payment_penalty_amount or 0
+                            ),
                             penalty_amount=0,
-                            total_charge_month=amounts["total_amount"],
+                            total_charge_month=total_amount,
                             details=charge.details or "",
                             title=charge.name or "شارژ ثابت و متغیر",
-                            payment_deadline_date=charge.payment_deadline,
+                            payment_deadline_date=(
+                                charge.payment_deadline
+                            ),
                             payment_token=secrets.token_urlsafe(12),
                             send_notification=False,
                         )
 
                     elif not uc.financial_document_number:
                         uc.financial_document_number = (
-                            get_next_financial_document_number(unit.myhouse)
+                            get_next_financial_document_number(
+                                unit.myhouse
+                            )
                         )
-                        uc.save(update_fields=["financial_document_number"])
+                        uc.save(
+                            update_fields=["financial_document_number"]
+                        )
 
+                    # واحد پرداخت‌شده اعلان جدید دریافت نمی‌کند
                     if uc.is_paid:
                         continue
 
                     if not uc.send_notification:
                         uc.send_notification = True
-                        uc.send_notification_date = timezone.now().date()
+                        uc.send_notification_date = (
+                            timezone.now().date()
+                        )
                         uc.save(update_fields=[
                             "send_notification",
                             "send_notification_date",
@@ -22457,9 +22640,16 @@ class ManagerFixVariableChargeSendAPIView(APIView):
                     notified_charges.append(uc)
 
         except Exception:
-            logger.exception("خطا در ثبت اعلان ChargeFixVariable")
+            logger.exception(
+                "خطا در ثبت اعلان ChargeFixVariable"
+            )
             return Response(
-                {"detail": "ثبت اعلان انجام نشد. گزارش سرور را بررسی کنید."},
+                {
+                    "detail": (
+                        "ثبت اعلان انجام نشد. "
+                        "گزارش سرور را بررسی کنید."
+                    )
+                },
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
@@ -22484,7 +22674,10 @@ class ManagerFixVariableChargeSendAPIView(APIView):
                 "sms_requested": True,
                 "sms_sent": False,
                 "sms_sent_count": 0,
-                "detail": "اعلان ثبت شد، اما شماره موبایل معتبری برای پیامک وجود ندارد.",
+                "detail": (
+                    "اعلان ثبت شد، اما شماره موبایل معتبری "
+                    "برای پیامک وجود ندارد."
+                ),
             })
 
         try:
@@ -22494,11 +22687,15 @@ class ManagerFixVariableChargeSendAPIView(APIView):
                 if total_sms <= 0:
                     return
 
-                per_charge_price = Decimal(str(total_price)) / Decimal(total_sms)
+                per_charge_price = (
+                    Decimal(str(total_price))
+                    / Decimal(total_sms)
+                )
+                sent_date = timezone.now().date()
 
                 for item in sms_eligible:
                     item.send_sms = True
-                    item.send_sms_date = timezone.now().date()
+                    item.send_sms_date = sent_date
                     item.sms_count = 1
                     item.sms_price = unit_sms_price
                     item.sms_total_price = per_charge_price
@@ -22521,14 +22718,19 @@ class ManagerFixVariableChargeSendAPIView(APIView):
             )
 
         except Exception:
-            logger.exception("خطا در ارسال پیامک ChargeFixVariable")
+            logger.exception(
+                "خطا در ارسال پیامک ChargeFixVariable"
+            )
             return Response({
                 "ok": True,
                 "sent_count": len(notified_charges),
                 "sms_requested": True,
                 "sms_sent": False,
                 "sms_sent_count": 0,
-                "detail": "اعلان ثبت شد، اما ارسال پیامک با خطا مواجه شد.",
+                "detail": (
+                    "اعلان ثبت شد، اما ارسال پیامک "
+                    "با خطا مواجه شد."
+                ),
             })
 
         if not sms_result.success:
@@ -22538,7 +22740,10 @@ class ManagerFixVariableChargeSendAPIView(APIView):
                 "sms_requested": True,
                 "sms_sent": False,
                 "sms_sent_count": 0,
-                "detail": "اعلان ثبت شد، اما ارسال پیامک موفق نبود: " + sms_result.message,
+                "detail": (
+                    "اعلان ثبت شد، اما ارسال پیامک موفق نبود: "
+                    + str(sms_result.message)
+                ),
             })
 
         return Response({
@@ -22548,7 +22753,10 @@ class ManagerFixVariableChargeSendAPIView(APIView):
             "sms_sent": True,
             "sms_sent_count": sms_result.total_sms,
             "sms_total_price": str(sms_result.total_price),
-            "detail": "اعلان سیستمی ثبت شد و پیامک با موفقیت ارسال شد.",
+            "detail": (
+                "اعلان سیستمی ثبت شد و پیامک "
+                "با موفقیت ارسال شد."
+            ),
         })
 
 
@@ -22564,6 +22772,7 @@ class ManagerFixVariableChargeCancelAPIView(APIView):
             )
 
         house = getattr(request.user, "house", None)
+
         if not house:
             return Response(
                 {"detail": "ساختمان مدیر مشخص نشده است."},
@@ -22582,6 +22791,7 @@ class ManagerFixVariableChargeCancelAPIView(APIView):
             )
 
         raw_ids = request.data.get("unit_ids", [])
+
         if not isinstance(raw_ids, list) or not raw_ids:
             return Response(
                 {"detail": "واحدهای موردنظر را انتخاب کنید."},
@@ -22590,8 +22800,10 @@ class ManagerFixVariableChargeCancelAPIView(APIView):
 
         try:
             selected_ids = {int(value) for value in raw_ids}
+
             if any(value <= 0 for value in selected_ids):
                 raise ValueError
+
         except (TypeError, ValueError):
             return Response(
                 {"detail": "شناسه واحدها معتبر نیست."},
@@ -22612,20 +22824,21 @@ class ManagerFixVariableChargeCancelAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        content_type = ContentType.objects.get_for_model(ChargeFixVariable)
+        content_type = ContentType.objects.get_for_model(
+            ChargeFixVariable
+        )
 
         with transaction.atomic():
-            qs = UnifiedCharge.objects.select_for_update().filter(
+            queryset = UnifiedCharge.objects.select_for_update().filter(
                 user=request.user,
                 content_type=content_type,
                 object_id=charge.pk,
                 unit_id__in=selected_ids,
                 is_paid=False,
+                send_notification=True,
             )
 
-            cancelled_count = qs.filter(
-                send_notification=True
-            ).update(
+            cancelled_count = queryset.update(
                 send_notification=False,
                 send_notification_date=None,
             )
