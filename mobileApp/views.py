@@ -1,3 +1,4 @@
+import json
 import logging
 import secrets
 from datetime import date
@@ -5,7 +6,7 @@ from datetime import date
 import jdatetime
 from django.db.models import Count, Q, Sum, ProtectedError, Prefetch
 from django.utils import timezone
-from decimal import Decimal
+from decimal import Decimal, ROUND_HALF_UP
 
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 
@@ -37,7 +38,8 @@ from absharProject import settings
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageManage, \
     SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund, \
     FixCharge, AreaCharge, Subscription, PersonCharge, FixAreaCharge, FixPersonCharge, ChargeByPersonArea, \
-    ChargeByFixPersonArea, ChargeFixVariable
+    ChargeByFixPersonArea, ChargeFixVariable, ChargeCalculation, Expense, Maintenance, ChargeCalculationItem, \
+    ChargeAllocation
 from middleAdmin_panel.services.bank_services import BankTransactionService
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
@@ -21761,24 +21763,6 @@ class ManagerFixPersonAreaChargeCancelAPIView(APIView):
 
 # ============== Fix Variable Charge ========================
 
-
-# class ChargeFixVariableCalculator(BaseCalculator):
-#     def calculate(self, unit, charge_obj):
-#         area = Decimal(str(getattr(unit, "area", 0) or 0))
-#         people = Decimal(str(getattr(unit, "people_count", 0) or 0))
-#
-#         fix = Decimal(str(charge_obj.unit_fix_amount or 0))
-#         person_var = Decimal(
-#             str(charge_obj.unit_variable_person_amount or 0)
-#         )
-#         area_var = Decimal(
-#             str(charge_obj.unit_variable_area_amount or 0)
-#         )
-#
-#         return fix + (people * person_var) + (area * area_var)
-
-
-
 class ManagerFixVariableChargeAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -21835,24 +21819,45 @@ class ManagerFixVariableChargeAPIView(APIView):
         ).exists()
 
     def calculate_amounts(self, unit, charge):
-        """
-        محاسبه مبلغ از Calculator مرکزی.
-        فرمول پایه در این ویو تکرار نمی‌شود.
-        """
-        calculator = CALCULATORS[self.CHARGE_TYPE]
+        calculator = CALCULATORS["fix_variable"]
 
+        # مبلغ پایه طبق Calculator مرکزی
         base_amount = Decimal(
             str(calculator.calculate(unit, charge) or 0)
         )
 
+        # هزینه اضافی عمومی
         other_amount = Decimal(
             str(getattr(charge, "other_cost_amount", 0) or 0)
+        )
+
+        # مبلغ هر پارکینگ اضافه
+        parking_rate = Decimal(
+            str(getattr(charge, "extra_parking_amount", 0) or 0)
+        )
+
+        # تعداد پارکینگ اضافه متعلق به همین واحد
+        parking_count = int(
+            getattr(unit, "parking_counts", 0) or 0
+        )
+
+        # هزینه پارکینگ این واحد
+        parking_total = parking_rate * parking_count
+
+        # جمع نهایی
+        total_amount = (
+                base_amount
+                + other_amount
+                + parking_total
         )
 
         return {
             "base_amount": base_amount,
             "other_amount": other_amount,
-            "total_amount": base_amount + other_amount,
+            "parking_count": parking_count,
+            "parking_rate": parking_rate,
+            "parking_total": parking_total,
+            "total_amount": total_amount,
         }
 
     def update_charge_totals(self, charge, units):
@@ -21900,13 +21905,14 @@ class ManagerFixVariableChargeAPIView(APIView):
 
             values = {
                 "house": unit.myhouse,
-                "charge_type": self.CHARGE_TYPE,
+                "charge_type": "fix_variable",
                 "amount": amounts["base_amount"],
                 "base_charge": amounts["total_amount"],
-                "other_cost_amount": amounts["other_amount"],
-                "penalty_percent": (
-                    charge.payment_penalty_amount or 0
+                "other_cost_amount": (
+                        amounts["other_amount"]
+                        + amounts["parking_total"]
                 ),
+                "penalty_percent": charge.payment_penalty_amount or 0,
                 "penalty_amount": 0,
                 "total_charge_month": amounts["total_amount"],
                 "details": charge.details or "",
@@ -22266,6 +22272,7 @@ class ManagerFixVariableChargeAPIView(APIView):
                 status=status.HTTP_500_INTERNAL_SERVER_ERROR,
             )
 
+
 class ManagerFixVariableChargeUnitsAPIView(APIView):
     authentication_classes = [JWTAuthentication]
     permission_classes = [IsAuthenticated]
@@ -22370,17 +22377,32 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
             area = Decimal(str(unit.area or 0))
             people = int(unit.people_count or 0)
 
-            # مبلغ پایه فقط از Calculator گرفته می‌شود
+            # مبلغ پایه از Calculator
             base_amount = Decimal(
                 str(calculator.calculate(unit, charge) or 0)
             )
 
-            # این دو مقدار فقط جزئیات نمایشی هستند
+            # هزینه عمومی
+            other_amount = Decimal(
+                str(charge.other_cost_amount or 0)
+            )
+
+            # پارکینگ اختصاصی همین واحد
+            parking_count = int(unit.parking_counts or 0)
+
+            parking_total = (
+                    parking_amount * parking_count
+            )
+
             person_total = person_rate * people
             area_total = area_rate * area
 
-            # مطابق رفتار فعلی: پارکینگ جدا نمایش داده می‌شود
-            calculated_total = base_amount + other_amount
+            # مبلغ نهایی با احتساب پارکینگ
+            calculated_total = (
+                    base_amount
+                    + other_amount
+                    + parking_total
+            )
 
             if renter:
                 current_resident_type = "renter"
@@ -22389,11 +22411,18 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
             else:
                 current_resident_type = "owner"
 
+            print(
+                "PAYMENT DEADLINE:",
+                charge.payment_deadline
+            )
+
             results.append({
                 "id": unit.pk,
                 "unit": str(unit.unit),
                 "area": str(area),
                 "people_count": people,
+                "parking_counts": parking_count,
+
                 "owner_name": unit.owner_name or "",
                 "renter_name": (
                     renter.renter_name if renter else ""
@@ -22406,18 +22435,17 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
 
                 "person_total": str(person_total),
                 "area_total": str(area_total),
+
+                # نرخ هر پارکینگ و مبلغ پارکینگ این واحد
                 "extra_parking_amount": str(parking_amount),
+                "parking_total": str(parking_total),
 
                 "base_amount": str(base_amount),
                 "other_cost_amount": str(other_amount),
                 "calculated_total": str(calculated_total),
 
-                "is_notified": bool(
-                    uc and uc.send_notification
-                ),
-                "send_sms": bool(
-                    uc and uc.send_sms
-                ),
+                "is_notified": bool(uc and uc.send_notification),
+                "send_sms": bool(uc and uc.send_sms),
                 "send_sms_date": (
                     uc.send_sms_date.isoformat()
                     if uc and uc.send_sms_date
@@ -22426,12 +22454,11 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
                 "is_paid": bool(uc and uc.is_paid),
 
                 "current_charge": str(
-                    uc.total_charge_month
-                    if uc else calculated_total
+                    uc.total_charge_month if uc else calculated_total
                 ),
+
                 "financial_document_number": (
-                    uc.financial_document_number
-                    if uc else None
+                    uc.financial_document_number if uc else None
                 ),
             })
 
@@ -22460,8 +22487,10 @@ class ManagerFixVariableChargeUnitsAPIView(APIView):
                 charge.payment_deadline.isoformat()
                 if charge.payment_deadline else None
             ),
+
             "count": len(results),
             "results": results,
+
         })
 
 
@@ -22847,4 +22876,1138 @@ class ManagerFixVariableChargeCancelAPIView(APIView):
             "ok": True,
             "cancelled_count": cancelled_count,
             "detail": "اعلان سیستمی واحدهای انتخاب‌شده لغو شد.",
+        })
+
+# ============== Expense Charge ========================
+
+VALID_BASES = {"equal", "area", "person"}
+VALID_SCOPES = {"all", "occupied", "vacant", "selected"}
+
+
+def api_error(message, code=status.HTTP_400_BAD_REQUEST):
+    return Response(
+        {"success": False, "message": message},
+        status=code,
+    )
+
+
+def decimal_value(value):
+    try:
+        return Decimal(str(value or 0))
+    except Exception:
+        return Decimal("0")
+
+
+def money_round(value):
+    return int(
+        decimal_value(value).quantize(
+            Decimal("1"),
+            rounding=ROUND_HALF_UP,
+        )
+    )
+
+
+class ManagerChargeCalculationBaseAPIView(APIView):
+    authentication_classes = [JWTAuthentication]
+    permission_classes = [IsAuthenticated]
+
+    def check_manager(self, request):
+        if not getattr(request.user, "is_middle_admin", False):
+            return None, api_error(
+                "فقط مدیر ساختمان مجاز به انجام این عملیات است.",
+                status.HTTP_403_FORBIDDEN,
+            )
+
+        house = getattr(request.user, "house", None)
+        if not house:
+            return None, api_error("ساختمان مدیر مشخص نیست.")
+
+        return house, None
+
+    def get_calculation(self, request, pk):
+        house, error = self.check_manager(request)
+        if error:
+            return None, error
+
+        calculation = ChargeCalculation.objects.filter(
+            pk=pk,
+            house=house,
+        ).first()
+
+        if not calculation:
+            return None, api_error(
+                "محاسبه شارژ پیدا نشد.",
+                status.HTTP_404_NOT_FOUND,
+            )
+
+        return calculation, None
+
+    @staticmethod
+    def _serialize_date(value):
+        if value is None or value == '':
+            return None
+
+        import datetime
+        if isinstance(value, (datetime.date, datetime.datetime)):
+            return value.isoformat()
+
+        value = str(value).strip()
+
+        if not value:
+            return None
+
+        # اگر تاریخ از قبل رشته باشد، آن را بدون خطا برمی‌گردانیم.
+        return value
+
+    def serialize_calculation(self, obj):
+        return {
+            "id": obj.id,
+            "name": obj.name,
+            "start_date": self._serialize_date(obj.start_date),
+            "end_date": self._serialize_date(obj.end_date),
+            "unit_count": obj.unit_count,
+            "other_cost_amount": obj.other_cost_amount,
+            "payment_deadline": self._serialize_date(obj.payment_deadline),
+            "payment_penalty_amount": obj.payment_penalty_amount,
+            "details": obj.details,
+            "status": obj.status,
+            "is_finalized": obj.is_finalized,
+            "created_at": (
+                obj.created_at.isoformat() if obj.created_at else None
+            ),
+            "can_edit": obj.can_edit(),
+            "can_finalize": obj.can_finalize(),
+        }
+
+    def ensure_editable(self, calculation):
+        if calculation.is_finalized or calculation.status == "finalized":
+            return api_error(
+                "محاسبه نهایی شده و قابل ویرایش نیست.",
+                status.HTTP_409_CONFLICT,
+            )
+
+        return None
+
+
+# ============================================================
+# 1) CRUD محاسبه تسهیم هزینه
+# ============================================================
+
+class ManagerChargeCalculationAPIView(ManagerChargeCalculationBaseAPIView):
+
+    def get(self, request, pk=None):
+        house, error = self.check_manager(request)
+        if error:
+            return error
+
+        if pk is not None:
+            calculation, error = self.get_calculation(request, pk)
+            if error:
+                return error
+
+            return Response({
+                "success": True,
+                "result": self.serialize_calculation(calculation),
+            })
+
+        queryset = ChargeCalculation.objects.filter(
+            house=house,
+        ).order_by("-created_at", "-id")
+
+        return Response({
+            "success": True,
+            "count": queryset.count(),
+            "results": [
+                self.serialize_calculation(obj)
+                for obj in queryset
+            ],
+        })
+
+    def post(self, request):
+        house, error = self.check_manager(request)
+        if error:
+            return error
+
+        data = request.data
+
+        name = str(data.get("name") or "").strip()
+        start_date = data.get("start_date")
+        end_date = data.get("end_date")
+
+        if not name:
+            return api_error("نام محاسبه الزامی است.")
+
+        if not start_date or not end_date:
+            return api_error("تاریخ شروع و پایان الزامی است.")
+
+        if str(start_date) > str(end_date):
+            return api_error("تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.")
+
+        try:
+            with transaction.atomic():
+                calculation = ChargeCalculation.objects.create(
+                    house=house,
+                    name=name,
+                    start_date=start_date,
+                    end_date=end_date,
+                    created_by=request.user,
+                    other_cost_amount=max(
+                        0, int(data.get("other_cost_amount") or 0)
+                    ),
+                    payment_deadline=data.get("payment_deadline") or None,
+                    payment_penalty_amount=max(
+                        0, int(data.get("payment_penalty_amount") or 0)
+                    ),
+                    details=data.get("details") or "",
+                    status="draft",
+                )
+
+            return Response({
+                "success": True,
+                "message": "محاسبه شارژ ایجاد شد.",
+                "result": self.serialize_calculation(calculation),
+            }, status=status.HTTP_201_CREATED)
+
+        except (TypeError, ValueError):
+            return api_error("مقادیر مبلغ یا تاریخ معتبر نیستند.")
+
+    def patch(self, request, pk):
+        calculation, error = self.get_calculation(request, pk)
+        if error:
+            return error
+
+        error = self.ensure_editable(calculation)
+        if error:
+            return error
+
+        data = request.data
+        allowed_fields = (
+            "name",
+            "start_date",
+            "end_date",
+            "payment_deadline",
+            "details",
+        )
+
+        for field in allowed_fields:
+            if field in data:
+                setattr(calculation, field, data[field] or None)
+
+        for field in ("other_cost_amount", "payment_penalty_amount"):
+            if field in data:
+                try:
+                    value = int(data[field] or 0)
+                    if value < 0:
+                        return api_error(f"{field} نمی‌تواند منفی باشد.")
+                    setattr(calculation, field, value)
+                except (TypeError, ValueError):
+                    return api_error(f"مقدار {field} معتبر نیست.")
+
+        if calculation.start_date and calculation.end_date:
+            if calculation.start_date > calculation.end_date:
+                return api_error("تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد.")
+
+        calculation.save()
+
+        return Response({
+            "success": True,
+            "message": "محاسبه ویرایش شد.",
+            "result": self.serialize_calculation(calculation),
+        })
+
+    def delete(self, request, pk):
+        calculation, error = self.get_calculation(request, pk)
+        if error:
+            return error
+
+        error = self.ensure_editable(calculation)
+        if error:
+            return error
+
+        ct = ContentType.objects.get_for_model(ChargeCalculation)
+        has_paid_charge = UnifiedCharge.objects.filter(
+            house=calculation.house,
+            content_type=ct,
+            object_id=calculation.pk,
+            is_paid=True,
+        ).exists()
+
+        if has_paid_charge:
+            return api_error(
+                "برای این محاسبه پرداخت ثبت شده و حذف آن مجاز نیست.",
+                status.HTTP_409_CONFLICT,
+            )
+
+        calculation.delete()
+
+        return Response({
+            "success": True,
+            "message": "محاسبه حذف شد.",
+        })
+
+
+# ============================================================
+# 2) هزینه‌ها و تنظیم گروه‌های تسهیم
+# ============================================================
+
+class ManagerChargeCalculationItemsAPIView(
+    ManagerChargeCalculationBaseAPIView
+):
+
+    def get_sources(self, request, calculation):
+        expenses = Expense.objects.filter(
+            user=request.user,
+            house=calculation.house,
+            is_active=True,
+            date__gte=calculation.start_date,
+            date__lte=calculation.end_date,
+        ).order_by("-date", "-id")
+
+        maintenances = Maintenance.objects.filter(
+            user=request.user,
+            house=calculation.house,
+            is_active=True,
+            maintenance_start_date__lte=calculation.end_date,
+            maintenance_end_date__gte=calculation.start_date,
+        ).order_by("-maintenance_start_date", "-id")
+
+        return expenses, maintenances
+
+    def get(self, request, pk):
+        calculation, error = self.get_calculation(request, pk)
+        if error:
+            return error
+
+        expenses, maintenances = self.get_sources(request, calculation)
+
+        old_items = {
+            (item.content_type_id, item.object_id): item
+            for item in calculation.items.prefetch_related("selected_units")
+        }
+
+        expense_ct = ContentType.objects.get_for_model(Expense)
+        maintenance_ct = ContentType.objects.get_for_model(Maintenance)
+
+        expense_groups = {}
+
+        for expense in expenses:
+            category_id = expense.category_id
+            key = (expense_ct.id, expense.id)
+            old_item = old_items.get(key)
+
+            if category_id not in expense_groups:
+                category_items = [
+                    old_items.get((expense_ct.id, obj.id))
+                    for obj in expenses
+                    if obj.category_id == category_id
+                ]
+                category_items = [x for x in category_items if x]
+
+                selected_item = category_items[0] if category_items else None
+
+                expense_groups[category_id] = {
+                    "group_key": f"expense_{category_id}",
+                    "group_id": category_id,
+                    "type": "expense",
+                    "category": str(expense.category or "هزینه عمومی"),
+                    "total_amount": 0,
+                    "basis": (
+                        selected_item.allocation_basis
+                        if selected_item else "equal"
+                    ),
+                    "scope": (
+                        selected_item.allocation_scope
+                        if selected_item else "all"
+                    ),
+                    "selected": bool(selected_item),
+                    "selected_unit_ids": (
+                        list(selected_item.selected_units.values_list("id", flat=True))
+                        if selected_item else []
+                    ),
+                    "expenses": [],
+                }
+
+            group = expense_groups[category_id]
+            group["total_amount"] += expense.amount or 0
+            group["expenses"].append({
+                "id": expense.id,
+                "title": expense.description or str(expense.category or "هزینه"),
+                "date": expense.date.isoformat() if expense.date else None,
+                "amount": expense.amount or 0,
+                "selected": bool(old_item and old_item.is_selected),
+            })
+
+        maintenance_groups = []
+
+        for maintenance in maintenances:
+            item = old_items.get((maintenance_ct.id, maintenance.id))
+
+            maintenance_groups.append({
+                "group_key": f"maintenance_{maintenance.id}",
+                "group_id": maintenance.id,
+                "type": "maintenance",
+                "title": maintenance.maintenance_description or "تعمیرات",
+                "date": (
+                    maintenance.maintenance_start_date.isoformat()
+                    if maintenance.maintenance_start_date else None
+                ),
+                "total_amount": maintenance.maintenance_price or 0,
+                "basis": item.allocation_basis if item else "equal",
+                "scope": item.allocation_scope if item else "all",
+                "selected": bool(item),
+                "selected_unit_ids": (
+                    list(item.selected_units.values_list("id", flat=True))
+                    if item else []
+                ),
+            })
+
+        units = Unit.objects.filter(
+            myhouse=calculation.house,
+            is_active=True,
+        ).order_by("unit")
+
+        return Response({
+            "success": True,
+            "calculation": self.serialize_calculation(calculation),
+            "units": [
+                {"id": u.id, "unit": str(u.unit)}
+                for u in units
+            ],
+            "expense_groups": list(expense_groups.values()),
+            "maintenance_groups": maintenance_groups,
+        })
+
+    @transaction.atomic
+    def post(self, request, pk):
+        calculation, error = self.get_calculation(request, pk)
+        if error:
+            return error
+
+        error = self.ensure_editable(calculation)
+        if error:
+            return error
+
+        groups = request.data.get("groups")
+
+        if isinstance(groups, str):
+            try:
+                groups = json.loads(groups)
+            except json.JSONDecodeError:
+                return api_error("ساختار groups معتبر نیست.")
+
+        if not isinstance(groups, list):
+            return api_error("فیلد groups باید یک آرایه باشد.")
+
+        expenses, maintenances = self.get_sources(request, calculation)
+
+        expense_by_id = {obj.id: obj for obj in expenses}
+        maintenance_by_id = {obj.id: obj for obj in maintenances}
+
+        units_qs = Unit.objects.filter(
+            myhouse=calculation.house,
+            is_active=True,
+        )
+        valid_unit_ids = set(units_qs.values_list("id", flat=True))
+
+        expense_ct = ContentType.objects.get_for_model(Expense)
+        maintenance_ct = ContentType.objects.get_for_model(Maintenance)
+
+        submitted_keys = set()
+        errors = []
+
+        for group in groups:
+            if not isinstance(group, dict):
+                errors.append("یکی از گروه‌ها ساختار نامعتبر دارد.")
+                continue
+
+            group_type = group.get("type")
+            group_id = group.get("group_id")
+            selected = bool(group.get("selected", True))
+            basis = group.get("basis", "equal")
+            scope = group.get("scope", "all")
+
+            if basis not in VALID_BASES:
+                errors.append(f"مبنای تسهیم گروه {group_id} معتبر نیست.")
+                continue
+
+            if scope not in VALID_SCOPES:
+                errors.append(f"محدوده تسهیم گروه {group_id} معتبر نیست.")
+                continue
+
+            if group_type == "expense":
+                try:
+                    category_id = int(group_id)
+                except (TypeError, ValueError):
+                    errors.append("شناسه دسته هزینه معتبر نیست.")
+                    continue
+
+                source_objects = [
+                    obj for obj in expense_by_id.values()
+                    if obj.category_id == category_id
+                ]
+                content_type = expense_ct
+
+            elif group_type == "maintenance":
+                try:
+                    maintenance_id = int(group_id)
+                except (TypeError, ValueError):
+                    errors.append("شناسه تعمیرات معتبر نیست.")
+                    continue
+
+                source = maintenance_by_id.get(maintenance_id)
+                source_objects = [source] if source else []
+                content_type = maintenance_ct
+
+            else:
+                errors.append("نوع گروه باید expense یا maintenance باشد.")
+                continue
+
+            if not source_objects:
+                errors.append(f"هزینه‌های گروه {group_id} پیدا نشدند.")
+                continue
+
+            selected_ids = group.get("selected_unit_ids", [])
+            if not isinstance(selected_ids, list):
+                errors.append("selected_unit_ids باید آرایه باشد.")
+                continue
+
+            try:
+                selected_ids = list(dict.fromkeys(int(x) for x in selected_ids))
+            except (TypeError, ValueError):
+                errors.append("شناسه یکی از واحدهای انتخاب‌شده معتبر نیست.")
+                continue
+
+            if any(unit_id not in valid_unit_ids for unit_id in selected_ids):
+                errors.append("واحد انتخاب‌شده متعلق به این ساختمان نیست یا فعال نیست.")
+                continue
+
+            if selected and scope == "selected" and not selected_ids:
+                errors.append(f"برای گروه {group_id} باید حداقل یک واحد انتخاب شود.")
+                continue
+
+            for source in source_objects:
+                key = (content_type.id, source.id)
+                submitted_keys.add(key)
+
+                if not selected:
+                    ChargeCalculationItem.objects.filter(
+                        calculation=calculation,
+                        content_type=content_type,
+                        object_id=source.id,
+                    ).delete()
+                    continue
+
+                if group_type == "expense":
+                    amount = source.amount or 0
+                    title = source.description or str(source.category or "هزینه")
+                    source_date = source.date
+                    source_unit = source.unit
+                else:
+                    amount = source.maintenance_price or 0
+                    title = source.maintenance_description or "تعمیرات"
+                    source_date = source.maintenance_start_date
+                    source_unit = source.unit
+
+                item, _ = ChargeCalculationItem.objects.update_or_create(
+                    calculation=calculation,
+                    content_type=content_type,
+                    object_id=source.id,
+                    defaults={
+                        "amount": amount,
+                        "title": title,
+                        "source_date": source_date,
+                        "allocation_basis": basis,
+                        "allocation_scope": scope,
+                        "source_unit": source_unit,
+                        "fixed_amount": amount,
+                        "is_selected": True,
+                    },
+                )
+
+                if scope == "selected":
+                    item.selected_units.set(selected_ids)
+                else:
+                    item.selected_units.clear()
+
+        if errors:
+            # تراکنش اتمیک باعث می‌شود تغییرات ناقص ذخیره نشوند.
+            transaction.set_rollback(True)
+            return api_error(
+                "اطلاعات گروه‌ها معتبر نیست.",
+            )
+
+        # آیتم‌هایی که منبع آن‌ها دیگر در بازه زمانی موجود نیستند،
+        # در این مرحله حذف نمی‌شوند؛ برای حذف باید گروه صریحاً deselect شود.
+        calculation.unit_count = units_qs.count()
+        calculation.status = "calculated"
+        calculation.save(update_fields=["unit_count", "status", "updated_at"])
+
+        return Response({
+            "success": True,
+            "message": "گروه‌های هزینه و روش تسهیم ذخیره شدند.",
+            "selected_items_count": calculation.items.filter(
+                is_selected=True
+            ).count(),
+        })
+
+
+# ============================================================
+# 3) محاسبه سهم هر واحد
+# ============================================================
+
+class ManagerChargeCalculationUnitsAPIView(
+    ManagerChargeCalculationBaseAPIView
+):
+
+    def get(self, request, pk):
+        calculation, error = self.get_calculation(request, pk)
+        if error:
+            return error
+
+        units = list(
+            Unit.objects.filter(
+                myhouse=calculation.house,
+                is_active=True,
+            ).prefetch_related("renters").order_by("unit")
+        )
+
+        items = list(
+            calculation.items.filter(
+                is_selected=True
+            ).select_related("content_type", "source_unit").prefetch_related(
+                "selected_units"
+            )
+        )
+
+        if not units:
+            return Response({
+                "success": True,
+                "results": [],
+                "message": "هیچ واحد فعالی وجود ندارد.",
+            })
+
+        def unit_people(unit):
+            try:
+                renters = [
+                    renter for renter in unit.renters.all()
+                    if getattr(renter, "renter_is_active", False)
+                ]
+                if renters:
+                    return sum(
+                        int(getattr(r, "renter_people_count", 1) or 0)
+                        for r in renters
+                    )
+            except Exception:
+                pass
+
+            return int(getattr(unit, "owner_people_count", 0) or 0)
+
+        def unit_area(unit):
+            return decimal_value(getattr(unit, "area", 0))
+
+        def unit_is_occupied(unit):
+            return getattr(unit, "status_residence", None) == "occupied"
+
+        def units_for_item(item):
+            if item.allocation_scope == "occupied":
+                return [u for u in units if unit_is_occupied(u)]
+
+            if item.allocation_scope == "vacant":
+                return [u for u in units if not unit_is_occupied(u)]
+
+            if item.allocation_scope == "selected":
+                selected_ids = set(
+                    item.selected_units.values_list("id", flat=True)
+                )
+                return [u for u in units if u.id in selected_ids]
+
+            return units
+
+        results = {
+            unit.id: {
+                "unit_id": unit.id,
+                "unit": str(unit.unit),
+                "area": str(unit_area(unit)),
+                "people_count": unit_people(unit),
+                "cost_total": Decimal("0"),
+                "other_cost_amount": Decimal("0"),
+                "total": Decimal("0"),
+            }
+            for unit in units
+        }
+
+        item_amounts = {}
+
+        for item in items:
+            scope_units = units_for_item(item)
+            amount = decimal_value(item.amount)
+            allocations = {}
+
+            if not scope_units:
+                continue
+
+            if item.allocation_basis == "area":
+                denominator = sum(
+                    (unit_area(u) for u in scope_units),
+                    Decimal("0"),
+                )
+                if denominator <= 0:
+                    denominator = Decimal(len(scope_units))
+                    allocations = {
+                        u.id: amount / denominator for u in scope_units
+                    }
+                else:
+                    allocations = {
+                        u.id: amount * unit_area(u) / denominator
+                        for u in scope_units
+                    }
+
+            elif item.allocation_basis == "person":
+                denominator = sum(unit_people(u) for u in scope_units)
+                if denominator <= 0:
+                    denominator = Decimal(len(scope_units))
+                    allocations = {
+                        u.id: amount / denominator for u in scope_units
+                    }
+                else:
+                    allocations = {
+                        u.id: amount * Decimal(unit_people(u)) / Decimal(denominator)
+                        for u in scope_units
+                    }
+
+            else:
+                share = amount / Decimal(len(scope_units))
+                allocations = {u.id: share for u in scope_units}
+
+            item_amounts[item.id] = allocations
+
+            for unit_id, share in allocations.items():
+                results[unit_id]["cost_total"] += share
+
+        # هزینه اضافی به ازای هر واحد، مطابق منطق ویوی جنگو
+        for unit in units:
+            results[unit.id]["other_cost_amount"] = decimal_value(
+                calculation.other_cost_amount
+            )
+            results[unit.id]["total"] = (
+                results[unit.id]["cost_total"]
+                + results[unit.id]["other_cost_amount"]
+            )
+
+        output = []
+        for unit in units:
+            row = results[unit.id]
+            row["cost_total"] = str(row["cost_total"])
+            row["other_cost_amount"] = str(row["other_cost_amount"])
+            row["total"] = str(row["total"])
+
+            # وضعیت شارژ موجود
+            ct = ContentType.objects.get_for_model(ChargeCalculation)
+            charge = UnifiedCharge.objects.filter(
+                house=calculation.house,
+                unit=unit,
+                content_type=ct,
+                object_id=calculation.pk,
+            ).first()
+
+            row["is_paid"] = bool(charge and charge.is_paid)
+            row["send_notification"] = bool(
+                charge and charge.send_notification
+            )
+            row["send_sms"] = bool(charge and charge.send_sms)
+            row["financial_document_number"] = (
+                charge.financial_document_number if charge else None
+            )
+
+            output.append(row)
+
+        return Response({
+            "success": True,
+            "calculation": self.serialize_calculation(calculation),
+            "count": len(output),
+            "results": output,
+        })
+
+
+# ============================================================
+# 4) ایجاد شارژها، ثبت تخصیص‌ها و ارسال اعلان / پیامک
+# ============================================================
+
+class ManagerChargeCalculationSendAPIView(
+    ManagerChargeCalculationBaseAPIView
+):
+
+    @transaction.atomic
+    def post(self, request, pk):
+        calculation, error = self.get_calculation(request, pk)
+        if error:
+            return error
+
+        if calculation.is_finalized or calculation.status == "finalized":
+            return api_error(
+                "این محاسبه قبلاً نهایی شده است.",
+                status.HTTP_409_CONFLICT,
+            )
+
+        unit_ids = request.data.get("unit_ids")
+        send_sms = request.data.get("send_sms", False)
+
+        if isinstance(send_sms, str):
+            send_sms = send_sms.strip().lower() in ("true", "1", "yes")
+
+        if not isinstance(unit_ids, list) or not unit_ids:
+            return api_error("حداقل یک واحد باید انتخاب شود.")
+
+        try:
+            unit_ids = list(dict.fromkeys(int(x) for x in unit_ids))
+        except (TypeError, ValueError):
+            return api_error("شناسه واحدها معتبر نیست.")
+
+        units = list(
+            Unit.objects.filter(
+                myhouse=calculation.house,
+                is_active=True,
+                id__in=unit_ids,
+            ).prefetch_related("renters").order_by("unit")
+        )
+
+        if len(units) != len(unit_ids):
+            return api_error("برخی واحدها غیرفعال یا متعلق به ساختمان دیگری هستند.")
+
+        items = list(
+            calculation.items.filter(
+                is_selected=True,
+            ).select_related("content_type", "source_unit").prefetch_related(
+                "selected_units"
+            )
+        )
+
+        if not items:
+            return api_error("هیچ هزینه‌ای برای تسهیم انتخاب نشده است.")
+
+        all_units = list(
+            Unit.objects.filter(
+                myhouse=calculation.house,
+                is_active=True,
+            ).prefetch_related("renters")
+        )
+
+        def people_count(unit):
+            try:
+                active_renters = [
+                    renter for renter in unit.renters.all()
+                    if getattr(renter, "renter_is_active", False)
+                ]
+                if active_renters:
+                    return sum(
+                        int(getattr(r, "renter_people_count", 1) or 0)
+                        for r in active_renters
+                    )
+            except Exception:
+                pass
+
+            return int(getattr(unit, "owner_people_count", 0) or 0)
+
+        def area_value(unit):
+            return decimal_value(getattr(unit, "area", 0))
+
+        def occupied(unit):
+            return getattr(unit, "status_residence", None) == "occupied"
+
+        def scope_units(item):
+            if item.allocation_scope == "occupied":
+                return [u for u in all_units if occupied(u)]
+
+            if item.allocation_scope == "vacant":
+                return [u for u in all_units if not occupied(u)]
+
+            if item.allocation_scope == "selected":
+                selected_ids = set(
+                    item.selected_units.values_list("id", flat=True)
+                )
+                return [u for u in all_units if u.id in selected_ids]
+
+            return all_units
+
+        # سهم هر آیتم برای هر واحد محاسبه می‌شود.
+        item_allocations = {}
+        totals = {
+            unit.id: Decimal("0")
+            for unit in all_units
+        }
+
+        for item in items:
+            participating_units = scope_units(item)
+            amount = decimal_value(item.amount)
+
+            if not participating_units:
+                continue
+
+            allocations = {}
+
+            if item.allocation_basis == "area":
+                denominator = sum(
+                    (area_value(u) for u in participating_units),
+                    Decimal("0"),
+                )
+                if denominator <= 0:
+                    share = amount / Decimal(len(participating_units))
+                    allocations = {u.id: share for u in participating_units}
+                else:
+                    allocations = {
+                        u.id: amount * area_value(u) / denominator
+                        for u in participating_units
+                    }
+
+            elif item.allocation_basis == "person":
+                denominator = sum(people_count(u) for u in participating_units)
+                if denominator <= 0:
+                    share = amount / Decimal(len(participating_units))
+                    allocations = {u.id: share for u in participating_units}
+                else:
+                    allocations = {
+                        u.id: amount * Decimal(people_count(u)) / Decimal(denominator)
+                        for u in participating_units
+                    }
+
+            else:
+                share = amount / Decimal(len(participating_units))
+                allocations = {u.id: share for u in participating_units}
+
+            item_allocations[item.id] = allocations
+
+            for unit_id, share in allocations.items():
+                totals[unit_id] += share
+
+        # مطابق ویوی وب، مبلغ هزینه اضافی برای هر واحد جداگانه است.
+        other_cost = decimal_value(calculation.other_cost_amount)
+        ct = ContentType.objects.get_for_model(ChargeCalculation)
+
+        # ابتدا شارژها و تخصیص‌ها ساخته می‌شوند.
+        created_charges = []
+        skipped_paid = []
+
+        for unit in units:
+            existing = UnifiedCharge.objects.filter(
+                house=calculation.house,
+                unit=unit,
+                content_type=ct,
+                object_id=calculation.pk,
+            ).first()
+
+            if existing and existing.is_paid:
+                skipped_paid.append(unit.id)
+                continue
+
+            base_amount = money_round(totals.get(unit.id, Decimal("0")))
+            other_amount = money_round(other_cost)
+            total_amount = base_amount + other_amount
+
+            defaults = {
+                "user": request.user,
+                "house": calculation.house,
+                "unit": unit,
+                "charge_type": UnifiedCharge.ChargeType.EXPENSE_CHARGE,
+                "amount": base_amount,
+                "base_charge": base_amount,
+                "other_cost_amount": other_amount,
+                "civil": 0,
+                "total_charge_month": total_amount,
+                "title": calculation.name,
+                "details": calculation.details or "",
+                "payment_deadline_date": calculation.payment_deadline,
+                "penalty_amount": calculation.payment_penalty_amount,
+                "payment_pending": False,
+                "send_notification": True,
+                "send_notification_date": timezone.localdate(),
+                "content_type": ct,
+                "object_id": calculation.pk,
+            }
+
+            charge, created = UnifiedCharge.objects.update_or_create(
+                house=calculation.house,
+                unit=unit,
+                content_type=ct,
+                object_id=calculation.pk,
+                defaults=defaults,
+            )
+
+            if not charge.financial_document_number:
+                charge.financial_document_number = (
+                    get_next_financial_document_number(calculation.house)
+                )
+                charge.save(update_fields=["financial_document_number"])
+
+            created_charges.append(charge)
+
+            # ثبت سهم آیتم به واحد؛ سابقه تخصیص برای همه آیتم‌ها
+            for item in items:
+                exact_share = item_allocations.get(item.id, {}).get(
+                    unit.id,
+                    Decimal("0"),
+                )
+
+                ChargeAllocation.objects.update_or_create(
+                    item=item,
+                    unit=unit,
+                    defaults={
+                        "calculation_value": exact_share,
+                        "area_snapshot": area_value(unit),
+                        "people_snapshot": people_count(unit),
+                        "amount": money_round(exact_share),
+                        "exact_amount": exact_share,
+                    },
+                )
+
+        # اگر همه واحدهای انتخاب‌شده پرداخت‌شده باشند، چیزی برای ارسال نداریم.
+        if not created_charges:
+            return Response({
+                "success": True,
+                "message": "واحد انتخاب‌شده جدیدی برای ایجاد شارژ وجود ندارد؛ شارژهای پرداخت‌شده تغییر نکردند.",
+                "created_count": 0,
+                "skipped_paid_unit_ids": skipped_paid,
+            })
+
+        sms_success = None
+        sms_message = None
+
+        if send_sms:
+            def save_sms_metadata(total_sms=0, total_price=0):
+                now_date = timezone.localdate()
+                UnifiedCharge.objects.filter(
+                    pk__in=[c.pk for c in created_charges]
+                ).update(
+                    send_sms=True,
+                    send_sms_date=now_date,
+                    sms_count=total_sms,
+                    sms_total_price=total_price,
+                )
+
+            sms_result = SmsService.send_for_unified_charges(
+                user=request.user,
+                unified_charges=created_charges,
+                meta_callback=save_sms_metadata,
+            )
+
+            sms_success = bool(sms_result.success)
+            sms_message = sms_result.message
+
+            if not sms_success:
+                # شارژها ساخته شده‌اند، اما ارسال پیامک ناموفق بوده است.
+                # این نتیجه را صریح به کلاینت اعلام می‌کنیم.
+                return Response({
+                    "success": True,
+                    "message": "شارژها ایجاد شدند اما ارسال پیامک موفق نبود.",
+                    "sms_success": False,
+                    "sms_message": sms_message,
+                    "created_count": len(created_charges),
+                    "skipped_paid_unit_ids": skipped_paid,
+                })
+
+        calculation.status = "finalized"
+        calculation.is_finalized = True
+        calculation.finalized_at = timezone.now()
+        calculation.save(
+            update_fields=[
+                "status",
+                "is_finalized",
+                "finalized_at",
+                "updated_at",
+            ]
+        )
+
+        return Response({
+            "success": True,
+            "message": (
+                "شارژها ایجاد و پیامک ارسال شد."
+                if send_sms else "شارژها ایجاد و اعلان ثبت شد."
+            ),
+            "created_count": len(created_charges),
+            "skipped_paid_unit_ids": skipped_paid,
+            "sms_success": sms_success,
+            "sms_message": sms_message,
+        })
+
+
+# ============================================================
+# 5) لغو اعلان شارژهای پرداخت‌نشده
+# ============================================================
+
+class ManagerChargeCalculationCancelAPIView(
+    ManagerChargeCalculationBaseAPIView
+):
+
+    @transaction.atomic
+    def post(self, request, pk):
+        calculation, error = self.get_calculation(request, pk)
+        if error:
+            return error
+
+        unit_ids = request.data.get("unit_ids", [])
+
+        if isinstance(unit_ids, str) and unit_ids == "all":
+            unit_ids = ["all"]
+
+        if not isinstance(unit_ids, list):
+            return api_error("unit_ids باید آرایه باشد.")
+
+        ct = ContentType.objects.get_for_model(ChargeCalculation)
+
+        queryset = UnifiedCharge.objects.filter(
+            house=calculation.house,
+            content_type=ct,
+            object_id=calculation.pk,
+            is_paid=False,
+            send_notification=True,
+        )
+
+        if unit_ids != ["all"]:
+            try:
+                ids = list(dict.fromkeys(int(x) for x in unit_ids))
+            except (TypeError, ValueError):
+                return api_error("شناسه واحدها معتبر نیست.")
+
+            valid_ids = set(
+                Unit.objects.filter(
+                    myhouse=calculation.house,
+                    is_active=True,
+                    id__in=ids,
+                ).values_list("id", flat=True)
+            )
+
+            if not valid_ids:
+                return api_error("واحد معتبری برای لغو اعلان انتخاب نشده است.")
+
+            queryset = queryset.filter(unit_id__in=valid_ids)
+
+        changed_count = queryset.update(
+            send_notification=False,
+            send_notification_date=None,
+        )
+
+        remaining_notifications = UnifiedCharge.objects.filter(
+            house=calculation.house,
+            content_type=ct,
+            object_id=calculation.pk,
+            is_paid=False,
+            send_notification=True,
+        ).exists()
+
+        if not remaining_notifications:
+            calculation.is_finalized = False
+            calculation.status = "draft"
+            calculation.finalized_at = None
+            calculation.save(
+                update_fields=[
+                    "is_finalized",
+                    "status",
+                    "finalized_at",
+                    "updated_at",
+                ]
+            )
+
+        return Response({
+            "success": True,
+            "message": "اعلان شارژهای پرداخت‌نشده لغو شد.",
+            "cancelled_count": changed_count,
         })

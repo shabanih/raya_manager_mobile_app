@@ -34,7 +34,9 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerPersonAreaChargeSendAPIView, ManagerPersonAreaChargeCancelAPIView, ManagerFixPersonAreaChargeAPIView, \
     ManagerFixPersonAreaChargeUnitsAPIView, ManagerFixPersonAreaChargeSendAPIView, \
     ManagerFixPersonAreaChargeCancelAPIView, ManagerFixVariableChargeAPIView, ManagerFixVariableChargeUnitsAPIView, \
-    ManagerFixVariableChargeSendAPIView, ManagerFixVariableChargeCancelAPIView
+    ManagerFixVariableChargeSendAPIView, ManagerFixVariableChargeCancelAPIView, ManagerChargeCalculationAPIView, \
+    ManagerChargeCalculationItemsAPIView, ManagerChargeCalculationUnitsAPIView, ManagerChargeCalculationSendAPIView, \
+    ManagerChargeCalculationCancelAPIView
 
 urlpatterns = [
     path(
@@ -815,6 +817,38 @@ urlpatterns = [
         ManagerFixVariableChargeCancelAPIView.as_view(),
         name="manager-fix-variable-charge-cancel",
     ),
+
+    path(
+        "manager/charge-calculations/",
+        ManagerChargeCalculationAPIView.as_view(),
+        name="manager-charge-calculation-list",
+    ),
+    path(
+        "manager/charge-calculations/<int:pk>/",
+        ManagerChargeCalculationAPIView.as_view(),
+        name="manager-charge-calculation-detail",
+    ),
+    path(
+        "manager/charge-calculations/<int:pk>/items/",
+        ManagerChargeCalculationItemsAPIView.as_view(),
+        name="manager-charge-calculation-items",
+    ),
+    path(
+        "manager/charge-calculations/<int:pk>/units/",
+        ManagerChargeCalculationUnitsAPIView.as_view(),
+        name="manager-charge-calculation-units",
+    ),
+    path(
+        "manager/charge-calculations/<int:pk>/send/",
+        ManagerChargeCalculationSendAPIView.as_view(),
+        name="manager-charge-calculation-send",
+    ),
+    path(
+        "manager/charge-calculations/<int:pk>/cancel/",
+        ManagerChargeCalculationCancelAPIView.as_view(),
+        name="manager-charge-calculation-cancel",
+    ),
+
 
 
 ]
