@@ -1,0 +1,1138 @@
+
+{% extends 'middleShared/base_template.html' %}
+{% load static %}
+{% load poll_extras %}
+
+
+{% block page_title %}
+انتخاب هزینه و محاسبه بر اساس مبنا
+{% endblock page_title %}
+
+
+{% block main_content %}
+
+<hr/>
+
+
+<div class="container-fluid">
+
+    <div class="card">
+
+        <!-- ===================================================== -->
+        <!-- Header -->
+        <!-- ===================================================== -->
+
+        <div class="card-header py-1">
+
+      <div class="row g-3 align-items-center">
+
+    <div class="col-12 col-lg-6 p-2">
+        <h5 class="badge bg-success mb-0 w-100 text-center"
+            style="font-size: 14px; padding: 12px 18px;">
+            عنوان شارژ:
+            <small style="font-size: 15px;">
+                {{ calculation.name }}
+            </small>
+        </h5>
+    </div>
+
+    <div class="col-12 col-lg-6 p-2">
+        <h5 class="badge bg-success mb-0 w-100 text-center"
+            style="font-size: 14px; padding: 12px 18px;">
+            از تاریخ
+            {{ calculation.start_date|show_jalali_admin }}
+            تا تاریخ
+            {{ calculation.end_date|show_jalali_admin }}
+        </h5>
+    </div>
+
+</div>
+
+        </div>
+
+
+        <div class="card-body p-3">
+
+            <!-- ================================================= -->
+            <!-- Error -->
+            <!-- ================================================= -->
+
+            {% if error_message %}
+
+                <div class="alert alert-danger">
+                    {{ error_message }}
+                </div>
+
+            {% elif error %}
+
+                <div class="alert alert-danger">
+                    {{ error }}
+                </div>
+
+            {% endif %}
+
+
+            <!-- ================================================= -->
+            <!-- Form -->
+            <!-- ================================================= -->
+
+            <form
+                method="post"
+                action="{% url 'middle_add_charge_calculation_items' calculation.pk %}"
+                id="chargeCalculationForm"
+            >
+
+                {% csrf_token %}
+
+
+                <!-- ================================================= -->
+                <!-- هزینه‌ها -->
+                <!-- ================================================= -->
+
+
+                {% if expense_groups %}
+
+                    <div class="table-responsive">
+
+                        <table class="table table-bordered table-hover align-middle" style='margin-top:0;'>
+
+                            <thead>
+
+                                <tr>
+
+                                    <th style="width:50px;">
+
+                                        <input
+                                            type="checkbox"
+                                            id="selectAllExpenses"
+                                        >
+
+                                    </th>
+
+                                    <th>
+                                        گروه هزینه
+                                    </th>
+
+                                    <th>
+                                        تعداد
+                                    </th>
+
+                                    <th>
+                                        جزئیات مبالغ
+                                    </th>
+
+                                    <th>
+                                        مجموع
+                                    </th>
+
+                                    <th style="width:270px;">
+                                        مبنای تقسیم
+                                    </th>
+
+                                    <th style="width:70px;">
+                                        مشاهده
+                                    </th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody>
+
+                                {% for group in expense_groups %}
+
+                                    <!-- ========================================= -->
+                                    <!-- Expense Group -->
+                                    <!-- ========================================= -->
+
+                                    <tr class="expense-group-row">
+
+                                        <td>
+
+                                            <input
+                                                type="checkbox"
+                                                class="expense-group-checkbox"
+                                                name="expense_group_ids"
+                                                value="{{ group.category_id }}"
+
+                                                {% if group.selected %}
+                                                    checked
+                                                {% endif %}
+                                            >
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <strong>
+                                                {{ group.category }}
+                                            </strong>
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <span class="badge bg-info">
+
+                                                {{ group.expenses|length|to_persian_number }}
+
+                                                مورد
+
+                                            </span>
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <small class="text-dark">
+
+                                                {% for expense in group.expenses %}
+
+                                                    {{ expense.amount|three_digit_currency }}
+
+                                                    {% if not forloop.last %}
+                                                        +
+                                                    {% endif %}
+
+                                                {% endfor %}
+
+                                            </small>
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <strong>
+
+                                                {{ group.total_amount|three_digit_currency }}
+
+                                            </strong>
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <!-- ================================= -->
+                                            <!-- Basis -->
+                                            <!-- ================================= -->
+
+                                            <select
+                                                name="expense_group_basis_{{ group.category_id }}"
+                                                class="form-control form-control-sm expense-group-basis"
+                                            >
+
+                                                <option
+                                                    value="equal"
+
+                                                    {% if group.basis == 'equal' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    مساوی
+                                                </option>
+
+
+                                                <option
+                                                    value="area"
+
+                                                    {% if group.basis == 'area' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    متراژ
+                                                </option>
+
+
+                                                <option
+                                                    value="person"
+
+                                                    {% if group.basis == 'person' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    تعداد نفرات
+                                                </option>
+
+                                            </select>
+
+
+                                            <!-- ================================= -->
+                                            <!-- Scope -->
+                                            <!-- ================================= -->
+
+                                            <select
+                                                name="expense_group_scope_{{ group.category_id }}"
+                                                class="form-control form-control-sm mt-2 expense-group-scope"
+                                                data-group-id="{{ group.category_id }}"
+                                                data-type="expense"
+                                            >
+
+                                                <option
+                                                    value="all"
+
+                                                    {% if group.scope == 'all' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    همه واحدها
+                                                </option>
+
+
+                                                <option
+                                                    value="occupied"
+
+                                                    {% if group.scope == 'occupied' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    واحدهای ساکن
+                                                </option>
+
+
+                                                <option
+                                                    value="vacant"
+
+                                                    {% if group.scope == 'vacant' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    واحدهای خالی
+                                                </option>
+
+
+                                                <option
+                                                    value="selected"
+
+                                                    {% if group.scope == 'selected' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+
+انتخاب واحد                                                </option>
+
+                                            </select>
+
+
+                                            <!-- ================================= -->
+                                            <!-- Select Units Button -->
+                                            <!-- ================================= -->
+
+                                            <button
+                                                type="button"
+                                                class="btn btn-sm btn-outline-primary mt-2 select-units-btn"
+
+                                                data-group-id="{{ group.category_id }}"
+                                                data-type="expense"
+
+                                                {% if group.scope != 'selected' %}
+                                                    style="display:none;"
+                                                {% endif %}
+                                            >
+
+                                                <i class="fas fa-home"></i>
+
+                                                انتخاب واحدها
+
+                                                <span class="selected-unit-count badge bg-primary">
+
+                                                    {{ group.selected_units_count|default:0|to_persian_number }}
+
+                                                </span>
+
+                                            </button>
+
+
+                                            <!-- ================================= -->
+                                            <!-- Hidden Inputs -->
+                                            <!-- ================================= -->
+
+                                            <div
+                                                class="selected-units-container"
+                                                data-group-id="{{ group.category_id }}"
+                                                data-type="expense"
+                                            ></div>
+
+                                        </td>
+
+
+                                        <td class="text-center">
+
+                                            <button
+                                                type="button"
+                                                class="btn btn-sm btn-outline-primary toggle-expense-details"
+                                                data-target="expense-details-{{ group.category_id }}"
+                                            >
+
+                                                <span>
+                                                    +
+                                                </span>
+
+                                            </button>
+
+                                        </td>
+
+                                    </tr>
+
+
+                                    <!-- ========================================= -->
+                                    <!-- Expense Details -->
+                                    <!-- ========================================= -->
+
+                    
+                                   <tr
+        id="expense-details-{{ group.category_id }}"
+        class="expense-details-row"
+        hidden
+    >
+        <td colspan="7" class="p-2">
+    
+            <div class="bg-light rounded p-2">
+    
+                <div class="mb-2">
+                    <strong>جزئیات گروه:</strong>
+                    {{ group.category }}
+                </div>
+    
+                <div class="table-responsive">
+                    <table class="table table-sm table-bordered mb-0 mt-2">
+    
+                        <thead>
+                            <tr>
+                                <th>#</th>
+                                <th>تاریخ</th>
+                                <th>شماره سند</th>
+                                <th>شرح</th>
+                                <th>واحد</th>
+                                <th>مبلغ</th>
+                            </tr>
+                        </thead>
+    
+                        <tbody>
+                            {% for expense in group.expenses %}
+                            <tr>
+                                <td>
+                                    {{ forloop.counter|to_persian_number }}
+                                </td>
+    
+                                <td>
+                                    {{ expense.date|show_jalali }}
+                                </td>
+    
+                                <td>
+                                    {{ expense.financial_document_number|to_persian_number }}
+                                </td>
+    
+                                <td>
+                                    {{ expense.description|to_persian_number }}
+                                </td>
+    
+                                <td>
+                                    {% if expense.unit %}
+                                        واحد {{ expense.unit.unit|to_persian_number }}
+                                    {% else %}
+                                        عمومی ساختمان
+                                    {% endif %}
+                                </td>
+    
+                                <td>
+                                    {{ expense.amount|three_digit_currency }}
+                                </td>
+                            </tr>
+                            {% endfor %}
+                        </tbody>
+    
+                    </table>
+                </div>
+    
+            </div>
+    
+        </td>
+    </tr>
+
+                                {% endfor %}
+
+                            </tbody>
+
+                        </table>
+
+                    </div>
+
+
+                {% else %}
+
+                    <div class="alert alert-info">
+
+                        در این بازه هیچ هزینه‌ای ثبت نشده است.
+
+                    </div>
+
+                {% endif %}
+
+
+
+                <!-- ================================================= -->
+                <!-- تعمیرات و نگهداری -->
+                <!-- ================================================= -->
+
+                <h6 class="mt-4 mb-3">
+                    تعمیرات و نگهداری
+                </h6>
+
+
+                {% if maintenance_groups %}
+
+                    <div class="table-responsive">
+
+                        <table class="table table-bordered table-hover align-middle mt-2">
+
+                            <thead>
+
+                                <tr>
+
+                                    <th style="width:50px;">
+
+                                        <input
+                                            type="checkbox"
+                                            id="selectAllMaintenance"
+                                        >
+
+                                    </th>
+
+                                    <th>
+                                        شرح تعمیرات
+                                    </th>
+
+                                    <th>
+                                        تعداد
+                                    </th>
+
+                                    <th>
+                                        جزئیات مبالغ
+                                    </th>
+
+                                    <th>
+                                        مجموع
+                                    </th>
+
+                                    <th style="width:270px;">
+                                        مبنای تقسیم
+                                    </th>
+
+                                    <th style="width:70px;">
+                                        مشاهده
+                                    </th>
+
+                                </tr>
+
+                            </thead>
+
+
+                            <tbody>
+
+                                {% for group in maintenance_groups %}
+
+                                    <!-- ========================================= -->
+                                    <!-- Maintenance Group -->
+                                    <!-- ========================================= -->
+
+                                    <tr class="maintenance-group-row">
+
+                                        <td>
+
+                                            <input
+                                                type="checkbox"
+                                                class="maintenance-group-checkbox"
+                                                name="maintenance_group_ids"
+                                                value="{{ group.group_id }}"
+
+                                                {% if group.selected %}
+                                                    checked
+                                                {% endif %}
+                                            >
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <strong>
+
+                                                {{ group.title|to_persian_number }}
+
+                                            </strong>
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <span class="badge bg-info">
+
+                                                {{ group.maintenance|length|to_persian_number }}
+
+                                                مورد
+
+                                            </span>
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <small class="text-dark">
+
+                                                {% for item in group.maintenance %}
+
+                                                    {{ item.maintenance_price|three_digit_currency }}
+
+                                                    {% if not forloop.last %}
+                                                        +
+                                                    {% endif %}
+
+                                                {% endfor %}
+
+                                            </small>
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <strong>
+
+                                                {{ group.total_amount|three_digit_currency }}
+
+                                            </strong>
+
+                                        </td>
+
+
+                                        <td>
+
+                                            <!-- ================================= -->
+                                            <!-- Basis -->
+                                            <!-- ================================= -->
+
+                                            <select
+                                                name="maintenance_group_basis_{{ group.group_id }}"
+                                                class="form-control form-control-sm maintenance-group-basis"
+                                            >
+
+                                                <option
+                                                    value="equal"
+
+                                                    {% if group.basis == 'equal' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    مساوی
+                                                </option>
+
+
+                                                <option
+                                                    value="area"
+
+                                                    {% if group.basis == 'area' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    متراژ
+                                                </option>
+
+
+                                                <option
+                                                    value="person"
+
+                                                    {% if group.basis == 'person' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    تعداد نفرات
+                                                </option>
+
+                                            </select>
+
+
+                                            <!-- ================================= -->
+                                            <!-- Scope -->
+                                            <!-- ================================= -->
+
+                                            <select
+                                                name="maintenance_group_scope_{{ group.group_id }}"
+                                                class="form-control form-control-sm mt-2 maintenance-group-scope"
+                                                data-group-id="{{ group.group_id }}"
+                                                data-type="maintenance"
+                                            >
+
+                                                <option
+                                                    value="all"
+
+                                                    {% if group.scope == 'all' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    همه واحدها
+                                                </option>
+
+
+                                                <option
+                                                    value="occupied"
+
+                                                    {% if group.scope == 'occupied' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    واحدهای ساکن
+                                                </option>
+
+
+                                                <option
+                                                    value="vacant"
+
+                                                    {% if group.scope == 'vacant' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    واحدهای خالی
+                                                </option>
+
+
+                                                <option
+                                                    value="selected"
+
+                                                    {% if group.scope == 'selected' %}
+                                                        selected
+                                                    {% endif %}
+                                                >
+                                                    انتخاب واحد 
+                                                </option>
+
+                                            </select>
+
+
+                                            <!-- ================================= -->
+                                            <!-- Select Units -->
+                                            <!-- ================================= -->
+
+                                            <button
+                                                type="button"
+                                                class="btn btn-sm btn-outline-primary mt-2 select-units-btn"
+
+                                                data-group-id="{{ group.group_id }}"
+                                                data-type="maintenance"
+
+                                                {% if group.scope != 'selected' %}
+                                                    style="display:none;"
+                                                {% endif %}
+                                            >
+
+                                                <i class="fas fa-home"></i>
+
+                                                انتخاب واحدها
+
+                                                <span class="selected-unit-count badge bg-primary">
+
+                                                    {{ group.selected_units_count|default:0|to_persian_number }}
+
+                                                </span>
+
+                                            </button>
+
+
+                                            <!-- ================================= -->
+                                            <!-- Hidden Inputs -->
+                                            <!-- ================================= -->
+
+                                            <div
+                                                class="selected-units-container"
+                                                data-group-id="{{ group.group_id }}"
+                                                data-type="maintenance"
+                                            ></div>
+
+                                        </td>
+
+
+                                        <td class="text-center">
+
+                                            <button
+                                                type="button"
+                                                class="btn btn-sm btn-outline-primary toggle-maintenance-details"
+                                                data-target="maintenance-details-{{ group.group_id }}"
+                                            >
+
+                                                <span>
+                                                    +
+                                                </span>
+
+                                            </button>
+
+                                        </td>
+
+                                    </tr>
+
+
+                                    <!-- ========================================= -->
+                                    <!-- Maintenance Details -->
+                                    <!-- ========================================= -->
+
+                               <tr
+    id="maintenance-details-{{ group.group_id }}"
+    class="maintenance-details-row"
+    hidden
+>
+    <td colspan="7" class="maintenance-details-cell">
+
+        <div class="maintenance-details-box p-3 bg-light rounded">
+
+            <div class="mb-2 maintenance-details-title">
+                <strong>جزئیات تعمیرات:</strong>
+                {{ group.title|to_persian_number }}
+            </div>
+
+            <div class="maintenance-inner-table-wrapper">
+                <table class="table table-sm table-bordered mb-0 maintenance-inner-table mt-2">
+
+                    <thead>
+                        <tr>
+                            <th>#</th>
+                            <th>شروع</th>
+                            <th>پایان</th>
+                            <th>شرح</th>
+                            <th>شرکت / کارشناس</th>
+                            <th>مبلغ</th>
+                        </tr>
+                    </thead>
+
+                    <tbody>
+                        {% for item in group.maintenance %}
+                        <tr>
+
+                            <td>
+                                {{ forloop.counter|to_persian_number }}
+                            </td>
+
+                            <td>
+                                {{ item.maintenance_start_date|show_jalali }}
+                            </td>
+
+                            <td>
+                                {{ item.maintenance_end_date|show_jalali }}
+                            </td>
+
+                            <td class="maintenance-description">
+                                {{ item.maintenance_description|to_persian_number }}
+                            </td>
+
+                            <td class="maintenance-expert">
+
+                                {% if item.service_company %}
+                                    {{ item.service_company }}
+
+                                {% elif item.expert_name %}
+                                    {{ item.expert_name }}
+
+                                {% else %}
+                                    -
+                                {% endif %}
+
+                            </td>
+
+                            <td class="maintenance-price">
+                                {{ item.maintenance_price|three_digit_currency }}
+                            </td>
+
+                        </tr>
+                        {% endfor %}
+                    </tbody>
+
+                </table>
+            </div>
+
+        </div>
+
+    </td>
+</tr>
+
+                                {% endfor %}
+
+                            </tbody>
+
+                        </table>
+
+                    </div>
+
+
+                {% else %}
+
+                    <div class="alert alert-info">
+
+                        در این بازه هیچ تعمیراتی ثبت نشده است.
+
+                    </div>
+
+                {% endif %}
+
+
+
+                <!-- ================================================= -->
+                <!-- Buttons -->
+                <!-- ================================================= -->
+
+     <div class="mt-4 d-flex justify-content-between align-items-center gap-2">
+
+    <a
+        href="{% url 'middle_add_charge_expense_calculation_create' %}"
+        class="btn btn-danger px-4"
+    >
+        بازگشت
+    </a>
+
+    <button
+        type="submit"
+        class="btn btn-primary px-4"
+    >
+        ادامه محاسبه
+    </button>
+
+</div>
+
+
+            </form>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+
+
+<div
+    class="modal fade"
+    id="unitSelectionModal"
+    tabindex="-1"
+    aria-labelledby="unitSelectionModalLabel"
+    aria-hidden="true"
+>
+
+
+<div class="modal-dialog modal-lg modal-dialog-centered">
+
+    <div class="modal-content">
+
+        <!-- ================================================= -->
+        <!-- Modal Header -->
+        <!-- ================================================= -->
+
+        <div class="modal-header">
+
+            <h5 class="modal-title">
+                انتخاب واحدها
+            </h5>
+
+        </div>
+
+
+        <!-- ================================================= -->
+        <!-- Modal Body -->
+        <!-- ================================================= -->
+
+        <div class="modal-body">
+
+
+            <!-- ================================================= -->
+            <!-- Selected Count -->
+            <!-- ================================================= -->
+
+            <div
+                class="alert alert-info d-flex justify-content-between align-items-center"
+            >
+
+                <span>
+                    واحدهای موردنظر را انتخاب کنید.
+                </span>
+
+                <span class="text-nowrap">
+
+                    انتخاب‌شده:
+
+                    <strong
+                        id="modalSelectedUnitCount"
+                        class="badge bg-primary"
+                    >
+                        ۰
+                    </strong>
+
+                </span>
+
+            </div>
+
+
+            <!-- ================================================= -->
+            <!-- Search -->
+            <!-- ================================================= -->
+
+            <div class="mb-3">
+
+                <input
+                    type="text"
+                    id="modalUnitSearch"
+                    class="form-control"
+                    placeholder="جستجوی شماره واحد یا نام مالک..."
+                    autocomplete="off"
+                >
+
+            </div>
+
+
+            <!-- ================================================= -->
+            <!-- Select All -->
+            <!-- ================================================= -->
+
+   <div class="mb-3">
+    <label class="form-check">
+        <input type="checkbox"
+               class="form-check-input"
+               id="selectAllModalUnits">
+
+        <span class="form-check-label">
+            انتخاب همه واحدهای نمایش داده‌شده
+        </span>
+    </label>
+</div>
+
+
+            <hr>
+
+
+            <!-- ================================================= -->
+            <!-- Units -->
+            <!-- ================================================= -->
+
+            <div
+                id="modalUnitsContainer"
+                class="row g-2"
+            ></div>
+
+
+            <!-- ================================================= -->
+            <!-- No Units -->
+            <!-- ================================================= -->
+
+            <div
+                id="modalNoUnitsMessage"
+                class="alert alert-warning text-center"
+                style="display:none;"
+            >
+                هیچ واحدی پیدا نشد.
+            </div>
+
+        </div>
+
+
+        <!-- ================================================= -->
+        <!-- Footer -->
+        <!-- ================================================= -->
+
+        <div class="modal-footer">
+
+            <button
+                type="button"
+                class="btn btn-secondary"
+                data-bs-dismiss="modal"
+            >
+                انصراف
+            </button>
+
+            <button
+                type="button"
+                class="btn btn-primary"
+                id="confirmUnitSelection"
+            >
+                تأیید انتخاب
+            </button>
+
+        </div>
+
+    </div>
+
+</div>
+
+
+
+</div>
+
+
+
+<script>
+    window.chargeCalculationData = {
+        initialSelectedUnits: {
+            {% for group in expense_groups %}
+
+                "expense_{{ group.category_id }}": [
+                    {% for unit_id in group.selected_unit_ids %}
+                        "{{ unit_id }}"
+                        {% if not forloop.last %},{% endif %}
+                    {% endfor %}
+                ]
+
+                {% if not forloop.last %},{% endif %}
+
+            {% endfor %}
+
+            {% if expense_groups and maintenance_groups %}
+                ,
+            {% endif %}
+
+            {% for group in maintenance_groups %}
+
+                "maintenance_{{ group.group_id }}": [
+                    {% for unit_id in group.selected_unit_ids %}
+                        "{{ unit_id }}"
+                        {% if not forloop.last %},{% endif %}
+                    {% endfor %}
+                ]
+
+                {% if not forloop.last %},{% endif %}
+
+            {% endfor %}
+        },
+
+        availableUnits: [
+
+            {% for unit in units %}
+        
+                {% with renter=unit.get_active_renter %}
+        
+                {
+                    id: {{ unit.id }},
+                    number: "{{ unit.unit|to_persian_number }}",
+                    is_renter: {% if unit.is_renter %}true{% else %}false{% endif %},
+                    owner_name: "{{ unit.owner_name|default:''|escapejs }}",
+                    active_renter_name: "{{ renter.renter_name|default:''|escapejs }}"
+                }
+        
+                {% endwith %}
+        
+                {% if not forloop.last %},{% endif %}
+        
+            {% endfor %}
+        
+        ]
+    };
+</script>
+
+<script src="{% static 'admin_panel/js/expense.js' %}"></script>
+
+
+
+
+
+{% endblock %}

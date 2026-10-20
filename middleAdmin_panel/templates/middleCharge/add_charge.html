@@ -145,14 +145,14 @@
         {% comment %}روش 9: شارژ بر اساس هزینه‌های ساختمان{% endcomment %}
         <div class="col-md-4 grid-margin">
             {% if 9 in allowed_methods %}
-            <a href="#">
+               <a href="{% url 'middle_add_charge_expense_calculation_create' %}">
             <div class="card bg-gradient-info card-img-holder text-white">
             {% else %}
             <div class="card bg-secondary card-img-holder text-muted" style="opacity:0.4; cursor:not-allowed;">
             {% endif %}
                 <div class="py-4">
                  <img src="/static/admin_panel/images/circle.svg" class="card-img-absolute" alt="circle">
-                    <h4 class="text-center text-white"><span class="chargeCircle">9</span> شارژ بر اساس هزینه‌های ساختمان</h4>
+                    <h4 class="text-center text-white"><span class="chargeCircle">9</span> شارژ تسهیم هزینه  ‌ </h4>
                 </div>
             </div>
             {% if 9 in allowed_methods %}</a>{% endif %}

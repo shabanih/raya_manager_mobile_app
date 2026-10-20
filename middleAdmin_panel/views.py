@@ -10,7 +10,8 @@ from itertools import chain
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.conf.urls.static import static
-from django.contrib.auth.forms import PasswordChangeForm
+from django.contrib.auth.forms import PasswordChangeForm, logger
+from django.contrib.auth.mixins import LoginRequiredMixin
 from django.contrib.contenttypes.models import ContentType
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -44,7 +45,7 @@ from admin_panel.forms import announcementForm, BankForm, UnitForm, ExpenseCateg
     FixAreaChargeForm, AreaChargeForm, PersonChargeForm, FixPersonChargeForm, PersonAreaChargeForm, \
     PersonAreaFixChargeForm, VariableFixChargeForm, MyHouseForm, SmsForm, RenterAddForm, ExpensePayForm, IncomePayForm, \
     SmsCreditForm, SubscriptionPlanForm, CivilForm, SewageForm, ReceivePayForm, PayMoneyForm, PropertyPayForm, \
-    MaintenancePayForm, TransferMoneyForm
+    MaintenancePayForm, TransferMoneyForm, ChargeCalculationForm
 from admin_panel.helper import send_notify_user_by_sms
 from admin_panel.models import Announcement, ExpenseCategory, Expense, Fund, ExpenseDocument, IncomeCategory, Income, \
     IncomeDocument, ReceiveMoney, ReceiveDocument, PayMoney, PayDocument, Property, PropertyDocument, Maintenance, \
@@ -52,7 +53,8 @@ from admin_panel.models import Announcement, ExpenseCategory, Expense, Fund, Exp
     FixAreaCharge, FixPersonCharge, ChargeByPersonArea, \
     ChargeByFixPersonArea, ChargeFixVariable, SmsManagement, \
     UnifiedCharge, SmsCredit, SubscriptionPlan, Subscription, CivilManage, CivilDocument, CivilInstallment, \
-    SewageManage, SewageDocument, SewageInstallment, BankFund, Coupon, CouponUsage
+    SewageManage, SewageDocument, SewageInstallment, BankFund, Coupon, CouponUsage, ChargeCalculation, \
+    ChargeCalculationItem, ChargeAllocation, FinancialDocumentSequence
 from admin_panel.services.calculators import CALCULATORS
 from middleAdmin_panel.services.bank_services import BankTransactionService
 from middleAdmin_panel.services.unit_services import UnitUpdateService
@@ -11219,4 +11221,3676 @@ def restore_penalty_bulk(request):
         return JsonResponse({
             'success': False,
             'error': str(e)
+        }, status=500)
+
+
+# ============================================================================
+
+class ChargeCalculationCreateView(LoginRequiredMixin, CreateView):
+    model = ChargeCalculation
+    form_class = ChargeCalculationForm
+    template_name = 'middleCharge/charge_expense_calculation_create.html'
+
+    def get_form(self, form_class=None):
+
+        form = super().get_form(form_class)
+
+        house = getattr(
+            self.request.user,
+            'house',
+            None
+        )
+
+        if house:
+            form.fields['unit_count'].initial = (
+                house.units.count()
+            )
+
+        return form
+
+    def get_context_data(self, **kwargs):
+
+        context = super().get_context_data(**kwargs)
+
+        house = getattr(
+            self.request.user,
+            'house',
+            None
+        )
+
+        if house:
+
+            context['calculations'] = (
+                ChargeCalculation.objects
+                .filter(house=house)
+                .select_related('created_by')
+                .order_by('-created_at')
+            )
+
+        else:
+
+            context['calculations'] = (
+                ChargeCalculation.objects.none()
+            )
+
+        return context
+
+    def form_valid(self, form):
+
+        house = getattr(
+            self.request.user,
+            'house',
+            None
+        )
+
+        if not house:
+            form.add_error(
+                None,
+                'ساختمان برای کاربر مشخص نشده است.'
+            )
+
+            return self.form_invalid(form)
+
+        # ساختمان
+        form.instance.house = house
+
+        # ایجاد کننده
+        form.instance.created_by = self.request.user
+
+        # تعداد واقعی واحدها
+        form.instance.unit_count = (
+            house.units.count()
+        )
+
+        # وضعیت اولیه
+        form.instance.status = (
+            ChargeCalculation.Status.DRAFT
+        )
+
+        form.instance.is_finalized = False
+
+        response = super().form_valid(form)
+
+        # پیام موفقیت
+        messages.success(
+            self.request,
+            f'ثبت شارژ «{self.object.name}» با موفقیت ثبت شد.'
+        )
+
+        return response
+
+    def get_success_url(self):
+
+        return reverse_lazy(
+            'middle_add_charge_expense_calculation_create'
+        )
+
+
+@login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
+def charge_calculation_edit(request, pk):
+    charge = get_object_or_404(
+        ChargeCalculation,
+        pk=pk,
+        house=request.user.house
+    )
+
+    # اگر نهایی شده باشد، قابل ویرایش نیست
+    if charge.is_finalized:
+        messages.error(
+            request,
+            'این محاسبه شارژ نهایی شده و قابل ویرایش نیست.'
+        )
+        return redirect('middle_add_charge_expense_calculation_create')
+
+    # اگر برای این محاسبه اعلان ارسال شده باشد، قابل ویرایش نیست
+    any_notify = UnifiedCharge.objects.filter(
+        content_type=ContentType.objects.get_for_model(
+            ChargeCalculation
+        ),
+        object_id=charge.id,
+        send_notification=True
+    ).exists()
+
+    if any_notify:
+        messages.error(
+            request,
+            'برای این شارژ اعلان ارسال شده و قابل ویرایش نیست.'
+        )
+        return redirect('middle_add_charge_expense_calculation_create')
+
+    if request.method == 'POST':
+
+        form = ChargeCalculationForm(
+            request.POST,
+            instance=charge
+        )
+
+        if form.is_valid():
+
+            with transaction.atomic():
+
+                charge = form.save(commit=False)
+
+                # ساختمان و ایجاد کننده تغییر نکنند
+                charge.house = request.user.house
+                charge.created_by = charge.created_by
+
+                # تعداد واحد همیشه از ساختمان گرفته شود
+                charge.unit_count = request.user.house.units.filter(
+                    is_active=True
+                ).count()
+
+                # وضعیت دوباره پیش‌نویس بماند
+                charge.status = ChargeCalculation.Status.DRAFT
+                charge.is_finalized = False
+                charge.finalized_at = None
+
+                charge.save()
+
+            messages.success(
+                request,
+                'محاسبه شارژ با موفقیت ویرایش شد.'
+            )
+
+            return redirect('middle_add_charge_expense_calculation_create')
+
+        else:
+            import logging
+
+            logger = logging.getLogger(__name__)
+
+            logger.error(
+                "========== CHARGE CALCULATION FORM ERRORS ==========\n%s",
+                form.errors.as_json()
+            )
+
+            messages.error(
+                request,
+                'خطا در ویرایش فرم. لطفاً خطاهای فرم را بررسی کنید.'
+            )
+
+    else:
+        form = ChargeCalculationForm(
+            instance=charge
+        )
+
+    # همان صفحه ایجاد + جدول محاسبات قبلی
+    calculations = (
+        ChargeCalculation.objects
+        .filter(house=request.user.house)
+        .select_related('created_by')
+        .order_by('-created_at')
+    )
+
+    return render(
+        request,
+        'middleCharge/charge_expense_calculation_create.html',
+        {
+            'form': form,
+            'object': charge,
+            'calculation': charge,
+            'calculations': calculations,
+        }
+    )
+
+
+@login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
+def charge_calculation_delete(request, pk):
+    charge = get_object_or_404(
+        ChargeCalculation,
+        id=pk,
+        house=request.user.house
+    )
+
+    content_type = ContentType.objects.get_for_model(
+        ChargeCalculation
+    )
+
+    # ----------------------------------------------------------
+    # اگر حتی یک رکورد UnifiedCharge برای این محاسبه وجود داشته باشد
+    # اجازه حذف داده نمی‌شود.
+    # ----------------------------------------------------------
+    if UnifiedCharge.objects.filter(
+            content_type=content_type,
+            object_id=charge.id,
+            is_paid=True
+    ).exists():
+        messages.error(request, "امکان حذف شارژ وجود ندارد چون پرداخت شارژ توسط واحد ثبت شده است.")
+        return redirect(reverse('middle_add_charge_expense_calculation_create'))
+
+    if UnifiedCharge.objects.filter(
+            content_type=content_type,
+            object_id=charge.id,
+            send_notification=True
+    ).exists():
+        messages.error(
+            request,
+            "امکان حذف این محاسبه وجود ندارد چون برای آن رکورد شارژ در سیستم ثبت شده است."
+        )
+
+        return redirect(
+            reverse('middle_add_charge_expense_calculation_create')
+        )
+
+    # نام محاسبه قبل از حذف ذخیره شود
+    charge_name = charge.name
+
+    try:
+
+        charge.delete()
+
+        messages.success(
+            request,
+            f'«{charge_name}» با موفقیت حذف گردید!'
+
+        )
+
+    except ProtectedError:
+
+        messages.error(
+            request,
+            "امکان حذف این محاسبه به دلیل وابستگی وجود ندارد!"
+        )
+
+    return redirect(
+        reverse('middle_add_charge_expense_calculation_create')
+    )
+
+
+def toggle_charge_calculation_unit_selection(request, pk):
+    calculation = get_object_or_404(
+        ChargeCalculation,
+        pk=pk,
+        house=request.user.house
+    )
+
+    session_key = f"charge_calculation_{pk}_selected_units"
+
+    selected = set(
+        request.session.get(session_key, [])
+    )
+
+    unit_id = request.POST.get("unit_id")
+
+    if not unit_id:
+        return JsonResponse({
+            "ok": False,
+            "message": "شناسه واحد ارسال نشده است."
+        }, status=400)
+
+    try:
+        unit_id = int(unit_id)
+    except (TypeError, ValueError):
+        return JsonResponse({
+            "ok": False,
+            "message": "شناسه واحد نامعتبر است."
+        }, status=400)
+
+    # فقط واحدهای همین ساختمان مجاز هستند
+    if not Unit.objects.filter(
+            id=unit_id,
+            myhouse=calculation.house,
+            is_active=True
+    ).exists():
+        return JsonResponse({
+            "ok": False,
+            "message": "واحد معتبر نیست."
+        }, status=400)
+
+    if unit_id in selected:
+        selected.remove(unit_id)
+        checked = False
+    else:
+        selected.add(unit_id)
+        checked = True
+
+    request.session[session_key] = list(selected)
+    request.session.modified = True
+
+    return JsonResponse({
+        "ok": True,
+        "checked": checked,
+        "count": len(selected),
+    })
+
+
+class ChargeCalculationItemsView(LoginRequiredMixin, View):
+    template_name = 'middleCharge/charge_expense_calculation_items.html'
+
+    VALID_BASES = {
+        'equal',
+        'area',
+        'person',
+    }
+
+    VALID_SCOPES = {
+        'all',
+        'occupied',
+        'vacant',
+        'selected',
+    }
+
+    # ---------------------------------------------------------
+    # Calculation
+    # ---------------------------------------------------------
+
+    def get_calculation(self, request, pk):
+        return get_object_or_404(
+            ChargeCalculation,
+            pk=pk,
+            house=request.user.house
+        )
+
+    # ---------------------------------------------------------
+    # Session
+    # ---------------------------------------------------------
+
+    def get_session_key(self, calculation):
+        return f'charge_calculation_{calculation.pk}_selected_units'
+
+    def get_session_selected_units(self, request, calculation):
+        data = request.session.get(
+            self.get_session_key(calculation),
+            {}
+        )
+
+        if not isinstance(data, dict):
+            return {}
+
+        return data
+
+    def save_session_selected_units(
+            self,
+            request,
+            calculation,
+            data
+    ):
+        request.session[
+            self.get_session_key(calculation)
+        ] = data
+
+        request.session.modified = True
+
+    def delete_session_selected_units(
+            self,
+            request,
+            calculation,
+            group_key
+    ):
+        data = self.get_session_selected_units(
+            request,
+            calculation
+        )
+
+        if group_key in data:
+            del data[group_key]
+
+            self.save_session_selected_units(
+                request,
+                calculation,
+                data
+            )
+
+    # ---------------------------------------------------------
+    # Units
+    # ---------------------------------------------------------
+
+    def get_units(self, calculation):
+        return (
+            calculation.house.units
+            .filter(is_active=True)
+            .prefetch_related(
+                Prefetch(
+                    'renters',
+                    queryset=Renter.objects.filter(
+                        renter_is_active=True
+                    ).order_by('-id'),
+                    to_attr='active_renters'
+                )
+            )
+            .order_by('unit')
+        )
+
+    # ---------------------------------------------------------
+    # POST Scope
+    # ---------------------------------------------------------
+
+    def get_posted_scope(
+            self,
+            request,
+            prefix,
+            group_id,
+            default='all'
+    ):
+
+        key = f'{prefix}_scope_{group_id}'
+
+        value = request.POST.get(key)
+
+        if value in self.VALID_SCOPES:
+            return value
+
+        return default
+
+    # ---------------------------------------------------------
+    # Selected Unit IDs
+    # ---------------------------------------------------------
+
+    def get_posted_selected_unit_ids(
+            self,
+            request,
+            prefix,
+            group_id
+    ):
+
+        key = f'{prefix}_group_selected_units_{group_id}'
+
+        values = request.POST.getlist(key)
+
+        result = []
+
+        for value in values:
+
+            try:
+                unit_id = int(value)
+
+            except (TypeError, ValueError):
+                continue
+
+            if unit_id not in result:
+                result.append(unit_id)
+
+        return result
+
+    # ---------------------------------------------------------
+    # Validate Selected Units
+    # ---------------------------------------------------------
+
+    def validate_selected_unit_ids(
+            self,
+            calculation,
+            unit_ids
+    ):
+
+        if not unit_ids:
+            return []
+
+        valid_ids = set(
+            calculation.house.units
+            .filter(
+                id__in=unit_ids,
+                is_active=True
+            )
+            .values_list(
+                'id',
+                flat=True
+            )
+        )
+
+        return [
+            unit_id
+            for unit_id in unit_ids
+            if unit_id in valid_ids
+        ]
+
+    # ---------------------------------------------------------
+    # Count
+    # ---------------------------------------------------------
+
+    def get_selected_units_count(self, item):
+
+        if not item:
+            return 0
+
+        return item.selected_units.count()
+
+    # ---------------------------------------------------------
+    # Old Items
+    # ---------------------------------------------------------
+
+    def get_old_items(self, calculation):
+
+        items = (
+            ChargeCalculationItem.objects
+            .filter(calculation=calculation)
+            .prefetch_related('selected_units')
+        )
+
+        return {
+            (
+                item.content_type_id,
+                item.object_id
+            ): item
+            for item in items
+        }
+
+    # ---------------------------------------------------------
+    # Expense Groups
+    # ---------------------------------------------------------
+
+    def build_expense_groups(
+            self,
+            request,
+            calculation,
+            expenses,
+            old_items
+    ):
+
+        expense_ct = ContentType.objects.get_for_model(
+            Expense
+        )
+
+        session_data = self.get_session_selected_units(
+            request,
+            calculation
+        )
+
+        groups = {}
+
+        for expense in expenses:
+
+            category_id = expense.category_id
+
+            if category_id not in groups:
+
+                old_item = None
+
+                # پیدا کردن آیتم قبلی این گروه
+                for expense_obj in expenses:
+
+                    if expense_obj.category_id != category_id:
+                        continue
+
+                    candidate = old_items.get(
+                        (
+                            expense_ct.id,
+                            expense_obj.id
+                        )
+                    )
+
+                    if candidate:
+                        old_item = candidate
+                        break
+
+                session_key = (
+                    f'expense_{category_id}'
+                )
+
+                session_selected_ids = (
+                    session_data.get(session_key)
+                )
+
+                if session_selected_ids is not None:
+
+                    selected_unit_ids = []
+
+                    for value in session_selected_ids:
+
+                        try:
+                            selected_unit_ids.append(
+                                int(value)
+                            )
+
+                        except (
+                                TypeError,
+                                ValueError
+                        ):
+                            pass
+
+                elif old_item:
+
+                    selected_unit_ids = list(
+                        old_item.selected_units
+                        .values_list(
+                            'id',
+                            flat=True
+                        )
+                    )
+
+                else:
+
+                    selected_unit_ids = []
+
+                # نام دسته هزینه
+                category_name = getattr(
+                    expense,
+                    'category',
+                    None
+                )
+
+                if category_name is None:
+                    category_name = (
+                            getattr(
+                                expense,
+                                'category_name',
+                                None
+                            )
+                            or 'هزینه عمومی'
+                    )
+
+                groups[category_id] = {
+
+                    'category_id': category_id,
+
+                    'category': category_name,
+
+                    'expenses': [],
+
+                    'total_amount': 0,
+
+                    'basis': (
+                        old_item.allocation_basis
+                        if old_item
+                        else 'equal'
+                    ),
+
+                    'scope': (
+                        old_item.allocation_scope
+                        if old_item
+                        else 'all'
+                    ),
+
+                    'selected': (
+                            old_item is not None
+                    ),
+
+                    'charge_item': old_item,
+
+                    'selected_unit_ids':
+                        selected_unit_ids,
+
+                    'selected_units_count':
+                        len(selected_unit_ids),
+                }
+
+            group = groups[category_id]
+
+            group['expenses'].append(
+                expense
+            )
+
+            group['total_amount'] += (
+                    expense.amount or 0
+            )
+
+        return list(groups.values())
+
+    # ---------------------------------------------------------
+    # Maintenance Groups
+    # ---------------------------------------------------------
+
+    def build_maintenance_groups(
+            self,
+            request,
+            calculation,
+            maintenances,
+            old_items
+    ):
+
+        maintenance_ct = ContentType.objects.get_for_model(
+            Maintenance
+        )
+
+        session_data = self.get_session_selected_units(
+            request,
+            calculation
+        )
+
+        groups = {}
+
+        for maintenance in maintenances:
+
+            group_id = maintenance.id
+
+            old_item = old_items.get(
+                (
+                    maintenance_ct.id,
+                    maintenance.id
+                )
+            )
+
+            session_key = (
+                f'maintenance_{group_id}'
+            )
+
+            session_selected_ids = (
+                session_data.get(session_key)
+            )
+
+            if session_selected_ids is not None:
+
+                selected_unit_ids = []
+
+                for value in session_selected_ids:
+
+                    try:
+                        selected_unit_ids.append(
+                            int(value)
+                        )
+
+                    except (
+                            TypeError,
+                            ValueError
+                    ):
+                        pass
+
+            elif old_item:
+
+                selected_unit_ids = list(
+                    old_item.selected_units
+                    .values_list(
+                        'id',
+                        flat=True
+                    )
+                )
+
+            else:
+
+                selected_unit_ids = []
+
+            groups[group_id] = {
+
+                'group_id': group_id,
+
+                # حتماً باید List باشد
+                # چون Template دارد:
+                # {% for item in group.maintenance %}
+                'maintenance': [
+                    maintenance
+                ],
+
+                'title': (
+                        maintenance.maintenance_description
+                        or 'تعمیرات'
+                ),
+
+                'total_amount': (
+                        maintenance.maintenance_price
+                        or 0
+                ),
+
+                'basis': (
+                    old_item.allocation_basis
+                    if old_item
+                    else 'equal'
+                ),
+
+                'scope': (
+                    old_item.allocation_scope
+                    if old_item
+                    else 'all'
+                ),
+
+                'selected': (
+                        old_item is not None
+                ),
+
+                'charge_item': old_item,
+
+                'selected_unit_ids':
+                    selected_unit_ids,
+
+                'selected_units_count':
+                    len(selected_unit_ids),
+            }
+
+        return list(groups.values())
+
+    # ---------------------------------------------------------
+    # Common Context
+    # ---------------------------------------------------------
+
+    def get_context(
+            self,
+            request,
+            calculation,
+            expenses,
+            maintenances,
+            old_items
+    ):
+
+        expense_groups = self.build_expense_groups(
+            request=request,
+            calculation=calculation,
+            expenses=expenses,
+            old_items=old_items
+        )
+
+        maintenance_groups = self.build_maintenance_groups(
+            request=request,
+            calculation=calculation,
+            maintenances=maintenances,
+            old_items=old_items
+        )
+
+        units = self.get_units(
+            calculation
+        )
+
+        return {
+
+            'calculation': calculation,
+
+            'expense_groups':
+                expense_groups,
+
+            'maintenance_groups':
+                maintenance_groups,
+
+            'units':
+                units,
+        }
+
+    # ---------------------------------------------------------
+    # GET
+    # ---------------------------------------------------------
+
+    def get(
+            self,
+            request,
+            pk
+    ):
+
+        calculation = self.get_calculation(
+            request,
+            pk
+        )
+
+        expenses = (
+            Expense.objects
+            .filter(
+                user=request.user,
+                house=calculation.house,
+                is_active=True,
+                date__gte=calculation.start_date,
+                date__lte=calculation.end_date,
+            )
+            .order_by(
+                '-date',
+                '-id'
+            )
+        )
+
+        # توجه:
+        # Maintenance فیلد date ندارد.
+        # فیلدهای صحیح:
+        # maintenance_start_date
+        # maintenance_end_date
+        # maintenance_price
+
+        maintenances = (
+            Maintenance.objects
+            .filter(
+                user=request.user,
+                house=calculation.house,
+                is_active=True,
+
+                maintenance_start_date__lte=
+                calculation.end_date,
+
+                maintenance_end_date__gte=
+                calculation.start_date,
+            )
+            .order_by(
+                '-maintenance_start_date',
+                '-id'
+            )
+        )
+
+        old_items = self.get_old_items(
+            calculation
+        )
+
+        context = self.get_context(
+            request=request,
+            calculation=calculation,
+            expenses=expenses,
+            maintenances=maintenances,
+            old_items=old_items
+        )
+
+        return render(
+            request,
+            self.template_name,
+            context
+        )
+
+    # ---------------------------------------------------------
+    # POST
+    # ---------------------------------------------------------
+
+    @transaction.atomic
+    def post(
+            self,
+            request,
+            pk
+    ):
+
+        calculation = self.get_calculation(
+            request,
+            pk
+        )
+
+        # -----------------------------------------------------
+        # جلوگیری از ویرایش محاسبه نهایی
+        # -----------------------------------------------------
+
+        if (
+                calculation.is_finalized
+                or calculation.status == 'finalized'
+        ):
+            return redirect(
+                'middle_add_charge_calculation_units',
+                calculation.pk
+            )
+
+        # -----------------------------------------------------
+        # Expenses
+        # -----------------------------------------------------
+
+        expenses = (
+            Expense.objects
+            .filter(
+                user=request.user,
+                house=calculation.house,
+                is_active=True,
+                date__gte=calculation.start_date,
+                date__lte=calculation.end_date,
+            )
+            .order_by(
+                '-date',
+                '-id'
+            )
+        )
+
+        # -----------------------------------------------------
+        # Maintenance
+        # -----------------------------------------------------
+
+        maintenances = (
+            Maintenance.objects
+            .filter(
+                user=request.user,
+                house=calculation.house,
+                is_active=True,
+
+                maintenance_start_date__lte=
+                calculation.end_date,
+
+                maintenance_end_date__gte=
+                calculation.start_date,
+            )
+            .order_by(
+                '-maintenance_start_date',
+                '-id'
+            )
+        )
+
+        old_items = self.get_old_items(
+            calculation
+        )
+
+        # -----------------------------------------------------
+        # گروه‌های انتخاب شده
+        #
+        # مطابق Template:
+        #
+        # name="expense_group_ids"
+        # name="maintenance_group_ids"
+        # -----------------------------------------------------
+
+        selected_expense_groups = set(
+            request.POST.getlist(
+                'expense_group_ids'
+            )
+        )
+
+        selected_maintenance_groups = set(
+            request.POST.getlist(
+                'maintenance_group_ids'
+            )
+        )
+
+        # -----------------------------------------------------
+        # Session
+        # -----------------------------------------------------
+
+        session_data = (
+            self.get_session_selected_units(
+                request,
+                calculation
+            )
+        )
+
+        # -----------------------------------------------------
+        # Content Types
+        # -----------------------------------------------------
+
+        expense_ct = ContentType.objects.get_for_model(
+            Expense
+        )
+
+        maintenance_ct = ContentType.objects.get_for_model(
+            Maintenance
+        )
+
+        # -----------------------------------------------------
+        # حذف آیتم‌های قبلی
+        #
+        # فقط آیتم‌هایی که در این فرم مربوط هستند.
+        # -----------------------------------------------------
+
+        existing_items = list(
+            ChargeCalculationItem.objects
+            .filter(
+                calculation=calculation
+            )
+        )
+
+        existing_by_key = {
+            (
+                item.content_type_id,
+                item.object_id
+            ): item
+            for item in existing_items
+        }
+
+        # -----------------------------------------------------
+        # EXPENSES
+        # -----------------------------------------------------
+
+        expense_categories = {}
+
+        for expense in expenses:
+
+            category_id = expense.category_id
+
+            if category_id not in expense_categories:
+                expense_categories[
+                    category_id
+                ] = []
+
+            expense_categories[
+                category_id
+            ].append(expense)
+
+        for category_id, category_expenses in (
+                expense_categories.items()
+        ):
+
+            category_key = str(
+                category_id
+            )
+
+            is_selected = (
+                    category_key
+                    in selected_expense_groups
+            )
+
+            # ---------------------------------------------
+            # اگر گروه انتخاب نشده
+            # ---------------------------------------------
+
+            if not is_selected:
+
+                session_key = (
+                    f'expense_{category_id}'
+                )
+
+                if session_key in session_data:
+                    del session_data[
+                        session_key
+                    ]
+
+                # حذف آیتم‌های قبلی این گروه
+                for expense in category_expenses:
+
+                    old_item = existing_by_key.get(
+                        (
+                            expense_ct.id,
+                            expense.id
+                        )
+                    )
+
+                    if old_item:
+                        old_item.delete()
+
+                continue
+
+            # ---------------------------------------------
+            # Basis
+            # ---------------------------------------------
+
+            basis = request.POST.get(
+                f'expense_group_basis_{category_id}',
+                'equal'
+            )
+
+            if basis not in self.VALID_BASES:
+                basis = 'equal'
+
+            # ---------------------------------------------
+            # Scope
+            # ---------------------------------------------
+
+            scope = self.get_posted_scope(
+                request=request,
+                prefix='expense_group',
+                group_id=category_id,
+                default='all'
+            )
+
+            # ---------------------------------------------
+            # Selected Units
+            # ---------------------------------------------
+
+            session_key = (
+                f'expense_{category_id}'
+            )
+
+            if scope == 'selected':
+
+                selected_unit_ids = (
+                    self.get_posted_selected_unit_ids(
+                        request=request,
+                        prefix='expense',
+                        group_id=category_id
+                    )
+                )
+
+                # اگر POST چیزی نداشت،
+                # از Session استفاده کن
+                if not selected_unit_ids:
+                    selected_unit_ids = [
+                        int(x)
+                        for x in session_data.get(
+                            session_key,
+                            []
+                        )
+                        if str(x).isdigit()
+                    ]
+
+                selected_unit_ids = (
+                    self.validate_selected_unit_ids(
+                        calculation,
+                        selected_unit_ids
+                    )
+                )
+
+                # هیچ واحدی انتخاب نشده
+                if not selected_unit_ids:
+                    context = self.get_context(
+                        request=request,
+                        calculation=calculation,
+                        expenses=expenses,
+                        maintenances=maintenances,
+                        old_items=old_items
+                    )
+
+                    context['error'] = (
+                        f'برای گروه هزینه '
+                        f'{category_id} حداقل یک واحد را انتخاب کنید.'
+                    )
+
+                    return render(
+                        request,
+                        self.template_name,
+                        context
+                    )
+
+                session_data[
+                    session_key
+                ] = selected_unit_ids
+
+            else:
+
+                # اگر scope از selected خارج شد
+                # انتخاب‌های قبلی پاک شوند.
+
+                session_data.pop(
+                    session_key,
+                    None
+                )
+
+                selected_unit_ids = []
+
+            # ---------------------------------------------
+            # مبلغ کل
+            # ---------------------------------------------
+
+            total_amount = sum(
+                (
+                        expense.amount or 0
+                )
+                for expense in category_expenses
+            )
+
+            # ---------------------------------------------
+            # ساخت ChargeCalculationItem
+            #
+            # چون Expenseها گروه‌بندی شده‌اند،
+            # برای هر Expense یک Item نگه می‌داریم.
+            # ---------------------------------------------
+
+            for expense in category_expenses:
+
+                old_item = existing_by_key.get(
+                    (
+                        expense_ct.id,
+                        expense.id
+                    )
+                )
+
+                if old_item:
+
+                    item = old_item
+
+                    item.amount = (
+                            expense.amount or 0
+                    )
+
+                    item.title = (
+                            getattr(
+                                expense,
+                                'description',
+                                None
+                            )
+                            or str(
+                        getattr(
+                            expense,
+                            'category',
+                            None
+                        )
+                        or 'هزینه'
+                    )
+                    )
+
+                    item.source_date = (
+                        expense.date
+                    )
+
+                    item.allocation_basis = basis
+                    item.allocation_scope = scope
+
+                    item.fixed_amount = (
+                            expense.amount or 0
+                    )
+
+                    item.save()
+
+                else:
+
+                    item = (
+                        ChargeCalculationItem.objects.create(
+                            calculation=calculation,
+
+                            content_type=expense_ct,
+
+                            object_id=expense.id,
+
+                            amount=(
+                                    expense.amount or 0
+                            ),
+
+                            title=(
+                                    getattr(
+                                        expense,
+                                        'description',
+                                        None
+                                    )
+                                    or str(
+                                getattr(
+                                    expense,
+                                    'category',
+                                    None
+                                )
+                                or 'هزینه'
+                            )
+                            ),
+
+                            source_date=expense.date,
+
+                            allocation_basis=basis,
+
+                            allocation_scope=scope,
+
+                            source_unit=getattr(
+                                expense,
+                                'unit',
+                                None
+                            ),
+
+                            fixed_amount=(
+                                    expense.amount or 0
+                            ),
+                        )
+                    )
+
+                # -----------------------------------------
+                # selected_units
+                # -----------------------------------------
+
+                if scope == 'selected':
+
+                    item.selected_units.set(
+                        selected_unit_ids
+                    )
+
+                else:
+
+                    item.selected_units.clear()
+
+        # -----------------------------------------------------
+        # MAINTENANCE
+        # -----------------------------------------------------
+
+        for maintenance in maintenances:
+
+            group_id = maintenance.id
+
+            group_key = str(
+                group_id
+            )
+
+            is_selected = (
+                    group_key
+                    in selected_maintenance_groups
+            )
+
+            # ---------------------------------------------
+            # اگر انتخاب نشده
+            # ---------------------------------------------
+
+            if not is_selected:
+
+                session_key = (
+                    f'maintenance_{group_id}'
+                )
+
+                session_data.pop(
+                    session_key,
+                    None
+                )
+
+                old_item = existing_by_key.get(
+                    (
+                        maintenance_ct.id,
+                        maintenance.id
+                    )
+                )
+
+                if old_item:
+                    old_item.delete()
+
+                continue
+
+            # ---------------------------------------------
+            # Basis
+            # ---------------------------------------------
+
+            basis = request.POST.get(
+                f'maintenance_group_basis_{group_id}',
+                'equal'
+            )
+
+            if basis not in self.VALID_BASES:
+                basis = 'equal'
+
+            # ---------------------------------------------
+            # Scope
+            # ---------------------------------------------
+
+            scope = self.get_posted_scope(
+                request=request,
+                prefix='maintenance_group',
+                group_id=group_id,
+                default='all'
+            )
+
+            # ---------------------------------------------
+            # Selected Units
+            # ---------------------------------------------
+
+            session_key = (
+                f'maintenance_{group_id}'
+            )
+
+            if scope == 'selected':
+
+                selected_unit_ids = (
+                    self.get_posted_selected_unit_ids(
+                        request=request,
+                        prefix='maintenance',
+                        group_id=group_id
+                    )
+                )
+
+                # اگر POST خالی بود،
+                # از Session بخوان
+                if not selected_unit_ids:
+                    selected_unit_ids = [
+                        int(x)
+                        for x in session_data.get(
+                            session_key,
+                            []
+                        )
+                        if str(x).isdigit()
+                    ]
+
+                selected_unit_ids = (
+                    self.validate_selected_unit_ids(
+                        calculation,
+                        selected_unit_ids
+                    )
+                )
+
+                if not selected_unit_ids:
+                    context = self.get_context(
+                        request=request,
+                        calculation=calculation,
+                        expenses=expenses,
+                        maintenances=maintenances,
+                        old_items=old_items
+                    )
+
+                    context['error'] = (
+                        f'برای تعمیرات «'
+                        f'{maintenance.maintenance_description or "تعمیرات"}'
+                        f'» حداقل یک واحد را انتخاب کنید.'
+                    )
+
+                    return render(
+                        request,
+                        self.template_name,
+                        context
+                    )
+
+                session_data[
+                    session_key
+                ] = selected_unit_ids
+
+            else:
+
+                session_data.pop(
+                    session_key,
+                    None
+                )
+
+                selected_unit_ids = []
+
+            # ---------------------------------------------
+            # ChargeCalculationItem
+            # ---------------------------------------------
+
+            old_item = existing_by_key.get(
+                (
+                    maintenance_ct.id,
+                    maintenance.id
+                )
+            )
+
+            if old_item:
+
+                item = old_item
+
+                item.amount = (
+                        maintenance.maintenance_price
+                        or 0
+                )
+
+                item.title = (
+                        maintenance.maintenance_description
+                        or 'تعمیرات'
+                )
+
+                item.source_date = (
+                    maintenance.maintenance_start_date
+                )
+
+                item.allocation_basis = basis
+
+                item.allocation_scope = scope
+
+                item.source_unit = getattr(
+                    maintenance,
+                    'unit',
+                    None
+                )
+
+                item.fixed_amount = (
+                        maintenance.maintenance_price
+                        or 0
+                )
+
+                item.save()
+
+            else:
+
+                item = (
+                    ChargeCalculationItem.objects.create(
+
+                        calculation=calculation,
+
+                        content_type=maintenance_ct,
+
+                        object_id=maintenance.id,
+
+                        amount=(
+                                maintenance.maintenance_price
+                                or 0
+                        ),
+
+                        title=(
+                                maintenance.maintenance_description
+                                or 'تعمیرات'
+                        ),
+
+                        source_date=(
+                            maintenance.maintenance_start_date
+                        ),
+
+                        allocation_basis=basis,
+
+                        allocation_scope=scope,
+
+                        source_unit=getattr(
+                            maintenance,
+                            'unit',
+                            None
+                        ),
+
+                        fixed_amount=(
+                                maintenance.maintenance_price
+                                or 0
+                        ),
+                    )
+                )
+
+            # ---------------------------------------------
+            # selected_units
+            # ---------------------------------------------
+
+            if scope == 'selected':
+
+                item.selected_units.set(
+                    selected_unit_ids
+                )
+
+            else:
+
+                item.selected_units.clear()
+
+        # -----------------------------------------------------
+        # Session Save
+        # -----------------------------------------------------
+
+        self.save_session_selected_units(
+            request=request,
+            calculation=calculation,
+            data=session_data
+        )
+
+        # -----------------------------------------------------
+        # Status
+        # -----------------------------------------------------
+
+        if calculation.status == 'draft':
+            calculation.status = 'calculated'
+            calculation.save(
+                update_fields=['status']
+            )
+
+        # -----------------------------------------------------
+        # ادامه مرحله بعد
+        # -----------------------------------------------------
+
+        return redirect(
+            'middle_add_charge_calculation_units',
+            pk=calculation.pk
+        )
+
+    # ---------------------------------------------------------
+    # Error Render Helper
+    # ---------------------------------------------------------
+
+    def render_with_error(
+            self,
+            request,
+            calculation,
+            error_message
+    ):
+
+        expenses = (
+            Expense.objects
+            .filter(
+                user=request.user,
+                house=calculation.house,
+                is_active=True,
+                date__gte=calculation.start_date,
+                date__lte=calculation.end_date,
+            )
+            .order_by(
+                '-date',
+                '-id'
+            )
+        )
+
+        maintenances = (
+            Maintenance.objects
+            .filter(
+                user=request.user,
+                house=calculation.house,
+                is_active=True,
+
+                maintenance_start_date__lte=
+                calculation.end_date,
+
+                maintenance_end_date__gte=
+                calculation.start_date,
+            )
+            .order_by(
+                '-maintenance_start_date',
+                '-id'
+            )
+        )
+
+        old_items = self.get_old_items(
+            calculation
+        )
+
+        context = self.get_context(
+            request=request,
+            calculation=calculation,
+            expenses=expenses,
+            maintenances=maintenances,
+            old_items=old_items
+        )
+
+        context['error'] = error_message
+
+        return render(
+            request,
+            self.template_name,
+            context
+        )
+
+
+@login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
+def charge_calculation_units(request, pk):
+    """
+    انتخاب واحدها، تعیین متراژ و تعداد نفرات،
+    محاسبه سهم هر واحد و ارسال شارژ.
+
+    allocation_basis:
+        equal   = مساوی
+        area    = متراژ
+        person  = تعداد نفرات
+
+    allocation_scope:
+        all       = همه واحدها
+        occupied  = واحدهای ساکن
+        vacant    = واحدهای خالی
+        selected  = واحدهای انتخاب‌شده برای همان آیتم
+
+    ملاک تشخیص سکونت:
+        Unit.status_residence
+
+        occupied = ساکن
+        empty    = خالی
+
+    نکته:
+        calculation.other_cost_amount
+        هزینه متفرقه «به ازای هر واحد» است
+        و بین واحدها تقسیم نمی‌شود.
+    """
+
+    calculation = get_object_or_404(
+        ChargeCalculation,
+        pk=pk,
+        house=request.user.house
+    )
+
+    house = calculation.house
+
+    # =========================================================
+    # Session keys
+    # =========================================================
+
+    selected_session_key = (
+        f"charge_calculation_{pk}_selected_units"
+    )
+
+    values_session_key = (
+        f"charge_calculation_{pk}_unit_values"
+    )
+
+    # =========================================================
+    # Session انتخاب واحدها
+    # =========================================================
+
+    raw_selected_session = request.session.get(
+        selected_session_key,
+        {}
+    )
+
+    if isinstance(raw_selected_session, dict):
+
+        selected_group_session = raw_selected_session
+
+        selected_ids = raw_selected_session.get(
+            'general',
+            []
+        )
+
+    elif isinstance(raw_selected_session, (list, tuple, set)):
+
+        # Session قدیمی
+        selected_group_session = {}
+
+        selected_ids = list(
+            raw_selected_session
+        )
+
+    else:
+
+        selected_group_session = {}
+
+        selected_ids = []
+
+    # =========================================================
+    # تبدیل انتخاب عمومی به int
+    # =========================================================
+
+    selected_ids = [
+        int(x)
+        for x in selected_ids
+        if str(x).isdigit()
+    ]
+
+    # =========================================================
+    # Session متراژ و نفرات
+    # =========================================================
+
+    unit_values = request.session.get(
+        values_session_key,
+        {}
+    )
+
+    if not isinstance(unit_values, dict):
+        unit_values = {}
+
+    # =========================================================
+    # تعداد نفرات فعلی واحد
+    # =========================================================
+
+    def get_current_unit_people(unit):
+        """
+        تعداد نفرات فعلی واحد.
+
+        ابتدا مستاجر فعال،
+        در غیر این صورت مالک.
+        """
+
+        active_renter = unit.get_active_renter()
+
+        if active_renter:
+
+            try:
+
+                return max(
+                    0,
+                    int(
+                        active_renter.renter_people_count or 0
+                    )
+                )
+
+            except (TypeError, ValueError):
+
+                return 0
+
+        try:
+
+            return max(
+                0,
+                int(
+                    unit.owner_people_count or 0
+                )
+            )
+
+        except (TypeError, ValueError):
+
+            return 0
+
+    # =========================================================
+    # متراژ فعلی
+    # =========================================================
+
+    def get_current_unit_area(unit):
+
+        try:
+
+            return max(
+                0,
+                float(
+                    unit.area or 0
+                )
+            )
+
+        except (TypeError, ValueError):
+
+            return 0
+
+    # =========================================================
+    # وضعیت سکونت
+    # =========================================================
+
+    def is_unit_occupied(unit):
+
+        return (
+                (unit.status_residence or '')
+                .strip()
+                .lower()
+                == 'occupied'
+        )
+
+    def is_unit_vacant(unit):
+
+        return (
+                (unit.status_residence or '')
+                .strip()
+                .lower()
+                == 'empty'
+        )
+
+    # =========================================================
+    # آیتم‌های محاسبه
+    # =========================================================
+
+    items = (
+        calculation.items
+        .filter(
+            is_selected=True
+        )
+        .select_related(
+            'content_type',
+            'source_unit'
+        )
+        .prefetch_related(
+            'selected_units'
+        )
+        .order_by('id')
+    )
+
+    # =========================================================
+    # تمام واحدهای فعال ساختمان
+    # =========================================================
+
+    all_units_qs = (
+        Unit.objects
+        .filter(
+            myhouse=house,
+            is_active=True
+        )
+        .prefetch_related(
+            'renters'
+        )
+        .order_by('unit')
+    )
+
+    all_units = list(
+        all_units_qs
+    )
+
+    if not all_units:
+        messages.warning(
+            request,
+            "هیچ واحد فعالی برای این ساختمان وجود ندارد."
+        )
+
+        return redirect(
+            'middle_add_charge_calculation_units',
+            pk=calculation.pk
+        )
+
+    # =========================================================
+    # واحدهای ساکن / خالی
+    # =========================================================
+
+    occupied_unit_ids = {
+        unit.id
+        for unit in all_units
+        if is_unit_occupied(unit)
+    }
+
+    vacant_unit_ids = {
+        unit.id
+        for unit in all_units
+        if is_unit_vacant(unit)
+    }
+
+    unknown_residence_ids = {
+        unit.id
+        for unit in all_units
+        if (
+                unit.id not in occupied_unit_ids
+                and
+                unit.id not in vacant_unit_ids
+        )
+    }
+
+    # =========================================================
+    # مقدار پیش‌فرض متراژ و نفرات
+    # =========================================================
+
+    for unit in all_units:
+
+        key = str(unit.id)
+
+        if key not in unit_values:
+
+            unit_values[key] = {
+                'area': get_current_unit_area(unit),
+                'people': get_current_unit_people(unit),
+            }
+
+        else:
+
+            if not isinstance(
+                    unit_values[key],
+                    dict
+            ):
+                unit_values[key] = {}
+
+            if 'area' not in unit_values[key]:
+                unit_values[key]['area'] = (
+                    get_current_unit_area(unit)
+                )
+
+            if 'people' not in unit_values[key]:
+                unit_values[key]['people'] = (
+                    get_current_unit_people(unit)
+                )
+
+    # =========================================================
+    # هزینه متفرقه
+    #
+    # مهم:
+    # این مبلغ برای هر واحد است و تقسیم نمی‌شود.
+    # =========================================================
+
+    try:
+
+        other_cost_amount = float(
+            calculation.other_cost_amount or 0
+        )
+
+    except (TypeError, ValueError):
+
+        other_cost_amount = 0
+
+    # =========================================================
+    # گرفتن واحدهای selected برای یک آیتم
+    # =========================================================
+
+    def get_item_selected_unit_ids(item):
+
+        content_type = item.content_type
+
+        model_name = (
+            content_type.model
+            if content_type
+            else ''
+        )
+
+        # -----------------------------------------------------
+        # کلید Session
+        #
+        # Expense:
+        #     expense_<category_id>
+        #
+        # Maintenance:
+        #     maintenance_<group_id>
+        # -----------------------------------------------------
+
+        group_key = None
+
+        if model_name == 'expense':
+
+            try:
+
+                source_object = item.content_object
+
+            except Exception:
+
+                source_object = None
+
+            if source_object:
+
+                category_id = getattr(
+                    source_object,
+                    'category_id',
+                    None
+                )
+
+                if category_id is not None:
+                    group_key = (
+                        f'expense_{category_id}'
+                    )
+
+        elif model_name == 'maintenance':
+
+            group_key = (
+                f'maintenance_{item.object_id}'
+            )
+
+        # -----------------------------------------------------
+        # اول Session
+        # -----------------------------------------------------
+
+        if group_key:
+
+            session_values = (
+                selected_group_session.get(
+                    group_key
+                )
+            )
+
+            if isinstance(
+                    session_values,
+                    (list, tuple, set)
+            ):
+
+                ids = {
+                    int(x)
+                    for x in session_values
+                    if str(x).isdigit()
+                }
+
+                ids &= {
+                    unit.id
+                    for unit in all_units
+                }
+
+                if ids:
+                    return ids
+
+        # -----------------------------------------------------
+        # سپس selected_units خود آیتم
+        # -----------------------------------------------------
+
+        try:
+
+            ids = set(
+                item.selected_units.values_list(
+                    'id',
+                    flat=True
+                )
+            )
+
+            ids &= {
+                unit.id
+                for unit in all_units
+            }
+
+            return ids
+
+        except Exception:
+
+            return set()
+
+    # =========================================================
+    # تعیین واحدهای مشمول هر آیتم
+    # =========================================================
+
+    def get_scope_units(item):
+
+        scope = getattr(
+            item,
+            'allocation_scope',
+            'all'
+        )
+
+        # -----------------------------------------------------
+        # همه
+        # -----------------------------------------------------
+
+        if scope == 'all':
+            return list(
+                all_units
+            )
+
+        # -----------------------------------------------------
+        # ساکن
+        # -----------------------------------------------------
+
+        if scope == 'occupied':
+            return [
+                unit
+                for unit in all_units
+                if unit.id in occupied_unit_ids
+            ]
+
+        # -----------------------------------------------------
+        # خالی
+        # -----------------------------------------------------
+
+        if scope == 'vacant':
+            return [
+                unit
+                for unit in all_units
+                if unit.id in vacant_unit_ids
+            ]
+
+        # -----------------------------------------------------
+        # انتخاب شده
+        # -----------------------------------------------------
+
+        if scope == 'selected':
+            selected_for_item = (
+                get_item_selected_unit_ids(item)
+            )
+
+            return [
+                unit
+                for unit in all_units
+                if unit.id in selected_for_item
+            ]
+
+        # -----------------------------------------------------
+        # حالت پیش‌فرض
+        # -----------------------------------------------------
+
+        return list(
+            all_units
+        )
+
+    # =========================================================
+    # محاسبه یک آیتم
+    # =========================================================
+
+    def calculate_item(item):
+
+        scope_units = get_scope_units(item)
+
+        if not scope_units:
+            return {}
+
+        basis = getattr(
+            item,
+            'allocation_basis',
+            'equal'
+        )
+
+        try:
+
+            total_amount = float(
+                item.amount or 0
+            )
+
+        except (TypeError, ValueError):
+
+            total_amount = 0
+
+        # =====================================================
+        # مساوی
+        # =====================================================
+
+        if basis == 'equal':
+            per_unit = (
+                    total_amount
+                    /
+                    len(scope_units)
+            )
+
+            return {
+                unit.id: per_unit
+                for unit in scope_units
+            }
+
+        # =====================================================
+        # متراژ
+        # =====================================================
+
+        if basis == 'area':
+
+            total_area = sum(
+                get_current_unit_area(unit)
+                for unit in scope_units
+            )
+
+            if total_area <= 0:
+                per_unit = (
+                        total_amount
+                        /
+                        len(scope_units)
+                )
+
+                return {
+                    unit.id: per_unit
+                    for unit in scope_units
+                }
+
+            return {
+                unit.id: (
+                        total_amount
+                        *
+                        get_current_unit_area(unit)
+                        /
+                        total_area
+                )
+                for unit in scope_units
+            }
+
+        # =====================================================
+        # تعداد نفرات
+        # =====================================================
+
+        if basis == 'person':
+
+            total_people = sum(
+                get_current_unit_people(unit)
+                for unit in scope_units
+            )
+
+            if total_people <= 0:
+                return {}
+
+            return {
+                unit.id: (
+                        total_amount
+                        *
+                        get_current_unit_people(unit)
+                        /
+                        total_people
+                )
+                for unit in scope_units
+            }
+
+        # =====================================================
+        # حالت پیش‌فرض
+        # =====================================================
+
+        per_unit = (
+                total_amount
+                /
+                len(scope_units)
+        )
+
+        return {
+            unit.id: per_unit
+            for unit in scope_units
+        }
+
+    # =========================================================
+    # POST
+    # =========================================================
+
+    if request.method == 'POST':
+
+        action = request.POST.get(
+            'action',
+            'send_notification'
+        )
+
+        # =====================================================
+        # واحدهای قابل مشاهده صفحه
+        # =====================================================
+
+        visible_ids = request.POST.getlist(
+            'visible_unit_ids'
+        )
+
+        visible_ids = {
+            int(x)
+            for x in visible_ids
+            if str(x).isdigit()
+        }
+
+        # =====================================================
+        # واحدهای انتخاب شده عمومی صفحه
+        # =====================================================
+
+        posted_ids = request.POST.getlist(
+            'selected_units'
+        )
+
+        posted_ids = {
+            int(x)
+            for x in posted_ids
+            if str(x).isdigit()
+        }
+
+        # =====================================================
+        # حفظ انتخاب صفحات دیگر
+        # =====================================================
+
+        selected_ids_set = set(
+            selected_ids
+        )
+
+        selected_ids_set -= visible_ids
+
+        selected_ids_set |= posted_ids
+
+        # =====================================================
+        # فقط واحدهای معتبر
+        # =====================================================
+
+        valid_unit_ids = {
+            unit.id
+            for unit in all_units
+        }
+
+        selected_ids_set &= valid_unit_ids
+
+        selected_ids = list(
+            selected_ids_set
+        )
+
+        # =====================================================
+        # انتخاب عمومی را داخل همان Session نگه می‌داریم
+        # =====================================================
+
+        if not isinstance(
+                selected_group_session,
+                dict
+        ):
+            selected_group_session = {}
+
+        selected_group_session['general'] = [
+            str(x)
+            for x in selected_ids
+        ]
+
+        request.session[
+            selected_session_key
+        ] = selected_group_session
+
+        # =====================================================
+        # ذخیره متراژ و نفرات
+        # =====================================================
+
+        for unit in all_units:
+
+            key = str(unit.id)
+
+            if key not in unit_values:
+                unit_values[key] = {}
+
+            # -------------------------------------------------
+            # متراژ
+            # -------------------------------------------------
+
+            area_key = (
+                f'area_{unit.id}'
+            )
+
+            if area_key in request.POST:
+
+                try:
+
+                    area = float(
+                        request.POST.get(
+                            area_key
+                        ) or 0
+                    )
+
+                except (TypeError, ValueError):
+
+                    area = get_current_unit_area(
+                        unit
+                    )
+
+                if area < 0:
+                    area = 0
+
+                unit_values[key]['area'] = area
+
+            else:
+
+                unit_values[key]['area'] = (
+                    unit_values[key].get(
+                        'area',
+                        get_current_unit_area(unit)
+                    )
+                )
+
+            # -------------------------------------------------
+            # نفرات
+            # -------------------------------------------------
+
+            people_key = (
+                f'people_{unit.id}'
+            )
+
+            if people_key in request.POST:
+
+                try:
+
+                    people = int(
+                        request.POST.get(
+                            people_key
+                        ) or 0
+                    )
+
+                except (TypeError, ValueError):
+
+                    people = get_current_unit_people(
+                        unit
+                    )
+
+                if people < 0:
+                    people = 0
+
+                unit_values[key]['people'] = people
+
+            else:
+
+                unit_values[key]['people'] = (
+                    get_current_unit_people(unit)
+                )
+
+        request.session[
+            values_session_key
+        ] = unit_values
+
+        request.session.modified = True
+
+        # =====================================================
+        # فقط ذخیره انتخاب
+        # =====================================================
+
+        if action == 'save_selection':
+            messages.success(
+                request,
+                "انتخاب واحدها با موفقیت ذخیره شد."
+            )
+
+            return redirect(
+                'middle_add_charge_calculation_units',
+                pk=calculation.pk
+            )
+
+        # =====================================================
+        # ارسال شارژ
+        # =====================================================
+
+        if action == 'send_notification':
+
+            if not selected_ids:
+                messages.error(
+                    request,
+                    "حداقل یک واحد را انتخاب کنید."
+                )
+
+                return redirect(
+                    'middle_add_charge_calculation_units',
+                    pk=calculation.pk
+                )
+
+            selected_units = [
+                unit
+                for unit in all_units
+                if unit.id in selected_ids_set
+            ]
+
+            if not selected_units:
+                messages.error(
+                    request,
+                    "واحد انتخاب شده معتبر نیست."
+                )
+
+                return redirect(
+                    'middle_add_charge_calculation_units',
+                    pk=calculation.pk
+                )
+
+            # =================================================
+            # محاسبه هزینه تمام واحدها
+            # =================================================
+
+            unit_costs = {
+                unit.id: 0
+                for unit in all_units
+            }
+
+            item_allocations = {}
+
+            for item in items:
+
+                allocations = calculate_item(
+                    item
+                )
+
+                item_allocations[
+                    item.id
+                ] = allocations
+
+                for unit_id, amount in allocations.items():
+                    unit_costs[
+                        unit_id
+                    ] += float(
+                        amount or 0
+                    )
+
+            # =================================================
+            # توجه مهم:
+            #
+            # other_cost_amount قبلاً در ابتدای View
+            # محاسبه شده است.
+            #
+            # این مبلغ برای هر واحد کامل اعمال می‌شود
+            # و دیگر تقسیم بر تعداد واحدها نمی‌شود.
+            # =================================================
+
+            # =================================================
+            # ContentType
+            # =================================================
+
+            content_type = (
+                ContentType.objects.get_for_model(
+                    ChargeCalculation
+                )
+            )
+
+            # =================================================
+            # نوع ارسال
+            # =================================================
+
+            send_type = request.POST.get(
+                'send_type',
+                'notify'
+            )
+
+            if send_type not in [
+                'notify',
+                'sms'
+            ]:
+                send_type = 'notify'
+
+            # =================================================
+            # شناسه واحدهای انتخاب شده
+            # =================================================
+
+            selected_units_ids = {
+                unit.id
+                for unit in selected_units
+            }
+
+            # =================================================
+            # شارژهای پرداخت شده قبلی
+            # =================================================
+
+            existing_paid = set(
+                UnifiedCharge.objects
+                .filter(
+                    house=house,
+                    unit_id__in=selected_units_ids,
+                    content_type=content_type,
+                    object_id=calculation.id,
+                    is_paid=True
+                )
+                .values_list(
+                    'unit_id',
+                    flat=True
+                )
+            )
+
+            # =================================================
+            # ایجاد / بروزرسانی
+            # =================================================
+
+            created_unified_ids = []
+
+            with transaction.atomic():
+
+                for unit in selected_units:
+
+                    if unit.id in existing_paid:
+                        continue
+
+                    # -------------------------------------------------
+                    # مبلغ اصلی
+                    # -------------------------------------------------
+
+                    base_amount = float(
+                        unit_costs.get(
+                            unit.id,
+                            0
+                        ) or 0
+                    )
+
+                    # -------------------------------------------------
+                    # هزینه متفرقه
+                    #
+                    # مبلغ کامل برای همین واحد
+                    # -------------------------------------------------
+
+                    other_amount = float(
+                        other_cost_amount or 0
+                    )
+
+                    # -------------------------------------------------
+                    # مبلغ نهایی
+                    # -------------------------------------------------
+
+                    total_amount = (
+                            base_amount
+                            +
+                            other_amount
+                    )
+
+                    # -------------------------------------------------
+                    # نام ساکن
+                    # -------------------------------------------------
+
+                    active_renter = (
+                        unit.get_active_renter()
+                    )
+
+                    if active_renter and active_renter.renter_name:
+                        title = f"شارژ {calculation.name}"
+                    else:
+                        title = f"شارژ {calculation.name}"
+
+                    # =================================================
+                    # UnifiedCharge
+                    # =================================================
+
+                    unified_charge = (
+                        UnifiedCharge.objects
+                        .select_for_update()
+                        .filter(
+                            house=house,
+                            unit=unit,
+                            content_type=content_type,
+                            object_id=calculation.id
+                        )
+                        .first()
+                    )
+
+                    if unified_charge:
+
+                        unified_charge.amount = int(
+                            round(base_amount)
+                        )
+
+                        unified_charge.base_charge = int(
+                            round(base_amount)
+                        )
+
+                        # مبلغ متفرقه کامل برای این واحد
+                        unified_charge.other_cost_amount = int(
+                            round(other_amount)
+                        )
+
+                        unified_charge.total_charge_month = int(
+                            round(total_amount)
+                        )
+
+                        unified_charge.civil = 0
+
+                        unified_charge.penalty_percent = (
+                                calculation.payment_penalty_amount
+                                or 0
+                        )
+
+                        unified_charge.penalty_amount = (
+                                calculation.payment_penalty_amount
+                                or 0
+                        )
+
+                        unified_charge.payment_deadline_date = (
+                            calculation.payment_deadline
+                        )
+
+                        unified_charge.details = (
+                            calculation.name
+                        )
+
+                        unified_charge.title = title
+
+                        unified_charge.save()
+
+                    else:
+
+                        unified_charge = (
+                            UnifiedCharge.objects.create(
+
+                                user=request.user,
+
+                                unit=unit,
+
+                                house=house,
+
+                                charge_type=(
+                                    UnifiedCharge
+                                    .ChargeType
+                                    .EXPENSE_CHARGE
+                                ),
+
+                                amount=int(
+                                    round(base_amount)
+                                ),
+
+                                base_charge=int(
+                                    round(base_amount)
+                                ),
+
+                                # مبلغ متفرقه کامل برای این واحد
+                                other_cost_amount=int(
+                                    round(other_amount)
+                                ),
+
+                                civil=0,
+
+                                penalty_percent=(
+                                        calculation
+                                        .payment_penalty_amount
+                                        or 0
+                                ),
+
+                                penalty_amount=(
+                                        calculation
+                                        .payment_penalty_amount
+                                        or 0
+                                ),
+
+                                total_charge_month=int(
+                                    round(total_amount)
+                                ),
+
+                                details=calculation.name,
+
+                                title=title,
+
+                                payment_deadline_date=(
+                                    calculation
+                                    .payment_deadline
+                                ),
+
+                                financial_document_number=None,
+
+                                content_type=content_type,
+
+                                object_id=calculation.id,
+
+                                payment_pending=False,
+
+                                send_notification=False,
+
+                                send_sms=False
+                            )
+                        )
+
+                    created_unified_ids.append(
+                        unified_charge.id
+                    )
+
+                    # =================================================
+                    # ChargeAllocation
+                    # =================================================
+
+                    for item in items:
+                        exact_amount = float(
+                            item_allocations
+                            .get(
+                                item.id,
+                                {}
+                            )
+                            .get(
+                                unit.id,
+                                0
+                            )
+                            or 0
+                        )
+
+                        amount = int(
+                            round(exact_amount)
+                        )
+
+                        ChargeAllocation.objects.update_or_create(
+
+                            item=item,
+
+                            unit=unit,
+
+                            defaults={
+
+                                'calculation_value': amount,
+
+                                'area_snapshot': (
+                                    get_current_unit_area(unit)
+                                ),
+
+                                'people_snapshot': (
+                                    get_current_unit_people(unit)
+                                ),
+
+                                'amount': amount,
+
+                                'exact_amount': exact_amount,
+                            }
+                        )
+
+                # =================================================
+                # ارسال notification
+                # =================================================
+
+                if created_unified_ids:
+                    UnifiedCharge.objects.filter(
+                        id__in=created_unified_ids
+                    ).update(
+                        send_notification=True,
+                        send_notification_date=timezone.now()
+                    )
+
+            # =====================================================
+            # ارسال SMS
+            # =====================================================
+
+            sms_success = False
+
+            if (
+                    send_type == 'sms'
+                    and created_unified_ids
+            ):
+
+                try:
+
+                    sms_result = (
+                        SmsService.send_for_unified_charges(
+                            unified_charge_ids=(
+                                created_unified_ids
+                            ),
+                            request=request
+                        )
+                    )
+
+                    sms_success = bool(
+                        sms_result
+                    )
+
+                except Exception as exc:
+
+                    logger.exception(
+                        "خطا در ارسال SMS شارژ",
+                        exc_info=exc
+                    )
+
+                    sms_success = False
+
+            else:
+
+                sms_success = True
+
+            # =====================================================
+            # شماره سند مالی
+            # =====================================================
+
+            if (
+                    created_unified_ids
+                    and
+                    sms_success
+            ):
+
+                with transaction.atomic():
+
+                    sequence, _ = (
+                        FinancialDocumentSequence.objects
+                        .select_for_update()
+                        .get_or_create(
+                            house=house,
+                            defaults={
+                                'last_number': 0
+                            }
+                        )
+                    )
+
+                    for charge in (
+                            UnifiedCharge.objects
+                                    .select_for_update()
+                                    .filter(
+                                id__in=created_unified_ids
+                            )
+                    ):
+
+                        if not charge.financial_document_number:
+                            sequence.last_number += 1
+
+                            charge.financial_document_number = (
+                                sequence.last_number
+                            )
+
+                            charge.save(
+                                update_fields=[
+                                    'financial_document_number'
+                                ]
+                            )
+
+                    sequence.save(
+                        update_fields=[
+                            'last_number'
+                        ]
+                    )
+
+                # =================================================
+                # نهایی کردن
+                # =================================================
+
+                calculation.status = 'finalized'
+
+                calculation.is_finalized = True
+
+                calculation.finalized_at = timezone.now()
+
+                calculation.save(
+                    update_fields=[
+                        'status',
+                        'is_finalized',
+                        'finalized_at'
+                    ]
+                )
+
+                # =================================================
+                # پاک کردن Session
+                # =================================================
+
+                request.session.pop(
+                    selected_session_key,
+                    None
+                )
+
+                request.session.pop(
+                    values_session_key,
+                    None
+                )
+
+                request.session.modified = True
+
+                if send_type == 'sms':
+
+                    messages.success(
+                        request,
+                        "شارژ واحدهای انتخاب‌شده با موفقیت ارسال و پیامک شد."
+                    )
+
+                else:
+
+                    messages.success(
+                        request,
+                        "شارژ واحدهای انتخاب‌شده با موفقیت ارسال شد."
+                    )
+
+            else:
+
+                messages.warning(
+                    request,
+                    "شارژ ایجاد شد، اما ارسال پیامک با موفقیت انجام نشد."
+                )
+
+            return redirect(
+                'middle_add_charge_calculation_units',
+                pk=calculation.pk
+            )
+
+    # =========================================================
+    # GET
+    # =========================================================
+
+    raw_selected_session = request.session.get(
+        selected_session_key,
+        {}
+    )
+
+    if isinstance(
+            raw_selected_session,
+            dict
+    ):
+
+        selected_ids = raw_selected_session.get(
+            'general',
+            []
+        )
+
+    elif isinstance(
+            raw_selected_session,
+            (list, tuple, set)
+    ):
+
+        selected_ids = raw_selected_session
+
+    else:
+
+        selected_ids = []
+
+    selected_ids = [
+        int(x)
+        for x in selected_ids
+        if str(x).isdigit()
+    ]
+
+    selected_ids_set = set(
+        selected_ids
+    )
+
+    # =========================================================
+    # محاسبه هزینه هر واحد
+    # =========================================================
+
+    unit_costs = {
+        unit.id: 0
+        for unit in all_units
+    }
+
+    for item in items:
+
+        allocations = calculate_item(
+            item
+        )
+
+        for unit_id, amount in allocations.items():
+            unit_costs[
+                unit_id
+            ] += float(
+                amount or 0
+            )
+
+    # =========================================================
+    # هزینه متفرقه
+    #
+    # مهم:
+    # دیگر تقسیم بر تعداد واحدها انجام نمی‌شود.
+    #
+    # همین مبلغ برای هر واحد اعمال می‌شود.
+    # =========================================================
+
+    # other_cost_amount
+    # قبلاً در ابتدای View محاسبه شده است.
+
+    # =========================================================
+    # ContentType
+    # =========================================================
+
+    content_type = (
+        ContentType.objects.get_for_model(
+            ChargeCalculation
+        )
+    )
+
+    # =========================================================
+    # UnifiedCharge های موجود
+    # =========================================================
+
+    existing_charges = {
+        charge.unit_id: charge
+        for charge in (
+            UnifiedCharge.objects
+            .filter(
+                house=house,
+                content_type=content_type,
+                object_id=calculation.id
+            )
+        )
+    }
+
+    # =========================================================
+    # جستجو
+    # =========================================================
+
+    search = request.GET.get(
+        'search',
+        ''
+    ).strip()
+
+    resident_type = request.GET.get(
+        'resident_type',
+        ''
+    ).strip()
+
+    filtered_units = list(
+        all_units
+    )
+
+    if search:
+        search_lower = search.lower()
+
+        filtered_units = [
+            unit
+            for unit in filtered_units
+
+            if (
+                    search_lower
+                    in str(
+                unit.unit
+            ).lower()
+
+                    or
+
+                    search_lower
+                    in (
+                            unit.owner_name
+                            or ''
+                    ).lower()
+
+                    or
+
+                    (
+                            unit.get_active_renter()
+                            and
+                            search_lower
+                            in (
+                                    unit
+                                    .get_active_renter()
+                                    .renter_name
+                                    or ''
+                            ).lower()
+                    )
+            )
+        ]
+
+    # =========================================================
+    # فیلتر مالک / مستاجر
+    # =========================================================
+
+    if resident_type == 'renter':
+
+        filtered_units = [
+            unit
+            for unit in filtered_units
+            if unit.get_active_renter()
+        ]
+
+    elif resident_type == 'owner':
+
+        filtered_units = [
+            unit
+            for unit in filtered_units
+            if not unit.get_active_renter()
+        ]
+
+    # =========================================================
+    # Pagination
+    # =========================================================
+
+    try:
+
+        cards_per_page = int(
+            request.GET.get(
+                'cardsPerPage',
+                20
+            )
+        )
+
+    except (TypeError, ValueError):
+
+        cards_per_page = 20
+
+    allowed_cards_per_page = [
+        20,
+        50,
+        100,
+        1000,
+    ]
+
+    if cards_per_page not in allowed_cards_per_page:
+        cards_per_page = 20
+
+    if cards_per_page == 1000:
+
+        total_units = len(
+            filtered_units
+        )
+
+        per_page = max(
+            total_units,
+            1
+        )
+
+    else:
+
+        per_page = cards_per_page
+
+    paginator = Paginator(
+        filtered_units,
+        per_page
+    )
+
+    page_number = request.GET.get(
+        'page',
+        1
+    )
+
+    page_obj = paginator.get_page(
+        page_number
+    )
+
+    # =========================================================
+    # اطلاعات کارت‌ها
+    # =========================================================
+
+    units = []
+
+    grand_total = 0
+
+    for unit in page_obj.object_list:
+
+        active_renter = (
+            unit.get_active_renter()
+        )
+
+        renter_name = ''
+
+        if active_renter:
+            renter_name = (
+                    active_renter.renter_name
+                    or ''
+            ).strip()
+
+        owner_name = (
+                unit.owner_name
+                or ''
+        ).strip()
+
+        cost = float(
+            unit_costs.get(
+                unit.id,
+                0
+            )
+            or 0
+        )
+
+        # =====================================================
+        # هزینه متفرقه برای هر واحد
+        # =====================================================
+
+        other = float(
+            other_cost_amount
+            or 0
+        )
+
+        total = (
+                cost
+                +
+                other
+        )
+
+        grand_total += total
+
+        uc = existing_charges.get(
+            unit.id
+        )
+
+        unit_data = {
+
+            'unit': unit,
+
+            'renter': active_renter,
+
+            'renter_name': renter_name,
+
+            'owner_name': owner_name,
+
+            'is_renter': bool(
+                active_renter
+            ),
+
+            'cost': cost,
+
+            # هزینه متفرقه کامل برای این واحد
+            'other': other,
+
+            'total': total,
+
+            'is_zero_charge': (
+                    total <= 0
+            ),
+
+            'is_paid': (
+                uc.is_paid
+                if uc
+                else False
+            ),
+
+            'send_notification': (
+                uc.send_notification
+                if uc
+                else False
+            ),
+
+            'send_sms': (
+                uc.send_sms
+                if uc
+                else False
+            ),
+
+            'sms_date': (
+                uc.send_sms_date
+                if uc
+                else None
+            ),
+
+            'financial_document_number': (
+                uc.financial_document_number
+                if uc
+                else None
+            ),
+
+            'area': (
+                unit_values
+                .get(
+                    str(unit.id),
+                    {}
+                )
+                .get(
+                    'area',
+                    get_current_unit_area(unit)
+                )
+            ),
+
+            'people': (
+                unit_values
+                .get(
+                    str(unit.id),
+                    {}
+                )
+                .get(
+                    'people',
+                    get_current_unit_people(unit)
+                )
+            ),
+
+            'is_selected': (
+                    unit.id in selected_ids_set
+            ),
+
+            'is_occupied': (
+                    unit.id in occupied_unit_ids
+            ),
+
+            'is_vacant': (
+                    unit.id in vacant_unit_ids
+            ),
+
+            'status_residence': (
+                unit.status_residence
+            ),
+        }
+
+        units.append(
+            unit_data
+        )
+
+    # =========================================================
+    # تعداد انتخاب شده
+    # =========================================================
+
+    selected_count = len(
+        selected_ids_set
+    )
+
+    # =========================================================
+    # Context
+    # =========================================================
+
+    context = {
+
+        'calculation': calculation,
+
+        'items': items,
+
+        'units': units,
+
+        'all_units': all_units,
+
+        'selected_units': selected_ids_set,
+
+        'selected_ids': selected_ids,
+
+        'selected_count': selected_count,
+
+        'unit_count': len(
+            all_units
+        ),
+
+        'grand_total': grand_total,
+
+        'search': search,
+
+        'resident_type': resident_type,
+
+        'page_obj': page_obj,
+
+        'paginator': paginator,
+
+        'cards_per_page': cards_per_page,
+
+        'occupied_unit_ids': occupied_unit_ids,
+
+        'vacant_unit_ids': vacant_unit_ids,
+
+        'unknown_residence_ids': unknown_residence_ids,
+    }
+
+    return render(
+        request,
+        'middleCharge/charge_expense_calculation_units.html',
+        context
+    )
+
+
+@login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
+def middle_remove_send_notification_charge_calculation(request, pk):
+    if request.method != 'POST':
+        return JsonResponse({
+            'error': 'فقط درخواست‌های POST مجاز است.'
+        }, status=400)
+
+    # ==========================================================
+    # پیدا کردن محاسبه شارژ
+    # ==========================================================
+
+    calculation = get_object_or_404(
+        ChargeCalculation,
+        id=pk,
+        house=request.user.house
+    )
+
+    # ==========================================================
+    # دریافت واحدهای انتخاب شده
+    #
+    # JS جدید:
+    # selected_units
+    #
+    # JS قدیمی:
+    # units[]
+    # ==========================================================
+
+    selected_units = request.POST.getlist('selected_units')
+
+    if not selected_units:
+        selected_units = request.POST.getlist('units[]')
+
+    if not selected_units:
+        selected_units = request.POST.getlist('units')
+
+    # ==========================================================
+    # هیچ واحدی انتخاب نشده
+    # ==========================================================
+
+    if not selected_units:
+        return JsonResponse({
+            'error': 'هیچ واحدی انتخاب نشده است.'
+        }, status=400)
+
+    try:
+
+        with transaction.atomic():
+
+            # ==================================================
+            # ContentType مربوط به ChargeCalculation
+            # ==================================================
+
+            content_type = ContentType.objects.get_for_model(
+                ChargeCalculation
+            )
+
+            # ==================================================
+            # مشخص کردن QuerySet اطلاعیه‌ها
+            # ==================================================
+
+            if selected_units == ['all']:
+
+                qs = UnifiedCharge.objects.filter(
+                    house=calculation.house,
+                    content_type=content_type,
+                    object_id=calculation.id,
+                    is_paid=False,
+                    send_notification=True
+                )
+
+            else:
+
+                try:
+
+                    selected_unit_ids = [
+                        int(uid)
+                        for uid in selected_units
+                    ]
+
+                except (ValueError, TypeError):
+
+                    return JsonResponse({
+                        'error': 'شناسه واحد نامعتبر است.'
+                    }, status=400)
+
+                # ==============================================
+                # فقط اطلاعیه‌های فعال واحدهای انتخاب‌شده
+                # ==============================================
+
+                qs = UnifiedCharge.objects.filter(
+                    house=calculation.house,
+                    content_type=content_type,
+                    object_id=calculation.id,
+                    unit_id__in=selected_unit_ids,
+                    is_paid=False,
+                    send_notification=True
+                )
+
+            # ==================================================
+            # غیرفعال کردن اطلاعیه
+            # ==================================================
+
+            updated_count = qs.update(
+                send_notification=False,
+                send_notification_date=None
+            )
+
+            # ==================================================
+            # بررسی اینکه هنوز اطلاعیه فعالی برای این محاسبه
+            # وجود دارد یا خیر
+            # ==================================================
+
+            remaining_notification = UnifiedCharge.objects.filter(
+                house=calculation.house,
+                content_type=content_type,
+                object_id=calculation.id,
+                is_paid=False,
+                send_notification=True
+            ).exists()
+
+            # ==================================================
+            # اگر هیچ اطلاعیه‌ای باقی نمانده:
+            #
+            # محاسبه دوباره Draft شود
+            # ==================================================
+
+            if not remaining_notification:
+                calculation.is_finalized = False
+                calculation.status = 'draft'
+                calculation.finalized_at = None
+
+                calculation.save(
+                    update_fields=[
+                        'is_finalized',
+                        'status',
+                        'finalized_at',
+                    ]
+                )
+
+            # ==================================================
+            # پاک کردن session انتخاب واحدها
+            # ==================================================
+
+            session_key = (
+                f'charge_calculation_{pk}_selected_units'
+            )
+
+            request.session.pop(
+                session_key,
+                None
+            )
+
+            request.session.modified = True
+
+        # ======================================================
+        # پاسخ موفق
+        # ======================================================
+
+        if updated_count:
+
+            if updated_count == 1:
+
+                message = (
+                    'اطلاعیه ۱ واحد با موفقیت غیرفعال شد.'
+                )
+
+            else:
+
+                message = (
+                    f'اطلاعیه {updated_count} واحد '
+                    f'با موفقیت غیرفعال شد.'
+                )
+
+            return JsonResponse({
+
+                'success': True,
+
+                'message': message,
+
+                'updated_count': updated_count,
+
+                'remaining_notifications':
+                    remaining_notification
+
+            })
+
+        # ======================================================
+        # هیچ رکوردی پیدا نشد
+        # ======================================================
+
+        return JsonResponse({
+
+            'success': False,
+
+            'error':
+                'برای واحدهای انتخاب‌شده اطلاعیه فعال '
+                'قابل حذف پیدا نشد.',
+
+            'updated_count': 0,
+
+            'remaining_notifications':
+                remaining_notification
+
+        })
+
+    except Exception as e:
+
+        return JsonResponse({
+
+            'success': False,
+
+            'error':
+                f'خطایی هنگام غیرفعال کردن اطلاعیه‌ها رخ داد: {str(e)}'
+
         }, status=500)

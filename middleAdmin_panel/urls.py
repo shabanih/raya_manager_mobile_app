@@ -301,6 +301,42 @@ urlpatterns = [
          views.middle_remove_send_notification_fix_variable,
          name='middle_remove_send_notification_fix_variable_charge'),
 
+    path(
+        'charge-calculation/create/',
+        views.ChargeCalculationCreateView.as_view(),
+        name='middle_add_charge_expense_calculation_create'
+    ),
+    path(
+        'charge-calculation/<int:pk>/edit/',
+        views.charge_calculation_edit,
+        name='charge_calculation_edit',
+    ),
+    path(
+        'charge-calculation/<int:pk>/delete/',
+        views.charge_calculation_delete,
+        name='charge_calculation_delete',
+    ),
+    path(
+        'charge-calculation/<int:pk>/items/',
+        views.ChargeCalculationItemsView.as_view(),
+        name='middle_add_charge_calculation_items'
+    ),
+    path(
+        'charge-calculation/<int:pk>/calculate/',
+        views.charge_calculation_units,
+        name='middle_add_charge_calculation_units'
+    ),
+    # path(
+    #     'charge-calculation/<int:pk>/notifications/',
+    #     views.charge_calculation_notifications,
+    #     name='charge_calculation_notifications'
+    # ),
+    path(
+        'charge-calculation/<int:pk>/remove-notification/',
+        views.middle_remove_send_notification_charge_calculation,
+        name='middle_remove_send_notification_charge_calculation'
+    ),
+
     # path('middle-add-expense-charge', views.MiddleExpenseCharge.as_view(),
     #      name='middle_add_expense_charge'),
 

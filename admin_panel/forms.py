@@ -16,7 +16,7 @@ from admin_panel.models import (Announcement, Expense, ExpenseCategory, Income, 
                                 PersonCharge,
                                 FixPersonCharge, FixAreaCharge, ChargeFixVariable, SmsManagement, UnifiedCharge,
                                 MessageToUser, SmsCredit, AdminMessageToMiddle, AdminSmsManagement, Subscription,
-                                SubscriptionPlan, CivilManage, SewageManage, BankFund, Coupon)
+                                SubscriptionPlan, CivilManage, SewageManage, BankFund, Coupon, ChargeCalculation)
 from home.models import SliderText
 from middleAdmin_panel.services.bank_services import validate_bank_transaction_date
 
@@ -3201,3 +3201,123 @@ class CouponApplyForm(forms.ModelForm):
     class Meta:
         model = Coupon
         fields = ['code', 'valid_from', 'valid_to', 'discount', 'active']
+
+
+class ChargeCalculationForm(forms.ModelForm):
+    unit_count = forms.IntegerField(error_messages=error_message,
+                                    widget=forms.TextInput(attrs=attr),
+                                    required=False, initial=0,
+                                    disabled=True)
+
+    start_date = JalaliDateField(
+        label='تاریخ شروع',
+        widget=AdminJalaliDateWidget(attrs={'class': 'form-control'}),
+        error_messages=error_message, required=True
+    )
+    end_date = JalaliDateField(
+        label='تاریخ پایان',
+        widget=AdminJalaliDateWidget(attrs={'class': 'form-control'}),
+        error_messages=error_message, required=True
+    )
+    payment_deadline = JalaliDateField(
+        label='مهلت پرداخت',
+        widget=AdminJalaliDateWidget(attrs={'class': 'form-control'}),
+        error_messages=error_message, required=True
+    )
+
+    class Meta:
+        model = ChargeCalculation
+        fields = [
+            'name',
+            'start_date',
+            'end_date',
+            'unit_count',
+            'other_cost_amount',
+            'payment_deadline',
+            'payment_penalty_amount',
+            'details',
+        ]
+
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-control form-control-sm',
+                'placeholder': 'عنوان شارژ',
+            }),
+
+            'other_cost_amount': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': 0,
+            }),
+
+            'payment_deadline': forms.TextInput(attrs={
+                'class': 'form-control form-control-sm',
+                'autocomplete': 'off',
+                'placeholder': 'مهلت پرداخت',
+            }),
+
+            'payment_penalty_amount': forms.NumberInput(attrs={
+                'class': 'form-control form-control-sm',
+                'min': 0,
+            }),
+
+            'details': forms.Textarea(attrs={
+                'class': 'form-control form-control-sm',
+                'rows': 3,
+            }),
+        }
+
+        labels = {
+            'name': 'عنوان شارژ',
+            'start_date': 'از تاریخ',
+            'end_date': 'تا تاریخ',
+            'unit_count': 'تعداد واحد',
+            'other_cost_amount': 'هزینه متفرقه',
+            'payment_deadline': 'مهلت پرداخت',
+            'payment_penalty_amount': 'جریمه دیرکرد به درصد ',
+            'details': 'توضیحات',
+        }
+
+    def clean(self):
+        cleaned_data = super().clean()
+
+        start_date = cleaned_data.get('start_date')
+        end_date = cleaned_data.get('end_date')
+
+        # تاریخ شروع نباید بعد از تاریخ پایان باشد
+        if start_date and end_date and start_date > end_date:
+            self.add_error(
+                'end_date',
+                'تاریخ پایان نمی‌تواند قبل از تاریخ شروع باشد.'
+            )
+
+        # تاریخ پایان نباید بعد از امروز باشد
+        if end_date and end_date > date.today():
+            self.add_error(
+                'end_date',
+                'تاریخ پایان نمی‌تواند بعد از تاریخ امروز باشد.'
+            )
+
+        return cleaned_data
+
+    def clean_payment_deadline(self):
+        deadline = self.cleaned_data.get('payment_deadline')
+
+        # اگر ویرایش است و تاریخ تغییر نکرده، بررسی نکن
+        if self.instance.pk and 'payment_deadline' not in self.changed_data:
+            return deadline
+
+        if deadline and deadline < jdatetime.date.today():
+            raise forms.ValidationError('مهلت پرداخت نمی‌تواند قبل از امروز باشد')
+
+        return deadline
+
+    # def clean_name(self):
+    #     name = self.cleaned_data.get("name", "").strip()
+
+    #     # اگر فاصله داشته باشد
+    #     if " " in name:
+    #         raise forms.ValidationError(
+    #             'سال و ماه شارژ را بدون فاصله وارد کنید. مثال: "فروردین1405"'
+    #         )
+
+    #     return name

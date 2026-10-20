@@ -1,0 +1,534 @@
+{% extends 'middleShared/base_template.html' %}
+{% load static %}
+{% load poll_extras %}
+
+{% block page_title %}
+انتخاب واحدها ({{ calculation.name|to_persian_number }})
+{% endblock page_title %}
+
+{% block main_content %}
+
+<div class="container-fluid mt-4 p-0">
+
+    <!-- ========================= -->
+    <!-- جستجو و فیلتر -->
+    <!-- ========================= -->
+
+  <div class="row mb-4 g-1">
+
+    <!-- ========================= -->
+    <!-- جستجو + انتخاب + فیلتر -->
+    <!-- ========================= -->
+    <div class="col-9 col-md-10 col-xl-10">
+
+        <form method="get" action="" class="row g-1">
+
+            <!-- جستجو -->
+            <div class="col-12 col-md-4">
+
+                <input
+                    type="text"
+                    class="form-control"
+                    name="search"
+                    value="{{ request.GET.search }}"
+                    placeholder="جستجوی واحد..."
+                >
+
+            </div>
+
+
+            <!-- انتخاب ساکن -->
+            <div class="col-8 col-md-3">
+
+                <select
+                    name="resident_type"
+                    class="form-select form-control-sm"
+                    onchange="this.form.submit()"
+                >
+
+                    <option value="">
+                        همه ساکنین
+                    </option>
+
+                    <option
+                        value="owner"
+                        {% if request.GET.resident_type == 'owner' %}
+                            selected
+                        {% endif %}
+                    >
+                        فقط مالک
+                    </option>
+
+                    <option
+                        value="renter"
+                        {% if request.GET.resident_type == 'renter' %}
+                            selected
+                        {% endif %}
+                    >
+                        فقط مستاجر
+                    </option>
+
+                    <option
+                        value="empty"
+                        {% if request.GET.resident_type == 'empty' %}
+                            selected
+                        {% endif %}
+                    >
+                        واحد خالی
+                    </option>
+
+                </select>
+
+            </div>
+
+
+            <!-- فیلتر -->
+            <div class="col-4 col-md-2">
+
+                <button
+                    type="submit"
+                    class="btn btn-gradient-info px-2 w-100"
+                >
+                    فیلتر واحد
+                </button>
+
+            </div>
+
+        </form>
+
+    </div>
+
+
+    <!-- ========================= -->
+    <!-- تعداد نمایش -->
+    <!-- ========================= -->
+    <div class="col-3 col-md-2 col-xl-2 text-start">
+
+        <label
+            for="cardsPerPage"
+            class="form-label d-none d-md-inline"
+        >
+            تعداد نمایش :
+        </label>
+
+        <select
+            id="cardsPerPage"
+            class="form-select"
+            style="width:auto;height:auto;display:inline-block;"
+        >
+
+            <option value="20" selected>20</option>
+            <option value="50">50</option>
+            <option value="100">100</option>
+            <option value="1000">همه</option>
+
+        </select>
+
+    </div>
+
+</div>
+
+
+
+    <!-- ========================= -->
+    <!-- فرم انتخاب و ارسال -->
+    <!-- ========================= -->
+
+    <form
+        method="post"
+        id="notifyForm"
+        action=""
+    >
+
+        {% csrf_token %}
+
+  <input
+    type="hidden"
+    name="action"
+    id="formAction"
+    value="send_notification"
+>
+
+        <input
+            type="hidden"
+            name="send_type"
+            id="sendTypeInput"
+            value="notify"
+        >
+
+
+        <!-- ========================= -->
+        <!-- دکمه‌ها و وضعیت‌ها -->
+        <!-- ========================= -->
+
+        <div class="row g-2 mt-4">
+
+
+            <!-- انتخاب همه -->
+
+         <div
+    class="col-12 col-md-3 col-xl-3
+           d-flex
+           justify-content-between
+           align-items-center
+           text-md-start
+           p-1"
+>
+
+                <button
+                    type="button"
+                    id="toggle-select-btn"
+                    class="btn btn-gradient-info shadow_style px-3"
+                >
+                    انتخاب همه واحدها
+                </button>
+
+
+            <button
+                type="submit"
+                id="sendNotificationBtn"
+                onclick="return confirmWithSweetAlert(event)"
+                class="btn btn-gradient-success px-3 shadow_style"
+            >
+                ارسال اطلاعیه شارژ
+            </button>
+
+            </div>
+
+
+            <!-- اطلاعیه -->
+
+            <div
+                class="col-4 col-md-2 col-xl-2 text-md-start mt-4"
+                style="font-size:11px;"
+            >
+
+                <span class="circleSendNotify"></span>
+
+                ارسال موفق اطلاعیه
+
+            </div>
+
+
+            <!-- پیامک -->
+
+            <div
+                class="col-4 col-md-2 col-xl-2 text-md-center align-items-center pt-3"
+                style="font-size:11px;"
+            >
+
+                <i class="fa fa-envelope text-info"></i>
+
+                ارسال موفق پیامک
+
+            </div>
+
+
+            <!-- پرداخت -->
+
+            <div
+                class="col-4 col-md-2 col-xl-2 text-md-end mt-4"
+                style="font-size:11px;"
+            >
+
+                <span class="circlePayment"></span>
+
+                پرداخت موفق
+
+            </div>
+
+
+            <!-- حذف و بازگشت -->
+
+
+<div
+    class="col-12 col-md-3 col-xl-3
+           d-flex
+           justify-content-between
+           align-items-center
+           text-md-start
+           p-1"
+>
+
+    <button
+        type="button"
+        id="remove-all-btn"
+        class="btn btn-dark px-3 shadow_style"
+        data-url="{% url 'middle_remove_send_notification_charge_calculation' pk=calculation.id %}"
+    >
+        حذف اطلاعیه شارژ
+    </button>
+
+<a
+    href="{% if calculation.is_finalized %}
+              {% url 'middle_add_charge_expense_calculation_create' %}
+          {% else %}
+              {% url 'middle_add_charge_calculation_items' pk=calculation.id %}
+          {% endif %}"
+    class="btn btn-danger px-3 shadow_style"
+>
+    {% if calculation.is_finalized %}
+        بازگشت به ایجاد شارژ
+    {% else %}
+        بازگشت به محاسبه
+    {% endif %}
+</a>
+</div>
+
+
+        </div>
+
+
+        <hr class="mt-3"/>
+
+
+
+        
+
+
+
+        <!-- ========================= -->
+        <!-- کارت واحدها -->
+        <!-- ========================= -->
+
+        <div
+            class="row g-2 py-3"
+            id="units-container"
+        >
+
+            {% for item in units %}
+
+              {% with unit=item.unit renter=item.renter %}
+
+                <div class="col-6 col-lg-2 col-md-2 col-xl-2 unit-card-wrapper">
+
+                    <div
+                        class="card fixChargeTable p-0 unit-card"
+
+                        data-unit-id="{{ unit.id }}"
+
+                       style="
+                            border:0.1rem solid
+                        
+                            {% if item.is_zero_charge %}
+                                #adb5bd
+                            {% elif unit.is_renter %}
+                                orange
+                            {% elif unit.status_residence == 'empty' %}
+                                red
+                            {% else %}
+                                #00000090
+                            {% endif %}
+                        
+                            !important;
+                        
+                            {% if item.is_zero_charge %}
+                                background-color:#e9ecef;
+                                opacity:0.65;
+                            {% elif item.send_notification %}
+                                {% if item.is_paid %}
+                                    background-color:#8fef88;
+                                {% else %}
+                                    background-color:#fff3cd;
+                                {% endif %}
+                            {% endif %}
+                        "
+                    >
+
+                        <div
+                            class="card-body text-center d-flex justify-content-center align-items-center px-2 py-1 mt-2"
+                        >
+
+                            <!-- ========================= -->
+                            <!-- اطلاعات واحد -->
+                            <!-- ========================= -->
+
+                            <p
+                                class="card-charge-title shadow_style mb-1"
+
+                                data-bs-toggle="popover"
+                                data-bs-html="true"
+                                data-bs-trigger="hover"
+                                data-bs-placement="top"
+                                data-bs-content="
+                                
+                                {% if unit.is_renter %}
+                                    {% if renter.renter_name %}
+                                        مستاجر: {{ renter.renter_name }}
+                                    {% else %}
+                                        دارای مستاجر
+                                    {% endif %}
+                                {% else %}
+                                    مالک: {{ unit.owner_name }}
+                                {% endif %}
+                                
+                                {% if item.is_zero_charge %}
+                                
+                                    <br>
+                                
+                                    <strong>
+                                        بدون شارژ
+                                    </strong>
+                                
+                                {% else %}
+                                
+                                    <br>
+                                
+                                    هزینه:
+                                    {{ item.cost|three_digit_currency }}
+                                    تومان
+                                
+                                    <br>
+                                
+                                    هزینه متفرقه:
+                                    {{ item.other|three_digit_currency }}
+                                    تومان
+                                
+                                    <br>
+                                
+                                    <b>
+                                        مبلغ قابل پرداخت:
+                                        {{ item.total|three_digit_currency }}
+                                    </b>
+                                    تومان
+                                
+                                {% endif %}
+                                
+                                "
+                                
+                                >
+
+
+                                <!-- ========================= -->
+                                <!-- چک‌باکس انتخاب واحد -->
+                                <!-- ========================= -->
+
+                                
+                                 <input
+                                        class="form-check-input unit-checkbox mx-2"
+                                        type="checkbox"
+                                        name="selected_units"
+                                        value="{{ unit.id }}"
+
+                                    {% if unit.id|stringformat:"s" in selected_units %}
+                                        checked
+                                    {% endif %}
+
+                                    {% if item.is_paid %}
+                                        disabled
+                                    {% endif %}
+                                    {% if item.is_zero_charge %}disabled{% endif %}
+                                >
+
+
+                                واحد شماره
+
+                                {{ unit.unit|to_persian_number }}
+                                
+                                <!--{% if item.is_zero_charge %} <span class="badge bg-secondary ms-1" title="مبلغ شارژ این واحد صفر است" > بدون شارژ </span> {% endif %}-->
+
+
+                                <!-- ========================= -->
+                                <!-- آیکون پیامک -->
+                                <!-- ========================= -->
+
+                                {% if item.send_sms %}
+
+                                    <span class="me-2">
+
+                                        <i class="fa fa-envelope text-info"></i>
+
+                                    </span>
+
+                                {% endif %}
+
+
+                            </p>
+
+                        </div>
+
+                    </div>
+
+                </div>
+
+                {% endwith %}
+
+            {% empty %}
+
+                <div class="col-12">
+
+                    <div class="alert alert-warning text-center">
+
+                        هیچ واحد فعالی برای این محاسبه وجود ندارد.
+
+                    </div>
+
+                </div>
+
+            {% endfor %}
+
+        </div>
+
+
+    </form>
+
+</div>
+
+
+
+<!-- ========================= -->
+<!-- Pagination -->
+<!-- ========================= -->
+
+{% if page_obj %}
+
+<div class="col-12">
+
+    <div class="pagination d-flex justify-content-center mt-5">
+
+        {% if page_obj.has_previous %}
+
+            <a
+                href="?page={{ page_obj.previous_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.resident_type %}&resident_type={{ request.GET.resident_type }}{% endif %}"
+                class="rounded"
+            >
+                قبلی
+            </a>
+
+        {% endif %}
+
+
+        {% for pageNumber in page_obj.paginator.page_range %}
+
+            <a
+                href="?page={{ pageNumber }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.resident_type %}&resident_type={{ request.GET.resident_type }}{% endif %}"
+
+                class="{% if page_obj.number == pageNumber %}active{% endif %}"
+            >
+                {{ pageNumber }}
+            </a>
+
+        {% endfor %}
+
+
+        {% if page_obj.has_next %}
+
+            <a
+                href="?page={{ page_obj.next_page_number }}{% if request.GET.search %}&search={{ request.GET.search }}{% endif %}{% if request.GET.resident_type %}&resident_type={{ request.GET.resident_type }}{% endif %}"
+                class="rounded"
+            >
+                بعدی
+            </a>
+
+        {% endif %}
+
+    </div>
+
+</div>
+
+{% endif %}
+
+ <script src="{% static 'admin_panel/js/expense.js' %}"></script>
+
+
+{% endblock %}

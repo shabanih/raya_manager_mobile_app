@@ -1,0 +1,564 @@
+{% extends 'middleShared/base_template.html' %}
+{% load static %}
+{% load poll_extras %}
+
+
+{% block page_title %}
+محاسبه شارژ بر اساس تسهیم هزینه ها
+{% endblock page_title %}
+
+
+{% block main_content %}
+
+<hr/>
+
+<div class="container-fluid">
+
+    <!-- ===================================================== -->
+    <!-- ایجاد محاسبه جدید -->
+    <!-- ===================================================== -->
+
+    <div class="card mb-4">
+
+        <!--<div class="card-header">-->
+
+        <!--    <h5 class="mb-0">-->
+        <!--        ایجاد محاسبه شارژ-->
+        <!--    </h5>-->
+
+        <!--</div>-->
+
+
+        <div class="card-body">
+
+            <form method="post" novalidate>
+
+                {% csrf_token %}
+
+                {% if form.non_field_errors %}
+
+                    <div class="alert alert-danger">
+
+                        {{ form.non_field_errors }}
+
+                    </div>
+
+                {% endif %}
+
+
+                <div class="row">
+
+                    <!-- عنوان -->
+
+                    <div class="col-md-3 mb-3">
+
+                        <label>
+                            {{ form.name.label }}
+                        </label>
+
+                        {{ form.name }}
+                                             <span class="text-danger text-small">سال و ماه شارژ را وارد نمایید. مثلا "فروردین 1405"</span>
+
+
+                        {% for error in form.name.errors %}
+
+                            <div class="text-danger small">
+                                {{ error }}
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+
+                    <!-- از تاریخ -->
+
+                    <div class="col-md-3 mb-3">
+
+                        <label>
+                            {{ form.start_date.label }}
+                        </label>
+
+                        {{ form.start_date }}
+
+                        {% for error in form.start_date.errors %}
+
+                            <div class="text-danger small">
+                                {{ error }}
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+
+                    <!-- تا تاریخ -->
+
+                    <div class="col-md-3 mb-3">
+
+                        <label>
+                            {{ form.end_date.label }}
+                        </label>
+
+                        {{ form.end_date }}
+
+                        {% for error in form.end_date.errors %}
+
+                            <div class="text-danger small">
+                                {{ error }}
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+
+                    <!-- تعداد واحد -->
+
+                    <!--<div class="col-md-3 mb-3" disabled>-->
+
+                    <!--    <label>-->
+                    <!--        {{ form.unit_count.label }}-->
+                    <!--    </label>-->
+
+                    <!--    {{ form.unit_count }}-->
+
+                    <!--</div>-->
+
+
+                    <!-- هزینه متفرقه -->
+
+                    <div class="col-md-3 mb-3">
+
+                        <label>
+                            {{ form.other_cost_amount.label }}
+                        </label>
+
+                        {{ form.other_cost_amount }}
+                               {% for error in form.other_cost_amount.errors %}
+
+                            <div class="text-danger small">
+                                {{ error }}
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+
+                    <!-- مهلت پرداخت -->
+
+                    <div class="col-md-3 mb-3">
+
+                        <label>
+                            {{ form.payment_deadline.label }}
+                        </label>
+
+                        {{ form.payment_deadline }}
+                               {% for error in form.payment_deadline.errors %}
+
+                            <div class="text-danger small">
+                                {{ error }}
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+
+                    <!-- مبلغ جریمه -->
+
+                    <div class="col-md-3 mb-3">
+
+                        <label>
+                            {{ form.payment_penalty_amount.label }}
+                        </label>
+
+                        {{ form.payment_penalty_amount }}
+                               {% for error in form.payment_penalty_amount.errors %}
+
+                            <div class="text-danger small">
+                                {{ error }}
+                            </div>
+
+                        {% endfor %}
+
+                    </div>
+
+
+                    <!-- توضیحات -->
+
+                    <div class="col-md-6 mb-3">
+
+                        <label>
+                            {{ form.details.label }}
+                        </label>
+
+                        {{ form.details }}
+
+                    </div>
+
+                </div>
+
+
+                <!-- دکمه‌ها -->
+
+                <div class="mt-3 text-start">
+                    {% if form.instance.id %}
+                                 <button
+                        type="submit"
+                        class="btn btn-gradient-success"
+                    >
+                                     ذخیره تغییرات
+
+                    </button>
+                    {% else %}
+                                 <button
+                        type="submit"
+                        class="btn btn-gradient-success"
+                    >
+
+ثبت شارژ
+                    </button>
+                    {% endif %}
+
+
+
+
+
+
+                </div>
+
+            </form>
+
+        </div>
+
+    </div>
+
+
+    <!-- ===================================================== -->
+    <!-- سوابق محاسبات شارژ -->
+    <!-- ===================================================== -->
+
+    <div class="card">
+
+        <div class="card-header">
+
+            <h5 class="mb-0">
+
+              شارژهای ثبت شده 
+
+            </h5>
+
+        </div>
+
+
+        <div class="card-body">
+
+            <div class="table-responsive">
+
+                <table
+                    class="table table-bordered table-hover table-sm text-center align-middle"
+                >
+
+                    <thead>
+
+                        <tr>
+
+                            <th>
+                                ردیف
+                            </th>
+
+                            <th>
+                                عنوان شارژ
+                            </th>
+
+                            <th>
+                                از تاریخ
+                            </th>
+
+                            <th>
+                                تا تاریخ
+                            </th>
+
+                            <!--<th>-->
+                            <!--    تعداد واحد-->
+                            <!--</th>-->
+
+                            <th>
+                                هزینه متفرقه
+                            </th>
+
+                            <th>
+                                مهلت پرداخت
+                            </th>
+
+                            <th>
+                                مبلغ جریمه
+                            </th>
+
+                            <th>
+                                وضعیت
+                            </th>
+
+                            <th>
+                                تاریخ ثبت
+                            </th>
+
+                            <th style="min-width: 170px;">
+                                دستورات
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+
+                    <tbody>
+
+                        {% for calculation in calculations %}
+
+                            <tr>
+
+                                <!-- ردیف -->
+
+                                <td>
+                                    {{ forloop.counter|to_persian_number }}
+                                </td>
+
+
+                                <!-- عنوان -->
+
+                                <td>
+
+                                    <strong>
+                                        {{ calculation.name|to_persian_number }}
+                                    </strong>
+
+                                </td>
+
+
+                                <!-- تاریخ شروع -->
+
+                                <td>
+                                    {{ calculation.start_date|show_jalali }}
+                                </td>
+
+
+                                <!-- تاریخ پایان -->
+
+                                <td>
+                                    {{ calculation.end_date|show_jalali }}
+                                </td>
+
+
+                                <!-- تعداد واحد -->
+
+                                <!--<td>-->
+                                <!--    {{ calculation.unit_count|to_persian_number }}-->
+                                <!--</td>-->
+
+
+                                <!-- هزینه متفرقه -->
+
+                                <td>
+
+                                    {{ calculation.other_cost_amount|default:0|three_digit_currency }}
+
+                                </td>
+
+
+                                <!-- مهلت پرداخت -->
+
+                                <td>
+
+                                    {% if calculation.payment_deadline %}
+
+                                        {{ calculation.payment_deadline|show_jalali }}
+
+                                    {% else %}
+
+                                        -
+
+                                    {% endif %}
+
+                                </td>
+
+
+                                <!-- جریمه -->
+
+                                <td>
+
+                                  %  {{ calculation.payment_penalty_amount|default:0|three_digit_currency }}
+
+                                </td>
+
+
+                                <!-- وضعیت -->
+
+                                <td>
+
+                                    {% if calculation.status == 'draft' %}
+
+                                        <span class="badge bg-secondary">
+                                            پیش‌نویس
+                                        </span>
+
+
+                                    {% elif calculation.status == 'calculated' %}
+
+                                        <span class="badge bg-info">
+                                            محاسبه شده
+                                        </span>
+
+
+                                    {% elif calculation.status == 'finalized' %}
+
+                                        <span class="badge bg-success">
+                                            نهایی شده
+                                        </span>
+
+
+                                    {% elif calculation.status == 'cancelled' %}
+
+                                        <span class="badge bg-danger">
+                                            لغو شده
+                                        </span>
+
+
+                                    {% else %}
+
+                                        <span class="badge bg-secondary">
+                                            {{ calculation.get_status_display }}
+                                        </span>
+
+                                    {% endif %}
+
+                                </td>
+
+
+                                <!-- تاریخ ایجاد -->
+
+                                <td>
+
+                                    {{ calculation.created_at|show_jalali }}
+
+                                </td>
+
+
+                                <!-- ================================================= -->
+                                <!-- دستورات -->
+                                <!-- ================================================= -->
+
+ <td>
+    <div class="d-flex gap-1 flex-wrap text-center">
+
+        {# ================================================== #}
+        {# ویرایش #}
+        {# فقط قبل از نهایی شدن #}
+        {# ================================================== #}
+
+        {% if not calculation.is_finalized %}
+
+            <a
+                href="{% url 'charge_calculation_edit' calculation.pk %}"
+                class="btn btn-warning px-1 py-1"
+                title="ویرایش"
+            >
+                <i
+                    class="mdi mdi-lead-pencil"
+                    aria-hidden="true"
+                ></i>
+            </a>
+
+        {% endif %}
+
+
+        {# ================================================== #}
+        {# حذف #}
+        {# فقط قبل از نهایی شدن #}
+        {# ================================================== #}
+
+        {% if not calculation.is_finalized %}
+
+            <a
+                href="{% url 'charge_calculation_delete' calculation.pk %}"
+                class="btn btn-gradient-danger p-1"
+                title="حذف"
+                onclick="return confirmDeleteWithSweetAlert(event)"
+            >
+                <i
+                    class="mdi mdi-delete"
+                    aria-hidden="true"
+                ></i>
+            </a>
+
+        {% endif %}
+
+
+        {# ================================================== #}
+        {# مرحله بعد #}
+        {# ================================================== #}
+
+        {% if calculation.is_finalized %}
+
+            {# ---------------------------------------------- #}
+            {# محاسبه نهایی شده → صفحه اعلان واحدها #}
+            {# ---------------------------------------------- #}
+
+            <a
+                href="{% url 'middle_add_charge_calculation_units' calculation.pk %}"
+                class="btn btn-gradient-success px-1 py-1"
+                title="اعلان شارژ"
+            >
+               اعلان شارژ ثبت گردید
+            </a>
+
+        {% else %}
+
+            {# ---------------------------------------------- #}
+            {# محاسبه نهایی نشده → انتخاب و محاسبه هزینه‌ها #}
+            {# ---------------------------------------------- #}
+
+            <a
+                href="{% url 'middle_add_charge_calculation_items' calculation.pk %}"
+                class="btn btn-primary px-1 py-1"
+                title="نمایش هزینه‌ها"
+            >
+                نمایش هزینه‌ها
+            </a>
+
+        {% endif %}
+
+    </div>
+</td>
+
+                            </tr>
+
+
+                        {% empty %}
+
+                            <tr>
+
+                                <td colspan="11" class="text-muted">
+
+شارژی ثبت نشده است
+                                </td>
+
+                            </tr>
+
+                        {% endfor %}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+        </div>
+
+    </div>
+
+</div>
+
+{% endblock %}
