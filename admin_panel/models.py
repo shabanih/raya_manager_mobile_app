@@ -18,7 +18,7 @@ from datetime import date, timedelta
 
 from jalali_date import date2jalali
 
-from user_app.models import Unit, User, Bank, MyHouse
+from user_app.models import Unit, User, Bank, MyHouse, Renter
 import uuid
 import secrets
 
@@ -500,9 +500,97 @@ class PropertyDocument(models.Model):
 
 
 # ======================== Maintenance =============================
+
+class ThirdParty(models.Model):
+
+    PERSON_TYPE_CHOICES = (
+        ('person', 'شخص حقیقی'),
+        ('company', 'شرکت یا کسب‌وکار'),
+    )
+
+    house = models.ForeignKey(
+        MyHouse,
+        on_delete=models.CASCADE,
+        related_name='third_parties',
+        verbose_name='ساختمان',
+    )
+
+    name = models.CharField(
+        max_length=200,
+        verbose_name='نام شخص یا مجموعه',
+    )
+
+    person_type = models.CharField(
+        max_length=20,
+        choices=PERSON_TYPE_CHOICES,
+        default='person',
+        verbose_name='نوع شخص',
+    )
+
+    mobile = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        verbose_name='شماره تماس',
+    )
+
+    description = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        verbose_name='توضیحات',
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='فعال',
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ثبت',
+    )
+
+    class Meta:
+        verbose_name = 'شخص ثالث'
+        verbose_name_plural = 'اشخاص ثالث'
+        ordering = ['name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['house', 'name'],
+                name='unique_third_party_name_per_house',
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class Maintenance(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
+
+    RECEIVER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+
+    bank = models.ForeignKey(
+        Bank,
+        on_delete=models.SET_NULL,
+        verbose_name='شماره حساب',
+        null=True,
+        blank=True
+    )
+
+    # =====================================================
+    # ساختمان و واحد
+    # =====================================================
+
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -511,40 +599,189 @@ class Maintenance(models.Model):
         related_name='house_maintenance',
         verbose_name='ساختمان مرتبط'
     )
-    expert_name = models.CharField(max_length=200, verbose_name='نام کارشناس')
-    maintenance_description = models.CharField(max_length=1000, verbose_name='')
-    maintenance_start_date = models.DateField(verbose_name='')
-    maintenance_end_date = models.DateField(verbose_name='')
-    maintenance_price = models.PositiveIntegerField(verbose_name='')
-    maintenance_status = models.CharField(max_length=100, verbose_name='')
-    service_company = models.CharField(max_length=200, verbose_name='')
-    maintenance_document_no = models.CharField(max_length=100, verbose_name='', null=True, blank=True)
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='maintenance_records',
+        verbose_name='واحد'
+    )
+
+    # =====================================================
+    # دریافت کننده
+    # =====================================================
+
+    receiver_type = models.CharField(
+        max_length=20,
+        choices=RECEIVER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع دریافت کننده'
+    )
+
+    receiver_renter = models.ForeignKey(
+        Renter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='maintenance_receipts',
+        verbose_name='مستاجر دریافت کننده'
+    )
+    receiver_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='maintenance_third',
+        verbose_name='شخص ثالث دریافت‌کننده',
+    )
+
+    # نام دریافت کننده در زمان ثبت سند
+    receiver_name = models.CharField(
+        max_length=200,
+        verbose_name='دریافت کننده',
+        null=True,
+        blank=True
+    )
+
+    # =====================================================
+    # اطلاعات تعمیر و نگهداری
+    # =====================================================
+
+    expert_name = models.CharField(
+        max_length=200,
+        verbose_name='نام کارشناس'
+    )
+
+    maintenance_description = models.CharField(
+        max_length=1000,
+        verbose_name=''
+    )
+
+    maintenance_start_date = models.DateField(
+        verbose_name=''
+    )
+
+    maintenance_end_date = models.DateField(
+        verbose_name=''
+    )
+
+    maintenance_price = models.PositiveIntegerField(
+        verbose_name=''
+    )
+
+    maintenance_status = models.CharField(
+        max_length=100,
+        verbose_name=''
+    )
+
+    service_company = models.CharField(
+        max_length=200,
+        verbose_name=''
+    )
+
+    maintenance_document_no = models.CharField(
+        max_length=100,
+        verbose_name='',
+        null=True,
+        blank=True
+    )
+
     financial_document_number = models.PositiveIntegerField(
         null=True,
         blank=True,
         editable=False,
         verbose_name='شماره سند مالی'
     )
-    details = models.CharField(max_length=4000, verbose_name='', null=True, blank=True)
-    is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
+
+    details = models.CharField(
+        max_length=4000,
+        verbose_name='',
+        null=True,
+        blank=True
+    )
+
+    is_paid = models.BooleanField(
+        default=False,
+        verbose_name='پرداخت شده/ نشده'
+    )
+
+    transaction_reference = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True
+    )
+
     payment_date = models.DateField(
         null=True,
         blank=True,
         verbose_name="تاریخ پرداخت"
     )
-    receiver_name = models.CharField(max_length=200, verbose_name='دریافت کننده')
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='')
-    is_active = models.BooleanField(default=True, verbose_name='')
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name=''
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name=''
+    )
 
     def __str__(self):
         return str(self.maintenance_description)
 
+    def get_receiver_display(self):
+
+        if self.receiver_type == 'renter':
+
+            if self.unit and self.receiver_name:
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مستاجر {self.receiver_name}"
+                )
+
+            if self.receiver_name:
+                return (
+                    f"مستاجر {self.receiver_name}"
+                )
+
+        elif self.receiver_type == 'owner':
+
+            if self.unit and self.receiver_name:
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مالک {self.receiver_name}"
+                )
+
+            if self.receiver_name:
+                return (
+                    f"مالک {self.receiver_name}"
+                )
+
+        elif self.receiver_name:
+
+            return self.receiver_name
+
+        if self.unit:
+
+            return f"واحد {self.unit.unit}"
+
+        return '-'
+
     def get_documents_urls_json(self):
-        # Use the correct attribute to access the file URL in the related `ExpenseDocument` model
-        image_urls = [doc.document.url for doc in self.documents.all() if doc.document]
-        print(image_urls)
-        return mark_safe(json.dumps(image_urls))
+
+        image_urls = [
+            doc.document.url
+            for doc in self.documents.all()
+            if doc.document
+        ]
+
+        return mark_safe(
+            json.dumps(image_urls)
+        )
 
 
 class MaintenanceDocument(models.Model):
@@ -1104,130 +1341,6 @@ class ChargeCalculation(models.Model):
             'finalized_at': self.finalized_at,
         }
 
-
-# class ChargeCalculationItem(models.Model):
-
-#     class AllocationBasis(models.TextChoices):
-#         EQUAL = 'equal', 'مساوی'
-#         AREA = 'area', 'متراژ'
-#         PERSON = 'person', 'تعداد نفرات'
-
-#     class AllocationScope(models.TextChoices):
-#         ALL = 'all', 'همه واحدها'
-#         OCCUPIED = 'occupied', 'واحدهای ساکن'
-#         VACANT = 'vacant', 'واحدهای خالی'
-
-#     calculation = models.ForeignKey(
-#         ChargeCalculation,
-#         on_delete=models.CASCADE,
-#         related_name='items',
-#         verbose_name='محاسبه شارژ'
-#     )
-
-#     content_type = models.ForeignKey(
-#         ContentType,
-#         on_delete=models.PROTECT,
-#         verbose_name='نوع هزینه'
-#     )
-
-#     object_id = models.PositiveIntegerField(
-#         verbose_name='شناسه هزینه'
-#     )
-
-#     source = GenericForeignKey(
-#         'content_type',
-#         'object_id'
-#     )
-
-#     amount = models.PositiveIntegerField(
-#         verbose_name='مبلغ هزینه'
-#     )
-
-#     title = models.CharField(
-#         max_length=1000,
-#         verbose_name='شرح هزینه'
-#     )
-
-#     source_date = models.DateField(
-#         null=True,
-#         blank=True,
-#         verbose_name='تاریخ هزینه'
-#     )
-
-#     allocation_basis = models.CharField(
-#         max_length=30,
-#         choices=AllocationBasis.choices,
-#         verbose_name='مبنای تقسیم'
-#     )
-
-#     # =====================================================
-#     # واحدهای مشمول هزینه
-#     # =====================================================
-
-#     allocation_scope = models.CharField(
-#         max_length=20,
-#         choices=AllocationScope.choices,
-#         default=AllocationScope.ALL,
-#         verbose_name='واحدهای مشمول'
-#     )
-
-#     source_unit = models.ForeignKey(
-#         Unit,
-#         on_delete=models.PROTECT,
-#         null=True,
-#         blank=True,
-#         related_name='charge_calculation_items',
-#         verbose_name='واحد هزینه'
-#     )
-
-#     fixed_amount = models.PositiveIntegerField(
-#         default=0,
-#         verbose_name='مبلغ ثابت'
-#     )
-
-#     is_selected = models.BooleanField(
-#         default=True,
-#         verbose_name='انتخاب شده'
-#     )
-
-#     created_at = models.DateTimeField(
-#         auto_now_add=True,
-#         verbose_name='تاریخ ایجاد'
-#     )
-
-#     class Meta:
-#         ordering = ['source_date', 'id']
-
-#         constraints = [
-#             models.UniqueConstraint(
-#                 fields=[
-#                     'calculation',
-#                     'content_type',
-#                     'object_id'
-#                 ],
-#                 name='unique_charge_calculation_source'
-#             )
-#         ]
-
-#         verbose_name = 'هزینه انتخاب شده برای شارژ'
-#         verbose_name_plural = 'هزینه های انتخاب شده برای شارژ'
-
-#     def __str__(self):
-#         return f'{self.title} - {self.amount:,}'
-
-#     @property
-#     def source_type(self):
-#         return self.content_type.model
-
-#     @property
-#     def source_name(self):
-#         if self.source_type == 'expense':
-#             return 'هزینه'
-
-#         if self.source_type == 'maintenance':
-#             return 'تعمیرات'
-
-#         return self.source_type
 
 class ChargeCalculationItem(models.Model):
     class AllocationBasis(models.TextChoices):
