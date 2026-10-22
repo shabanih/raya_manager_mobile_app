@@ -9653,10 +9653,6 @@ class MobileSupportTicketCloseView(APIView):
 # Resident TICKET
 # ============================================================
 
-# ============================================================
-# ایجاد Notification برای مدیران مجتمع ساکن
-# ============================================================
-
 def notify_managers_about_ticket(ticket, title, message):
     """
     پیدا کردن مدیران مجتمع مربوط به ساکن و ایجاد Notification
@@ -9974,11 +9970,6 @@ class UserSupportTicketDetailView(APIView):
             'success': True,
             'ticket': serializer.data,
         })
-
-
-# =========================================================
-# ارسال پیام
-# =========================================================
 
 # =========================================================
 # ارسال پیام
@@ -13797,7 +13788,39 @@ class ManagerChargeHomeView(APIView):
             'count': len(serializer.data),
             'results': serializer.data,
         })
+class ManagerChargeMethodsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
 
+    def get(self, request):
+        user = request.user
+
+        print(
+            "CHARGE METHODS API:",
+            "user_id=", user.pk,
+            "username=", user.get_username(),
+            "is_middle_admin=", getattr(user, "is_middle_admin", False),
+            "methods=", list(
+                user.charge_methods.values_list("id", flat=True)
+            ),
+        )
+
+        if not getattr(user, 'is_middle_admin', False):
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شما مجاز به دسترسی نیستید.',
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        methods = user.charge_methods.filter(
+            is_active=True
+        ).values('id', 'name')
+
+        return Response({
+            'success': True,
+            'results': list(methods),
+        })
 
 class ManagerFixedChargeCreateView(APIView):
     authentication_classes = [JWTAuthentication]
@@ -22221,7 +22244,8 @@ class ManagerFixVariableChargeAPIView(APIView):
         try:
             with transaction.atomic():
                 charge = (
-                    ChargeFixVariable.objects.select_for_update()
+                    ChargeFixVariable.objects
+                    .select_for_update()
                     .filter(pk=pk, user=request.user)
                     .first()
                 )
@@ -22232,23 +22256,45 @@ class ManagerFixVariableChargeAPIView(APIView):
                         status=status.HTTP_404_NOT_FOUND,
                     )
 
+                # جلوگیری از حذف در صورت اعلان یا پرداخت
                 if (
                         self.has_notification(charge)
                         or self.has_payment(charge)
                 ):
-                    return Response({
-                        "detail": (
-                            "به دلیل ارسال اعلان یا ثبت پرداخت، "
-                            "حذف این شارژ امکان‌پذیر نیست."
-                        ),
-                        "code": "charge_locked",
-                    }, status=status.HTTP_409_CONFLICT)
+                    return Response(
+                        {
+                            "detail": (
+                                "به دلیل ارسال اعلان یا ثبت پرداخت، "
+                                "حذف این شارژ امکان‌پذیر نیست."
+                            ),
+                            "code": "charge_locked",
+                        },
+                        status=status.HTTP_409_CONFLICT,
+                    )
 
                 name = charge.name or "شارژ ثابت و متغیر"
+
+                # پیدا کردن رکوردهای مالی مرتبط با همین شارژ
+                content_type = ContentType.objects.get_for_model(
+                    ChargeFixVariable
+                )
+
+                unified_charges = UnifiedCharge.objects.filter(
+                    content_type=content_type,
+                    object_id=charge.pk,
+                )
+
+                # حذف رکوردهای مالی مرتبط
+                unified_charges.delete()
+
+                # حذف خود شارژ
                 charge.delete()
 
             return Response({
-                "detail": f"{name} با موفقیت حذف شد."
+                "detail": (
+                    f"{name} و رکوردهای مالی مرتبط با آن "
+                    "با موفقیت حذف شدند."
+                )
             })
 
         except ProtectedError:
@@ -23240,12 +23286,16 @@ class ManagerChargeCalculationBaseAPIView(APIView):
         }
 
     def ensure_editable(self, calculation):
-        if (
-            calculation.is_finalized
-            or calculation.status == "finalized"
-        ):
+
+        is_notified = UnifiedCharge.objects.filter(
+            object_id=calculation.pk,
+            content_type=ContentType.objects.get_for_model(calculation),
+            send_notification=True,
+        ).exists()
+
+        if is_notified:
             return api_error(
-                "محاسبه نهایی شده و قابل ویرایش نیست.",
+                "شارژ اعلان شده و قابل ویرایش نیست.",
                 status.HTTP_409_CONFLICT,
             )
 
@@ -23338,14 +23388,19 @@ class ManagerChargeCalculationAPIView(
         name = str(data.get("name") or "").strip()
         start_date = data.get("start_date")
         end_date = data.get("end_date")
+        payment_deadline = data.get("payment_deadline")
 
         if not name:
-            return api_error("نام محاسبه الزامی است.")
+            return api_error("عنوان شارژ الزامی است.")
 
         if not start_date or not end_date:
             return api_error(
                 "تاریخ شروع و پایان الزامی است."
             )
+
+
+        if not payment_deadline or not str(payment_deadline).strip():
+            return api_error("مهلت پرداخت الزامی است.")
 
         try:
             other_cost = int(data.get("other_cost_amount") or 0)
@@ -23369,9 +23424,7 @@ class ManagerChargeCalculationAPIView(
                     end_date=end_date,
                     created_by=request.user,
                     other_cost_amount=other_cost,
-                    payment_deadline=(
-                        data.get("payment_deadline") or None
-                    ),
+                    payment_deadline=payment_deadline,
                     payment_penalty_amount=penalty,
                     details=data.get("details") or "",
                     status="draft",
@@ -23453,6 +23506,11 @@ class ManagerChargeCalculationAPIView(
             return api_error(
                 "تاریخ شروع نمی‌تواند بعد از تاریخ پایان باشد."
             )
+        if "payment_deadline" in data:
+            payment_deadline = data.get("payment_deadline")
+
+            if not payment_deadline or not str(payment_deadline).strip():
+                return api_error("مهلت پرداخت الزامی است.")
 
         calculation.save()
 

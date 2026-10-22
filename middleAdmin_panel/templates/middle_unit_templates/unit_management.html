@@ -129,7 +129,7 @@
 {#                            <th>تعداد نفرات مالک</th>#}
                             <th>نام مستاجر</th>
                             <th>موبایل مستاجر</th>
-{#                            <th>تعداد نفرات </th>#}
+                            <th>تعداد نفرات </th>
                             <th>وضعیت سکونت</th>
                             <th>فعال/غیرفعال</th>
                             <th>دستورات</th>
@@ -146,7 +146,7 @@
                             <td>{{ unit.owner_mobile|to_persian_number }}</td>
                             <td>{{ unit.area|to_persian_number }}</td>
                             <td>{{ unit.bedrooms_count|to_persian_number }}</td>
-{#                            <td>{{ unit.owner_people_count }}</td>#}
+
                             
                             <!-- Display Renters (multiple possible) -->
                      <td>
@@ -168,6 +168,13 @@
         ---
     {% endif %}
 </td>
+                                                        <td>    {% if unit.active_renters %}
+        {% for renter in unit.active_renters %}
+            {{ renter.renter_people_count|to_persian_number }} <br>
+        {% endfor %}
+    {% else %}
+ {{ unit.owner_people_count|to_persian_number }}
+    {% endif %}</td>
 <td>
     {% if unit.status_residence == 'occupied' %}
         <span>ساکن</span>

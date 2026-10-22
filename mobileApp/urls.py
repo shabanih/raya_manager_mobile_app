@@ -36,7 +36,7 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerFixPersonAreaChargeCancelAPIView, ManagerFixVariableChargeAPIView, ManagerFixVariableChargeUnitsAPIView, \
     ManagerFixVariableChargeSendAPIView, ManagerFixVariableChargeCancelAPIView, ManagerChargeCalculationAPIView, \
     ManagerChargeCalculationItemsAPIView, ManagerChargeCalculationUnitsAPIView, ManagerChargeCalculationSendAPIView, \
-    ManagerChargeCalculationCancelAPIView
+    ManagerChargeCalculationCancelAPIView, ManagerChargeMethodsAPIView
 
 urlpatterns = [
     path(
@@ -591,6 +591,11 @@ urlpatterns = [
         'manager/charges/',
         ManagerChargeHomeView.as_view(),
         name='manager-charge-home',
+    ),
+    path(
+        'manager/charge-methods/',
+        ManagerChargeMethodsAPIView.as_view(),
+        name='manager-charge-methods',
     ),
 
     path(
