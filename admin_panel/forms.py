@@ -2755,34 +2755,83 @@ class VariableFixChargeForm(forms.ModelForm):
 #     allow_multiple_selected = True
 
 
+
 class CivilForm(forms.ModelForm):
-    name = forms.CharField(error_messages=error_message, max_length=200, widget=forms.TextInput(attrs=attr),
-                           required=True,
-                           label='عنوان  ')
-    amount = forms.IntegerField(error_messages=error_message,
-                                widget=forms.TextInput(attrs=attr),
-                                required=True,
-                                label='مبلغ شارژ عمرانی')
-    prepayment = forms.IntegerField(error_messages=error_message,
-                                    widget=forms.TextInput(attrs=attr),
-                                    required=False, initial=0,
-                                    label='پیش پرداخت')
-    installment_count = forms.IntegerField(error_messages=error_message,
-                                           widget=forms.TextInput(attrs=attr),
-                                           required=False, initial=0,
-                                           label='تعداد اقساط ')
+    unit_scope = forms.ChoiceField(
+        choices=[
+            ('all', 'همه واحدها'),
+            ('occupied', 'فقط واحدهای ساکن‌'),
+            ('vacant', 'فقط واحدهای خالی'),
+        ],
+        initial='all',
+        required=True,
+        label='محدوده واحدهای مشمول',
+        widget=forms.Select(
+            attrs={'class': 'form-control form-control-sm'}
+        )
+    )
+
+    name = forms.CharField(
+        error_messages=error_message,
+        max_length=200,
+        widget=forms.TextInput(attrs=attr),
+        required=True,
+        label='عنوان'
+    )
+
+    amount = forms.IntegerField(
+        error_messages=error_message,
+        widget=forms.TextInput(attrs=attr),
+        required=True,
+        label='مبلغ شارژ عمرانی'
+    )
+
+    prepayment = forms.IntegerField(
+        error_messages=error_message,
+        widget=forms.TextInput(attrs=attr),
+        required=False,
+        initial=0,
+        label='پیش پرداخت'
+    )
+
+    installment_count = forms.IntegerField(
+        error_messages=error_message,
+        widget=forms.TextInput(attrs=attr),
+        required=False,
+        initial=0,
+        label='تعداد اقساط'
+    )
+
+
     first_due_date = JalaliDateField(
         label='تاریخ پرداخت اولین قسط',
-        widget=AdminJalaliDateWidget(attrs={'class': 'form-control m-1'}),
-        error_messages=error_message, required=True
+        widget=AdminJalaliDateWidget(
+            attrs={'class': 'form-control m-1'}
+        ),
+        error_messages=error_message,
+        required=True
     )
-    details = forms.CharField(error_messages=error_message, required=False,
-                              widget=forms.Textarea(attrs={'class': 'form-control', 'rows': 3}),
-                              label='توضیحات ')
+
+    details = forms.CharField(
+        error_messages=error_message,
+        required=False,
+        widget=forms.Textarea(
+            attrs={'class': 'form-control', 'rows': 3}
+        ),
+        label='توضیحات'
+    )
 
     class Meta:
         model = CivilManage
-        fields = ['name', 'amount', 'prepayment', 'installment_count', 'first_due_date', 'details']
+        fields = [
+            'name',
+            'amount',
+            'prepayment',
+            'installment_count',
+            'unit_scope',
+            'first_due_date',
+            'details',
+        ]
 
     def clean_first_due_date(self):
         deadline = self.cleaned_data.get('first_due_date')
@@ -2791,7 +2840,9 @@ class CivilForm(forms.ModelForm):
             today = jdatetime.date.today()
 
             if deadline < today:
-                raise forms.ValidationError('تاریخ سررسید نمی‌تواند قبل از امروز باشد')
+                raise forms.ValidationError(
+                    'تاریخ سررسید نمی‌تواند قبل از امروز باشد'
+                )
 
         return deadline
 
@@ -2800,12 +2851,35 @@ class CivilForm(forms.ModelForm):
 
         amount = cleaned_data.get('amount')
         prepayment = cleaned_data.get('prepayment') or 0
+        installment_count = cleaned_data.get('installment_count') or 0
 
-        if amount is not None and prepayment is not None:
+        if amount is not None:
             if prepayment > amount:
-                self.add_error('prepayment', 'مبلغ پیش‌پرداخت نمی‌تواند بیشتر از مبلغ شارژ باشد.')
+                self.add_error(
+                    'prepayment',
+                    'مبلغ پیش‌پرداخت نمی‌تواند بیشتر از مبلغ شارژ باشد.'
+                )
+
+            if amount < 0:
+                self.add_error(
+                    'amount',
+                    'مبلغ شارژ نمی‌تواند منفی باشد.'
+                )
+
+        if prepayment < 0:
+            self.add_error(
+                'prepayment',
+                'مبلغ پیش‌پرداخت نمی‌تواند منفی باشد.'
+            )
+
+        if installment_count < 0:
+            self.add_error(
+                'installment_count',
+                'تعداد اقساط نمی‌تواند منفی باشد.'
+            )
 
         return cleaned_data
+
 
 
 # class ExpenseChargeForm(forms.ModelForm):

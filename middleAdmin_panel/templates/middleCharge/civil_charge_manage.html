@@ -20,15 +20,13 @@
               <input type="text" id="searchInput" placeholder="جستجوی سریع در جدول..." onkeyup="searchTableIncome()" class="form-control mb-2 mt-2 p-1">
           </div>
         <div class=" col-12 col-md-5 col-xl-5 text-md-start align-self-center">
-{#            <button onclick="openQuery()" class="btn btn-gradient-info px-2 py-2">جستجوی پیشرفته</button>#}
+
              {% if page_obj %}
                     <a href="{% url 'middle_civil_charge_report_pdf' %}?{{ request.GET.urlencode }}"
                class="btn btn-gradient-danger px-md-4 px-2 py-2">
                خروجی PDF
             </a>
-{#            <a href="{% url 'export_income_excel' %}?{{ request.GET.urlencode }}"#}
-{#   class="btn btn-facebook text-white px-2 px-md-4 py-2">خروجی Excel</a>#}
-         
+
                    {% else %}
                         <button class="btn btn-gradient-danger px-2 px-md-4 py-2" disabled>خروجی PDF</button>
 {#                    <button class="btn btn-facebook text-white px-2 px-md-4 py-2" disabled>خروجی Excel</button>#}
@@ -102,6 +100,7 @@
                                            data-id="{{ civil.id }}"
                                            data-name="{{ civil.name }}"
                                            data-amount="{{ civil.amount }}"
+                                           data-unit_scope="{{ civil.unit_scope }}"
                                            data-prepayment="{{ civil.prepayment}}"
                                            data-installment_count="{{ civil.installment_count}}"
                                            data-first_due_date="{{ civil.first_due_date|show_jalali }}"
@@ -135,6 +134,18 @@
                           <hr/>
                             <div class="modal-body text-end">
                                 <p><strong> عنوان:</strong> {{ civil.name|to_persian_number }}</p>
+                               <p>
+                                    <strong>واحدهای مشمول:</strong>
+                                    {% if civil.unit_scope == 'all' %}
+                                        همه واحدها
+                                    {% elif civil.unit_scope == 'occupied' %}
+                                        واحدهای ساکن‌
+                                    {% elif civil.unit_scope == 'vacant' %}
+                                        واحدهای خالی
+                                    {% else %}
+                                        نامشخص
+                                    {% endif %}
+                                </p>
                                  <p><strong>مبلغ شارژ :</strong> {{ civil.amount|three_digit_currency }}تومان </p>
                                 <p><strong>مبلغ پیش پرداخت:</strong> {{ civil.prepayment|three_digit_currency }} تومان</p>
                                 <p><strong>تعدا اقساط :</strong> {{ civil.installment_count|to_persian_number }} </p>
@@ -206,13 +217,18 @@
           <form id="civilForm" action="" method="POST"
                 enctype="multipart/form-data" novalidate>
               {% csrf_token %}
-                 <div class="row align-items-center p-0 g-2">
-                  <div class="col-12">
+                 <div class="row g-2">
+                  <div class="col-12 col-md-6">
                       {{ form.name.label_tag }}
                       {{ form.name }}
                       {{ form.name.errors }}
                   </div>
-                     </div>
+                     <div class="col-12 col-md-6">
+                        {{ form.unit_scope.label_tag }}
+                        {{ form.unit_scope }}
+                        {{ form.unit_scope.errors }}
+                    </div>
+                                     </div>
                <div class="row g-2">
                    <div class="col-6 p-1">
                        {{ form.amount.label_tag }}

@@ -36,7 +36,9 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerFixPersonAreaChargeCancelAPIView, ManagerFixVariableChargeAPIView, ManagerFixVariableChargeUnitsAPIView, \
     ManagerFixVariableChargeSendAPIView, ManagerFixVariableChargeCancelAPIView, ManagerChargeCalculationAPIView, \
     ManagerChargeCalculationItemsAPIView, ManagerChargeCalculationUnitsAPIView, ManagerChargeCalculationSendAPIView, \
-    ManagerChargeCalculationCancelAPIView, ManagerChargeMethodsAPIView
+    ManagerChargeCalculationCancelAPIView, ManagerChargeMethodsAPIView, ManagerCivilChargesAPIView, \
+    ManagerCivilChargeDetailAPIView, ManagerCivilChargeUnitsAPIView, ManagerSendCivilChargeAPIView, \
+    ManagerCancelCivilChargeAPIView, ManagerMonthlyChargeUnitsAPIView, ManagerMonthlyChargesAPIView
 
 urlpatterns = [
     path(
@@ -853,7 +855,43 @@ urlpatterns = [
         ManagerChargeCalculationCancelAPIView.as_view(),
         name="manager-charge-calculation-cancel",
     ),
+    # ============= Civil Charge Urls ======================
+    path(
+        "manager/civil-charges/",
+        ManagerCivilChargesAPIView.as_view(),
+        name="manager-civil-charges",
+    ),
+    path(
+        "manager/civil-charges/<int:civil_id>/",
+        ManagerCivilChargeDetailAPIView.as_view(),
+        name="manager-civil-charge-detail",
+    ),
+    path(
+        "manager/civil-charges/<int:civil_id>/units/",
+        ManagerCivilChargeUnitsAPIView.as_view(),
+        name="manager-civil-charge-units",
+    ),
+    path(
+        "manager/civil-charges/<int:civil_id>/send/",
+        ManagerSendCivilChargeAPIView.as_view(),
+        name="manager-send-civil-charge",
+    ),
+    path(
+        "manager/civil-charges/<int:civil_id>/cancel/",
+        ManagerCancelCivilChargeAPIView.as_view(),
+        name="manager-civil-charge-cancel",
+    ),
 
+    path(
+        "manager/monthly-charges/",
+        ManagerMonthlyChargesAPIView.as_view(),
+        name="manager-monthly-charges",
+    ),
+    path(
+        "manager/monthly-charges/<str:app_label>/<str:model_name>/<int:charge_id>/units/",
+        ManagerMonthlyChargeUnitsAPIView.as_view(),
+        name="manager-monthly-charge-units",
+    ),
 
 
 ]

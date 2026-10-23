@@ -203,7 +203,7 @@ urlpatterns = [
 
     # Civil Charge
 
-    path('civil_charge/', views.CivilChargeManage.as_view(), name='civil_charge_manage'),
+    path('civil_charge/', views.CivilChargeManage.as_view(), name='middle_civil_charge_manage'),
     path('civil/middle/edit/<int:pk>/', views.civil_charge_edit, name='middle_civil_edit'),
     path('civil/middle/delete/<int:pk>/', views.middle_civil_delete, name='middle_civil_delete'),
     path('civil/middle/delete-document/', views.middle_delete_civil_document,

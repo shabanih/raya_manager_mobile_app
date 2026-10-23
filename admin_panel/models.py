@@ -934,6 +934,18 @@ class CivilManage(models.Model):
         related_name='house_civil',
         verbose_name='ساختمان مرتبط'
     )
+    UNIT_SCOPE_CHOICES = [
+        ('all', 'همه واحدها'),
+        ('occupied', 'واحدهای ساکن‌دار'),
+        ('vacant', 'واحدهای خالی'),
+    ]
+
+    unit_scope = models.CharField(
+        max_length=20,
+        choices=UNIT_SCOPE_CHOICES,
+        default='all',
+        verbose_name='محدوده واحدهای مشمول'
+    )
     name = models.CharField(max_length=500)
     amount = models.PositiveIntegerField(verbose_name='')
     prepayment = models.PositiveIntegerField(verbose_name='')

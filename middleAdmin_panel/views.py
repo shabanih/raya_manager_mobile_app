@@ -56,6 +56,7 @@ from admin_panel.models import Announcement, ExpenseCategory, Expense, Fund, Exp
     SewageManage, SewageDocument, SewageInstallment, BankFund, Coupon, CouponUsage, ChargeCalculation, \
     ChargeCalculationItem, ChargeAllocation, FinancialDocumentSequence
 from admin_panel.services.calculators import CALCULATORS
+from admin_panel.services.utils import get_next_financial_document_number
 from middleAdmin_panel.services.bank_services import BankTransactionService
 from middleAdmin_panel.services.unit_services import UnitUpdateService
 from notifications.models import Notification, SupportUser
@@ -5296,11 +5297,6 @@ def sewage_cost_edit(request, pk):
             for f in files:
                 SewageDocument.objects.create(sewage=sewage, document=f)
 
-            # ثبت فایل‌های پیوست جدید
-            # files = request.FILES.getlist('document')
-            # for f in files:
-            #     CivilDocument.objects.create(civil=civil, document=f)
-
             messages.success(request, 'رکورد با موفقیت ویرایش گردید.')
             return redirect(reverse('middle_register_sewage'))  # Adjust redirect as necessary
 
@@ -5313,7 +5309,7 @@ def sewage_cost_edit(request, pk):
             })
     else:
         form = SewageForm(instance=sewage, user=request.user)
-        return render(request, 'middleCharge/civil_charge_manage.html',
+        return render(request, 'middelSewage/sewage_register.html',
                       {'form': form,
                        'sewage': sewage,
                        'open_modal': True,
@@ -5568,13 +5564,13 @@ class CivilChargeManage(CreateView):
     model = CivilManage
     template_name = 'middleCharge/civil_charge_manage.html'
     form_class = CivilForm
-    success_url = reverse_lazy('civil_charge_manage')
+    success_url = reverse_lazy('middle_civil_charge_manage')
 
     def form_valid(self, form):
         files = self.request.FILES.getlist('document')
         if len(files) > 2:
             messages.error(self.request, "حداکثر دو فایل مجاز است. در صورت لزوم فایل را بصورت pdf یا zip آپلود کنید")
-            return redirect('civil_charge_manage')
+            return redirect('middle_civil_charge_manage')
 
         form.instance.user = self.request.user
         form.instance.house = MyHouse.objects.filter(user=self.request.user, is_active=True).first()
@@ -5584,7 +5580,7 @@ class CivilChargeManage(CreateView):
             CivilDocument.objects.create(civil=self.object, document=f)
 
         messages.success(self.request, "هزینه فاضلاب با موفقیت ثبت شد.")
-        return redirect('civil_charge_manage')
+        return redirect('middle_civil_charge_manage')
 
     def get_queryset(self):
         queryset = CivilManage.objects.filter(user=self.request.user)
@@ -5634,7 +5630,7 @@ def civil_charge_edit(request, pk):
             #     CivilDocument.objects.create(civil=civil, document=f)
 
             messages.success(request, 'رکورد با موفقیت ویرایش گردید.')
-            return redirect(reverse('civil_charge_manage'))  # Adjust redirect as necessary
+            return redirect(reverse('middle_civil_charge_manage'))  # Adjust redirect as necessary
 
         else:
             messages.error(request, 'خطا در ویرایش فرم . لطفا دوباره تلاش کنید.')
@@ -5692,156 +5688,240 @@ def middle_delete_civil_document(request):
 
 @login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
 def middle_civil_delete(request, pk):
-    civil = get_object_or_404(CivilManage, id=pk)
+    civil = get_object_or_404(
+        CivilManage,
+        id=pk,
+        user=request.user
+    )
+
+    # جلوگیری از حذف شارژی که اعلان آن ارسال شده است
     if civil.count_sent_units() > 0:
-        messages.error(request, 'به علت ارسال شارژ به ساکنین، حذف امکان‌پذیر نیست!')
-        return redirect(reverse('civil_charge_manage'))  # ← توقف کامل
+        messages.error(
+            request,
+            'به علت ارسال شارژ به ساکنین، حذف امکان‌پذیر نیست!'
+        )
+        return redirect('middle_civil_charge_manage')
 
     try:
         with transaction.atomic():
+
+            # حذف تمام اقساط مربوط به این شارژ
+            deleted_installments, details = (
+                CivilInstallment.objects.filter(
+                    civil_manage=civil
+                ).delete()
+            )
+
+            # حذف خود شارژ
             civil.delete()
-        messages.success(request, ' شارژ با موفقیت حذف گردید!')
+
+        messages.success(
+            request,
+            f'شارژ با موفقیت حذف شد. '
+            f'{deleted_installments} رکورد مرتبط با اقساط نیز حذف شد.'
+        )
+
     except ProtectedError:
-        messages.error(request, " امکان حذف وجود ندارد! ")
-    return redirect(reverse('civil_charge_manage'))
+        messages.error(
+            request,
+            'امکان حذف شارژ وجود ندارد؛ رکوردهای مرتبط مانع حذف هستند.'
+        )
+
+    return redirect('middle_civil_charge_manage')
 
 
 @login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
 def middle_show_civil_form(request, pk):
-    civil = get_object_or_404(CivilManage, id=pk, user=request.user)
-    civils = CivilManage.objects.filter(user=request.user, id=pk).order_by('id')
+    from decimal import Decimal
+    import logging
 
-    units = Unit.objects.filter(
-        is_active=True,
-        user__manager=request.user
-    ).order_by('unit')
-
-    units_with_details = []
-    for unit in units:
-        # ✅ بررسی اینکه آیا برای این واحد اقساط مربوط به این civil ارسال شده‌اند
-        has_been_sent = CivilInstallment.objects.filter(
-            civil_manage=civil,
-            unit=unit,
-            send_notification=True
-        ).exists()
-
-        units_with_details.append({
-            'unit': unit,
-            'sent_status': has_been_sent,
-        })
-
-    return render(request, 'middleCharge/civil_charge_notify.html', {
-        'civil': civil,
-        'units_with_details': units_with_details,
-        'civils': civils,
-    })
-
-
-@login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
-def middle_send_civil_charge(request, pk):
-    civil = get_object_or_404(CivilManage, id=pk, user=request.user)
-    all_units_count = Unit.objects.filter(
-        is_active=True,
-        user__manager=request.user
-    ).count()
     logger = logging.getLogger(__name__)
 
-    logger.info(f"all_units: {all_units_count}")
+    civil = get_object_or_404(
+        CivilManage,
+        id=pk,
+        user=request.user
+    )
 
-    if request.method == "POST":
-        selected_units = request.POST.getlist('units')
+    civils = CivilManage.objects.filter(
+        user=request.user,
+        id=pk
+    ).order_by('id')
 
-        if not selected_units:
-            messages.warning(request, 'هیچ واحدی انتخاب نشده است.')
-            return redirect('middle_show_send_civil_form', pk=pk)
+    # =====================================================
+    # 1. تعیین واحدهای مشمول بر اساس محدوده شارژ
+    # =====================================================
 
-        units_qs = Unit.objects.filter(is_active=True, user__manager=request.user)
+    units_qs = Unit.objects.filter(
+        is_active=True,
+        user__manager=request.user
+    )
 
-        if 'all' in selected_units:
-            units_to_notify = units_qs
-        else:
-            units_to_notify = units_qs.filter(id__in=selected_units)
+    if civil.unit_scope == 'occupied':
+        units_qs = units_qs.filter(
+            status_residence='occupied'
+        )
 
-        if not units_to_notify.exists():
-            messages.warning(request, 'هیچ واحد معتبری برای ارسال پیدا نشد.')
-            return redirect('middle_show_send_civil_form', pk=pk)
+    elif civil.unit_scope == 'vacant':
+        units_qs = units_qs.filter(
+            status_residence='empty'
+        )
 
-        already_sent = 0
-        created_count = 0
+    units = units_qs.order_by('unit')
 
-        with transaction.atomic():
+    # تعداد کل واحدهای مشمول، نه تعداد انتخاب‌شده برای ارسال
+    eligible_units_count = units.count()
 
-            total_amount = civil.amount
-            prepayment_total = civil.prepayment or 0
-            installment_count = civil.installment_count or 1
+    if eligible_units_count == 0:
+        messages.warning(
+            request,
+            'هیچ واحد فعالی در محدوده انتخاب‌شده برای این شارژ وجود ندارد.'
+        )
 
-            if installment_count <= 0:
-                installment_count = 1
+        return redirect('middle_civil_charge_manage')
 
-            # ✅ تعداد کل واحدهای ساختمان
+    # =====================================================
+    # 2. محاسبه مبلغ هر واحد
+    # =====================================================
 
-            # ✅ محاسبه سهم هر واحد
-            share_per_unit = total_amount // all_units_count
-            print(f'share_per_unit : {share_per_unit}')
+    total_amount = Decimal(str(civil.amount or 0))
+    prepayment_total = Decimal(str(civil.prepayment or 0))
 
-            prepayment_per_unit = prepayment_total // all_units_count
-            print(f'prepayment_per_unit : {prepayment_per_unit}', flush=True)
+    installment_count = civil.installment_count or 0
 
-            remaining_total = total_amount - prepayment_total
-            print(f'remaining_total : {remaining_total}')
+    # تعداد واحدهای مشمول مبنای تقسیم است
+    unit_count_decimal = Decimal(eligible_units_count)
 
-            remaining_per_unit = remaining_total // all_units_count
-            print(f'remaining_per_unit : {remaining_per_unit}')
+    share_per_unit = (
+        total_amount / unit_count_decimal
+    )
 
-            monthly_installment = (
-                remaining_per_unit // installment_count
-                if installment_count > 0 else remaining_per_unit
+    prepayment_per_unit = (
+        prepayment_total / unit_count_decimal
+    )
+
+    remaining_per_unit = (
+        share_per_unit - prepayment_per_unit
+    )
+
+    if remaining_per_unit < 0:
+        messages.error(
+            request,
+            'مبلغ پیش‌پرداخت نمی‌تواند از مبلغ کل شارژ بیشتر باشد.'
+        )
+        return redirect('middle_civil_charge_manage')
+
+    # =====================================================
+    # 3. تعیین نوع پرداخت و مبلغ هر قسط
+    # =====================================================
+
+    is_one_time_payment = (
+        installment_count <= 0
+        and prepayment_total == 0
+    )
+
+    if installment_count > 0:
+        monthly_installment = (
+            remaining_per_unit / Decimal(installment_count)
+        )
+    else:
+        monthly_installment = remaining_per_unit
+
+    base_date = (
+        civil.first_due_date
+        or timezone.localdate()
+    )
+
+    # =====================================================
+    # 4. ذخیره اقساط برای واحدهای مشمول
+    #    بدون ارسال اعلان
+    # =====================================================
+
+    created_units_count = 0
+    existing_units_count = 0
+
+    with transaction.atomic():
+
+        for unit in units:
+
+            # اگر برای این واحد قبلاً رکوردی وجود دارد،
+            # دوباره اقساط نساز و سوابق را تغییر نده.
+            existing_installments = CivilInstallment.objects.filter(
+                civil_manage=civil,
+                unit=unit
             )
-            print(f'monthly_installment : {monthly_installment}')
 
-            # واحدهایی که قبلاً ارسال شده‌اند
-            sent_unit_ids = set(
-                CivilInstallment.objects.filter(
-                    civil_manage=civil,
-                    unit__in=units_to_notify,
-                    send_notification=True
-                ).values_list('unit_id', flat=True)
-            )
+            if existing_installments.exists():
+                existing_units_count += 1
+                continue
 
-            for unit in units_to_notify:
+            installments = []
 
-                if unit.id in sent_unit_ids:
-                    already_sent += 1
-                    continue
+            # -------------------------------------------------
+            # حالت اول: پرداخت یکجا
+            # -------------------------------------------------
 
-                CivilInstallment.objects.filter(
-                    civil_manage=civil,
-                    unit=unit
-                ).delete()
+            if is_one_time_payment:
 
-                base_date = civil.first_due_date or timezone.now()
+                document_number = (
+                    get_next_financial_document_number(civil.house)
+                )
 
-                installments = []
+                installments.append(
+                    CivilInstallment(
+                        civil_manage=civil,
+                        unit=unit,
+                        installment_number=1,
+                        amount=share_per_unit,
+                        prepayment_per_unit=Decimal('0'),
+                        due_date=base_date,
+                        send_notification=False,
+                        send_notification_date=None,
+                        house=civil.house,
+                        financial_document_number=document_number,
+                    )
+                )
 
-                # ✅ 1️⃣ ایجاد رکورد پیش‌پرداخت (فقط یکبار)
+            else:
+
+                # -------------------------------------------------
+                # پیش‌پرداخت
+                # -------------------------------------------------
+
                 if prepayment_per_unit > 0:
+
+                    document_number = (
+                        get_next_financial_document_number(civil.house)
+                    )
+
                     installments.append(
                         CivilInstallment(
                             civil_manage=civil,
                             unit=unit,
-                            installment_number=0,  # پیش پرداخت
+                            installment_number=0,
                             amount=prepayment_per_unit,
-                            due_date=base_date,
-                            send_notification=True,
-                            send_notification_date=timezone.now(),
                             prepayment_per_unit=prepayment_per_unit,
-                            house=civil.house
+                            due_date=base_date,
+                            send_notification=False,
+                            send_notification_date=None,
+                            house=civil.house,
+                            financial_document_number=document_number,
                         )
                     )
 
-                # ✅ 2️⃣ ایجاد اقساط معمولی (بدون پیش‌پرداخت)
+                # -------------------------------------------------
+                # اقساط عادی
+                # -------------------------------------------------
+
                 for i in range(1, installment_count + 1):
-                    due_date = base_date + relativedelta(months=i)
+
+                    due_date = (
+                        base_date + relativedelta(months=i)
+                    )
+
+                    document_number = (
+                        get_next_financial_document_number(civil.house)
+                    )
 
                     installments.append(
                         CivilInstallment(
@@ -5849,49 +5929,194 @@ def middle_send_civil_charge(request, pk):
                             unit=unit,
                             installment_number=i,
                             amount=monthly_installment,
+                            prepayment_per_unit=Decimal('0'),
                             due_date=due_date,
-                            send_notification=True,
-                            send_notification_date=timezone.now(),
-                            prepayment_per_unit=0,  # ❌ دیگر تکرار نمی‌شود
-                            house=civil.house
+                            send_notification=False,
+                            send_notification_date=None,
+                            house=civil.house,
+                            financial_document_number=document_number,
                         )
                     )
 
+            # ذخیره رکوردها
+            if installments:
                 CivilInstallment.objects.bulk_create(installments)
-                created_count += 1
+                created_units_count += 1
 
-        # پیام نهایی
-        if created_count > 0 and already_sent > 0:
-            messages.success(
-                request,
-                f'{created_count} واحد جدید ارسال شد. {already_sent} واحد قبلاً ارسال شده بودند.'
-            )
-        elif created_count > 0:
-            messages.success(
-                request,
-                f'برای {created_count} واحد، پیش‌پرداخت و اقساط ایجاد شد.'
-            )
-        else:
-            messages.warning(
-                request,
-                'اعلان قبلاً برای همه واحدهای انتخابی ارسال شده بود.'
-            )
+    # =====================================================
+    # 5. آماده‌سازی اطلاعات نمایش واحدها
+    # =====================================================
 
-        return redirect('civil_charge_manage')
+    units_with_details = []
 
-    # GET
-    units = Unit.objects.filter(
+    for unit in units:
+
+        unit_installments = CivilInstallment.objects.filter(
+            civil_manage=civil,
+            unit=unit
+        )
+
+        units_with_details.append({
+            'unit': unit,
+            'sent_status': unit_installments.filter(
+                send_notification=True
+            ).exists(),
+            'prepared_status': unit_installments.exists(),
+        })
+
+    # =====================================================
+    # 6. گزارش محاسبات در لاگ
+    # =====================================================
+
+    logger.info(
+        'Civil charge calculation | civil_id=%s | '
+        'scope=%s | eligible_units=%s | '
+        'total_amount=%s | share_per_unit=%s | '
+        'total_prepayment=%s | prepayment_per_unit=%s | '
+        'installments=%s | monthly_installment=%s | '
+        'created_units=%s | existing_units=%s',
+        civil.id,
+        civil.unit_scope,
+        eligible_units_count,
+        total_amount,
+        share_per_unit,
+        prepayment_total,
+        prepayment_per_unit,
+        installment_count,
+        monthly_installment,
+        created_units_count,
+        existing_units_count,
+    )
+
+    # =====================================================
+    # 7. نمایش صفحه
+    # =====================================================
+
+    return render(
+        request,
+        'middleCharge/civil_charge_notify.html',
+        {
+            'civil': civil,
+            'civils': civils,
+            'units_with_details': units_with_details,
+            'all_unit': eligible_units_count,
+            'eligible_units_count': eligible_units_count,
+            'created_units_count': created_units_count,
+            'existing_units_count': existing_units_count,
+            'share_per_unit': share_per_unit,
+            'prepayment_per_unit': prepayment_per_unit,
+            'monthly_installment': monthly_installment,
+        }
+    )
+
+
+@login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
+def middle_send_civil_charge(request, pk):
+    civil = get_object_or_404(
+        CivilManage,
+        id=pk,
+        user=request.user
+    )
+
+    if request.method != 'POST':
+        return redirect(
+            'middle_civil_show_send_form',
+            pk=pk
+        )
+
+    # واحدهای فعال مدیر
+    eligible_units = Unit.objects.filter(
         is_active=True,
         user__manager=request.user
-    ).order_by('unit')
+    )
 
-    units_with_details = [{'unit': unit} for unit in units]
+    # اعمال همان محدوده‌ای که هنگام محاسبه استفاده شد
+    if civil.unit_scope == 'occupied':
+        eligible_units = eligible_units.filter(
+            status_residence='occupied'
+        )
+    elif civil.unit_scope == 'vacant':
+        eligible_units = eligible_units.filter(
+            status_residence='empty'
+        )
 
-    return render(request, 'middleCharge/civil_charge_notify.html', {
-        'civil': civil,
-        'units_with_details': units_with_details,
-        'all_unit': all_units_count
-    })
+    selected_units = request.POST.getlist('units')
+
+    if not selected_units:
+        messages.warning(request, 'هیچ واحدی انتخاب نشده است.')
+        return redirect(
+            'middle_civil_show_send_form',
+            pk=pk
+        )
+
+    # گزینه all فقط یعنی تمام واحدهای مجاز این شارژ
+    if 'all' in selected_units:
+        units_to_notify = eligible_units
+    else:
+        units_to_notify = eligible_units.filter(
+            id__in=selected_units
+        )
+
+    if not units_to_notify.exists():
+        messages.warning(
+            request,
+            'هیچ واحد معتبری در محدوده این شارژ انتخاب نشده است.'
+        )
+        return redirect(
+            'middle_civil_show_send_form',
+            pk=pk
+        )
+
+    sent_count = 0
+    already_sent_count = 0
+    missing_installments_count = 0
+
+    with transaction.atomic():
+        for unit in units_to_notify:
+            installments = CivilInstallment.objects.filter(
+                civil_manage=civil,
+                unit=unit
+            )
+
+            if not installments.exists():
+                # برای این واحد هنوز محاسبه‌ای ذخیره نشده
+                missing_installments_count += 1
+                continue
+
+            if installments.filter(send_notification=True).exists():
+                already_sent_count += 1
+                continue
+
+            # اینجا فقط وضعیت ارسال را تغییر می‌دهیم
+            updated_count = installments.filter(
+                send_notification=False
+            ).update(
+                send_notification=True,
+                send_notification_date=timezone.now()
+            )
+
+            if updated_count:
+                sent_count += 1
+
+    if sent_count:
+        messages.success(
+            request,
+            f'وضعیت ارسال برای {sent_count} واحد ثبت شد.'
+        )
+
+    if already_sent_count:
+        messages.warning(
+            request,
+            f'{already_sent_count} واحد قبلاً ارسال شده بودند.'
+        )
+
+    if missing_installments_count:
+        messages.warning(
+            request,
+            f'برای {missing_installments_count} واحد هنوز اقساط محاسبه و ذخیره نشده است.'
+        )
+
+    return redirect('middle_civil_charge_manage')
 
 
 # ================================================================================================
