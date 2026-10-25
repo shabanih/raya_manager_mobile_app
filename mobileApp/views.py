@@ -1,14 +1,17 @@
 import json
 import logging
 import secrets
+from collections import OrderedDict
 from datetime import date
 
 import jdatetime
 from dateutil.relativedelta import relativedelta
+from django.core.exceptions import ValidationError
 from django.db.models import Count, Q, Sum, ProtectedError, Prefetch
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
+from django.utils.dateparse import parse_date
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 
 import requests
@@ -41,7 +44,7 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
     FixCharge, AreaCharge, Subscription, PersonCharge, FixAreaCharge, FixPersonCharge, ChargeByPersonArea, \
     ChargeByFixPersonArea, ChargeFixVariable, ChargeCalculation, Expense, Maintenance, ChargeCalculationItem, \
     ChargeAllocation, CivilDocument
-from middleAdmin_panel.services.bank_services import BankTransactionService
+from middleAdmin_panel.services.bank_services import BankTransactionService, validate_bank_transaction_date
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
 from notifications.services.sms_service import SmsService, normalize_mobile
@@ -26278,7 +26281,6 @@ class ManagerSendCivilChargeAPIView(APIView):
         }, status=status.HTTP_200_OK)
 
 
-
 class ManagerCancelCivilChargeAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -26409,11 +26411,6 @@ class ManagerCancelCivilChargeAPIView(APIView):
 # =============================================
 
 class ManagerMonthlyChargesAPIView(APIView):
-    """
-    فهرست شارژهای ماهیانه ثبت‌شده برای ساختمان مدیر.
-    این API هیچ شارژی ایجاد یا تغییر نمی‌دهد.
-    """
-
     permission_classes = [IsAuthenticated]
 
     def get_house(self, request):
@@ -26440,56 +26437,91 @@ class ManagerMonthlyChargesAPIView(APIView):
             .filter(
                 house=house,
                 send_notification=True,
+                send_notification_date__isnull=False,
+                unit__isnull=False,
+                content_type__isnull=False,
+                object_id__isnull=False,
             )
             .exclude(charge_type="expense_charge")
-            .select_related("unit")
+            .select_related("unit", "content_type")
             .order_by("-created_at", "-id")
         )
 
-        # تعداد واحدهای دارای شارژ برای هر محاسبه
-        results = []
+        # گروه‌بندی رکوردهای واحدها بر اساس شارژ اصلی
+        grouped = OrderedDict()
 
         for charge in charges:
+            key = (
+                charge.content_type_id,
+                charge.object_id,
+            )
+
+            if key not in grouped:
+                grouped[key] = {
+                    "content_type": charge.content_type,
+                    "object_id": charge.object_id,
+                    "title": (
+                        charge.title
+                        or charge.details
+                        or charge.get_charge_type_display()
+                    ),
+                    "charge_type": charge.charge_type,
+                    "charge_type_display": (
+                        charge.get_charge_type_display()
+                    ),
+                    "payment_deadline_date": (
+                        charge.payment_deadline_date
+                    ),
+                    "created_at": charge.created_at,
+                    "total_count": 0,
+                    "notified_count": 0,
+                    "paid_count": 0,
+                    "unit_ids": set(),
+                }
+
+            item = grouped[key]
+
+            # شمارش واحدهای یکتا
+            if charge.unit_id not in item["unit_ids"]:
+                item["unit_ids"].add(charge.unit_id)
+                item["total_count"] += 1
+
+                if (
+                    charge.send_notification
+                    and charge.send_notification_date
+                ):
+                    item["notified_count"] += 1
+
+                if charge.is_paid:
+                    item["paid_count"] += 1
+
+        results = []
+
+        for item in grouped.values():
+            content_type = item["content_type"]
+
             results.append({
-                "id": charge.id,
-                "title": (
-                    charge.title
-                    or charge.details
-                    or charge.get_charge_type_display()
-                ),
-                "charge_type": charge.charge_type,
-                "charge_type_display": charge.get_charge_type_display(),
-                "amount": charge.amount or 0,
-                "base_charge": charge.base_charge or 0,
-                "other_cost_amount": charge.other_cost_amount or 0,
-                "civil": charge.civil or 0,
-                "penalty_amount": charge.penalty_amount or 0,
-                "total_charge_month": charge.total_charge_month or 0,
+                "id": item["object_id"],
+                "app_label": content_type.app_label,
+                "model_name": content_type.model,
+                "title": item["title"],
+                "charge_type": item["charge_type"],
+                "charge_type_display": item["charge_type_display"],
+                "total_count": item["total_count"],
+                "notified_count": item["notified_count"],
+                "paid_count": item["paid_count"],
                 "payment_deadline_date": (
-                    charge.payment_deadline_date.isoformat()
-                    if charge.payment_deadline_date else None
+                    item["payment_deadline_date"].isoformat()
+                    if item["payment_deadline_date"]
+                    else None
                 ),
-                "send_notification_date": (
-                    charge.send_notification_date.isoformat()
-                    if charge.send_notification_date else None
-                ),
-                "is_paid": charge.is_paid,
-                "payment_pending": charge.payment_pending,
-                "payment_date": (
-                    charge.payment_date.isoformat()
-                    if charge.payment_date else None
-                ),
-                "unit_id": charge.unit_id,
-                "unit_number": (
-                    str(charge.unit.unit)
-                    if charge.unit else None
-                ),
-                "financial_document_number": (
-                    charge.financial_document_number
-                ),
-                "payment_token": charge.payment_token,
-                "created_at": charge.created_at.isoformat(),
+                "created_at": item["created_at"].isoformat(),
             })
+
+        results.sort(
+            key=lambda item: item["created_at"],
+            reverse=True,
+        )
 
         return Response({
             "success": True,
@@ -26501,8 +26533,8 @@ class ManagerMonthlyChargesAPIView(APIView):
 class ManagerMonthlyChargeUnitsAPIView(APIView):
     """
     دریافت واحدهای اعلان‌شده مربوط به یک شارژ اصلی.
+    همراه با اطلاعات مالک/مستأجر فعال و مبالغ قابل نمایش.
     """
-
     permission_classes = [IsAuthenticated]
 
     def get_house(self, request):
@@ -26510,6 +26542,44 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
             user=request.user,
             is_active=True,
         ).first()
+
+    def get_resident_info(self, unit):
+        """
+        اگر مستأجر فعال وجود داشته باشد، اطلاعات او را برمی‌گرداند؛
+        در غیر این صورت اطلاعات مالک واحد نمایش داده می‌شود.
+        """
+        renter = unit.get_active_renter()
+
+        if renter:
+            return {
+                "resident_type": "renter",
+                "resident_type_display": "مستأجر",
+                "resident_name": (
+                    getattr(renter, "renter_name", "") or
+                    getattr(
+                        getattr(renter, "user", None),
+                        "get_full_name",
+                        lambda: "",
+                    )() or
+                    "نامشخص"
+                ),
+            }
+
+        owner_name = (
+            getattr(unit, "owner_name", "") or
+            getattr(
+                getattr(unit, "user", None),
+                "get_full_name",
+                lambda: "",
+            )() or
+            "نامشخص"
+        )
+
+        return {
+            "resident_type": "owner",
+            "resident_type_display": "مالک",
+            "resident_name": owner_name,
+        }
 
     def get(self, request, app_label, model_name, charge_id):
         house = self.get_house(request)
@@ -26523,7 +26593,6 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
-        # فقط مدل‌های مجاز شارژ
         allowed_models = {
             model._meta.model_name: model
             for model in [
@@ -26550,7 +26619,7 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
-        # محدودسازی شارژ به مدیر درخواست‌دهنده
+        # بررسی مالکیت شارژ توسط مدیر
         if model is ChargeCalculation:
             charge = get_object_or_404(
                 model,
@@ -26575,7 +26644,10 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
                 send_notification=True,
                 send_notification_date__isnull=False,
             )
-            .select_related("unit", "unit__user")
+            .select_related(
+                "unit",
+                "unit__user",
+            )
             .order_by("unit__unit", "id")
         )
 
@@ -26584,24 +26656,66 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
         for item in unified_charges:
             unit = item.unit
 
+            resident = self.get_resident_info(unit)
+
+            amount = item.amount or 0
+            base_charge = item.base_charge or 0
+            other_cost = item.other_cost_amount or 0
+            civil = item.civil or 0
+            penalty = item.penalty_amount or 0
+
+            # مبلغ پایه قابل پرداخت، بدون احتساب جریمه
+            charge_amount = (
+                item.total_charge_month
+                if item.total_charge_month is not None
+                else amount
+            ) or 0
+
+            # مبلغ قابل پرداخت با احتساب جریمه
+            payable_amount = charge_amount + penalty
+
             results.append({
                 "id": item.id,
+
                 "unit_id": unit.id,
                 "unit_number": str(unit.unit),
-                "title": item.title or item.details or "",
+
+                # مالک یا مستأجر فعال
+                **resident,
+
+                "unit_display": (
+                    f"واحد {unit.unit} - "
+                    f"{resident['resident_type_display']}: "
+                    f"{resident['resident_name']}"
+                ),
+
+                "title": (
+                    item.title
+                    or item.details
+                    or getattr(charge, "name", "")
+                    or ""
+                ),
+
                 "charge_type": item.charge_type,
-                "amount": item.amount or 0,
-                "base_charge": item.base_charge or 0,
-                "other_cost_amount": item.other_cost_amount or 0,
-                "civil": item.civil or 0,
-                "penalty_amount": item.penalty_amount or 0,
-                "total_charge_month": item.total_charge_month or 0,
+
+                # مبالغ
+                "amount": amount,
+                "base_charge": base_charge,
+                "other_cost_amount": other_cost,
+                "civil": civil,
+                "penalty_amount": penalty,
+                "total_charge_month": charge_amount,
+                "payable_amount": payable_amount,
+
+                # وضعیت پرداخت
                 "is_paid": item.is_paid,
                 "payment_pending": item.payment_pending,
                 "payment_date": (
                     item.payment_date.isoformat()
                     if item.payment_date else None
                 ),
+
+                # مهلت و تاریخ اعلام
                 "payment_deadline_date": (
                     item.payment_deadline_date.isoformat()
                     if item.payment_deadline_date else None
@@ -26610,11 +26724,8 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
                     item.send_notification_date.isoformat()
                     if item.send_notification_date else None
                 ),
-                "send_sms": item.send_sms,
-                "send_sms_date": (
-                    item.send_sms_date.isoformat()
-                    if item.send_sms_date else None
-                ),
+
+                # شماره سند
                 "financial_document_number": (
                     item.financial_document_number
                 ),
@@ -26629,3 +26740,581 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
             "count": len(results),
             "results": results,
         })
+
+
+
+class ManagerMonthlyChargePaymentAPIView(APIView):
+    """
+    GET:
+        دریافت حساب‌های بانکی فعال ساختمان برای پرداخت شارژ.
+
+    POST:
+        ثبت پرداخت شارژ، سند صندوق و تراکنش بانکی.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_charge(self, request, charge_id):
+        """
+        فقط شارژی را برمی‌گرداند که متعلق به ساختمان مدیر باشد.
+        """
+        house = getattr(request.user, "house", None)
+
+        if not house:
+            house = (
+                MyHouse.objects.filter(
+                    user=request.user,
+                    is_active=True,
+                ).first()
+            )
+
+        if not house:
+            return None, None
+
+        charge = (
+            UnifiedCharge.objects
+            .filter(
+                pk=charge_id,
+                house=house,
+            )
+            .select_related("unit", "house")
+            .first()
+        )
+
+        return house, charge
+
+    def get(self, request, charge_id):
+        house, charge = self.get_charge(request, charge_id)
+
+        if not house or not charge:
+            return Response(
+                {
+                    "success": False,
+                    "message": "شارژ یا ساختمان معتبر پیدا نشد.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        if charge.is_paid:
+            return Response(
+                {
+                    "success": False,
+                    "message": "این شارژ قبلاً پرداخت شده است.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        banks = Bank.objects.filter(
+            house=house,
+            is_active=True,
+        ).order_by("-is_default", "bank_name")
+
+        return Response({
+            "success": True,
+            "charge_id": charge.pk,
+            "amount": charge.total_charge_month or 0,
+            "banks": [
+                {
+                    "id": bank.pk,
+                    "bank_name": bank.bank_name,
+                    "cart_number": bank.cart_number,
+                    "is_default": bank.is_default,
+                    "label": (
+                        f"{bank.bank_name} - {bank.cart_number}"
+                        + (" (پیش‌فرض)" if bank.is_default else "")
+                    ),
+                }
+                for bank in banks
+            ],
+        })
+
+    def post(self, request, charge_id):
+        house, charge = self.get_charge(request, charge_id)
+
+        if not house or not charge:
+            return Response(
+                {
+                    "success": False,
+                    "message": "شارژ یا ساختمان معتبر پیدا نشد.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        bank_id = request.data.get("bank_id")
+        raw_date = request.data.get("payment_date")
+        raw_reference = request.data.get("transaction_reference")
+
+        if not bank_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "حساب بانکی را انتخاب کنید.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        try:
+            bank_id = int(bank_id)
+        except (TypeError, ValueError):
+            return Response(
+                {
+                    "success": False,
+                    "message": "شناسه حساب بانکی معتبر نیست.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        bank = Bank.objects.filter(
+            pk=bank_id,
+            house=house,
+            is_active=True,
+        ).first()
+
+        if not bank:
+            return Response(
+                {
+                    "success": False,
+                    "message": "حساب بانکی معتبر یا فعالی برای این ساختمان پیدا نشد.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # تاریخ ارسالی باید میلادی و با قالب YYYY-MM-DD باشد.
+        if raw_date:
+            payment_date = parse_date(str(raw_date))
+            if not payment_date:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "تاریخ پرداخت معتبر نیست؛ قالب YYYY-MM-DD ارسال کنید.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+        else:
+            payment_date = timezone.localdate()
+
+        if payment_date > timezone.localdate():
+            return Response(
+                {
+                    "success": False,
+                    "message": "تاریخ پرداخت نمی‌تواند از امروز بیشتر باشد.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        transaction_reference = None
+
+        if raw_reference not in (None, ""):
+            try:
+                transaction_reference = int(raw_reference)
+                if transaction_reference < 0:
+                    raise ValueError
+            except (TypeError, ValueError):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "کد پیگیری باید عددی و نامنفی باشد.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+        try:
+            with transaction.atomic():
+                # قفل شارژ برای جلوگیری از ثبت هم‌زمان پرداخت تکراری
+                unified_charge = (
+                    UnifiedCharge.objects
+                    .select_for_update()
+                    .filter(
+                        pk=charge_id,
+                        house=house,
+                    )
+                    .select_related("unit", "house")
+                    .first()
+                )
+
+                if not unified_charge:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "شارژ پیدا نشد.",
+                        },
+                        status=status.HTTP_404_NOT_FOUND,
+                    )
+
+                if unified_charge.is_paid:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "این شارژ قبلاً پرداخت شده است.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # بررسی مجدد حساب بانکی داخل تراکنش
+                bank = (
+                    Bank.objects
+                    .filter(
+                        pk=bank_id,
+                        house=house,
+                        is_active=True,
+                    )
+                    .first()
+                )
+
+                if not bank:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "حساب بانکی دیگر فعال یا معتبر نیست.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                # اعتبارسنجی تاریخ افتتاح حساب
+                validate_bank_transaction_date(
+                    bank,
+                    payment_date,
+                )
+
+                unified_charge.bank = bank
+                unified_charge.payment_date = payment_date
+                unified_charge.transaction_reference = (
+                    transaction_reference
+                )
+                unified_charge.is_paid = True
+                unified_charge.payment_gateway = "پرداخت الکترونیک"
+
+                # محاسبه جریمه مطابق منطق فعلی پروژه
+                unified_charge.update_penalty(save=False)
+                unified_charge.save()
+
+                unit = unified_charge.unit
+
+                if not unit:
+                    raise ValidationError(
+                        "واحد مرتبط با این شارژ مشخص نیست."
+                    )
+
+                active_renter = (
+                    unit.renters
+                    .filter(renter_is_active=True)
+                    .first()
+                )
+
+                if active_renter:
+                    payer_type = "renter"
+                    payer_renter = active_renter
+                    payer_person_name = (
+                        active_renter.renter_name or ""
+                    ).strip()
+                else:
+                    payer_type = "owner"
+                    payer_renter = None
+                    payer_person_name = (
+                        unit.owner_name or ""
+                    ).strip()
+
+                if not payer_person_name:
+                    raise ValidationError(
+                        "نام مالک یا مستأجر پرداخت‌کننده مشخص نیست."
+                    )
+
+                payer_name_snapshot = (
+                    f"واحد {unit.unit} - {payer_person_name}"
+                )
+
+                payment_description = (
+                    f"پرداخت شارژ ماهانه: "
+                    f"{(unified_charge.title or '')[:50]}"
+                )
+
+                payment_amount = Decimal(
+                    str(unified_charge.total_charge_month or 0)
+                )
+
+                if payment_amount <= 0:
+                    raise ValidationError(
+                        "مبلغ شارژ برای ثبت پرداخت معتبر نیست."
+                    )
+
+                unified_ct = ContentType.objects.get_for_model(
+                    UnifiedCharge
+                )
+
+                # سند صندوق مطابق ویوی فعلی
+                Fund.objects.create(
+                    content_type=unified_ct,
+                    object_id=unified_charge.pk,
+                    bank=bank,
+                    unit=unit,
+                    house=unified_charge.house,
+                    payer_type=payer_type,
+                    payer_renter=payer_renter,
+                    payer_name=payer_name_snapshot,
+                    debtor_amount=payment_amount,
+                    amount=payment_amount,
+                    creditor_amount=0,
+                    financial_document_number=(
+                        unified_charge.financial_document_number
+                    ),
+                    user=request.user,
+                    payment_date=unified_charge.payment_date,
+                    payment_description=payment_description,
+                    transaction_no=(
+                        unified_charge.transaction_reference
+                    ),
+                    payment_gateway="پرداخت الکترونیک",
+                )
+
+                # BankTransactionService خودش BankFund می‌سازد.
+                # عمداً BankFund.objects.create را دوباره اجرا نمی‌کنیم.
+                BankTransactionService.deposit(
+                    user=request.user,
+                    bank=bank,
+                    unit=unit,
+                    amount=payment_amount,
+                    description=payment_description,
+                    payer_type=payer_type,
+                    payer_renter=payer_renter,
+                    payer_name=payer_person_name,
+                    content_object=unit,
+                    payment_date=unified_charge.payment_date,
+                    transaction_no=(
+                        unified_charge.transaction_reference
+                    ),
+                    gateway="پرداخت الکترونیک",
+                    house=unified_charge.house,
+                    financial_document_number=(
+                        unified_charge.financial_document_number
+                    ),
+                )
+
+            return Response({
+                "success": True,
+                "message": "پرداخت شارژ با موفقیت ثبت شد.",
+                "charge_id": unified_charge.pk,
+                "is_paid": True,
+                "payment_date": (
+                    unified_charge.payment_date.isoformat()
+                    if unified_charge.payment_date else None
+                ),
+                "financial_document_number": (
+                    unified_charge.financial_document_number
+                ),
+                "amount": str(payment_amount),
+            })
+
+        except ValidationError as exc:
+            logger.warning(
+                "اعتبارسنجی پرداخت شارژ ناموفق بود؛ charge_id=%s",
+                charge_id,
+            )
+
+            errors = getattr(exc, "messages", [str(exc)])
+
+            return Response(
+                {
+                    "success": False,
+                    "message": " ".join(errors),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        except Exception:
+            logger.exception(
+                "خطا در ثبت پرداخت شارژ؛ charge_id=%s",
+                charge_id,
+            )
+
+            return Response(
+                {
+                    "success": False,
+                    "message": "ثبت پرداخت انجام نشد؛ اسناد مالی بررسی شوند.",
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            )
+
+
+class ManagerMonthlyChargeCancelPaymentAPIView(APIView):
+    """
+    POST:
+        لغو پرداخت شارژ ماهانه مدیر،
+        حذف سند صندوق و تراکنش بانکی مربوط،
+        بازمحاسبه موجودی بانک و صندوق.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, charge_id):
+        house = getattr(request.user, "house", None)
+
+        if not house:
+            house = MyHouse.objects.filter(
+                user=request.user,
+                is_active=True,
+            ).first()
+
+        if not house:
+            return Response({
+                "success": False,
+                "message": "ساختمان مدیر مشخص نیست.",
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        try:
+            with transaction.atomic():
+                charge = (
+                    UnifiedCharge.objects
+                    .select_for_update()
+                    .select_related("unit", "house", "bank")
+                    .filter(
+                        pk=charge_id,
+                        house=house,
+                        is_paid=True,
+                    )
+                    .first()
+                )
+
+                if not charge:
+                    return Response({
+                        "success": False,
+                        "message": "شارژ پرداخت‌شده‌ای با این شناسه پیدا نشد.",
+                    }, status=status.HTTP_404_NOT_FOUND)
+
+                if not charge.unit:
+                    raise ValidationError(
+                        "واحد مرتبط با شارژ مشخص نیست."
+                    )
+
+                if not charge.financial_document_number:
+                    raise ValidationError(
+                        "شماره سند مالی شارژ مشخص نیست؛ لغو انجام نشد."
+                    )
+
+                # ------------------------------------------
+                # ۱. پیدا کردن سند صندوق
+                # ------------------------------------------
+                unified_ct = ContentType.objects.get_for_model(
+                    UnifiedCharge
+                )
+
+                funds = Fund.objects.filter(
+                    content_type=unified_ct,
+                    object_id=charge.pk,
+                    house=house,
+                )
+
+                if funds.count() != 1:
+                    raise ValidationError(
+                        "سند صندوق دقیقاً یک مورد نیست؛ لغو انجام نشد."
+                    )
+
+                fund = funds.select_for_update().get()
+
+                fund_doc_number = fund.doc_number
+
+                # ------------------------------------------
+                # ۲. پیدا کردن سند بانکی
+                #
+                # deposit در این پروژه content_object=unit
+                # دریافت می‌کند، نه UnifiedCharge.
+                # ------------------------------------------
+                unit_ct = ContentType.objects.get_for_model(
+                    charge.unit
+                )
+
+                bank_funds = BankFund.objects.filter(
+                    content_type=unit_ct,
+                    object_id=charge.unit.pk,
+                    house=house,
+                    bank=charge.bank,
+                    financial_document_number=(
+                        charge.financial_document_number
+                    ),
+                    transaction_type="deposit",
+                    amount=Decimal(
+                        str(charge.total_charge_month or 0)
+                    ),
+                )
+
+                if bank_funds.count() != 1:
+                    raise ValidationError(
+                        "تراکنش بانکی متناظر دقیقاً یک مورد نیست؛ "
+                        "برای جلوگیری از تغییر اشتباه موجودی، لغو انجام نشد."
+                    )
+
+                bank_fund = bank_funds.select_for_update().get()
+                bank = bank_fund.bank
+
+                # ------------------------------------------
+                # ۳. حذف اسناد و بازمحاسبه موجودی بانک
+                # ------------------------------------------
+                bank_fund.delete()
+
+                # از تابع بازمحاسبه خود پروژه استفاده می‌کنیم؛
+                # موجودی را مستقیماً کم نمی‌کنیم.
+                recalculate_bank_balance(bank)
+
+                # ------------------------------------------
+                # ۴. حذف سند صندوق و بازمحاسبه
+                # ------------------------------------------
+                fund.delete()
+
+                next_fund = (
+                    Fund.objects
+                    .filter(
+                        doc_number__gt=fund_doc_number,
+                        house=house,
+                    )
+                    .order_by("doc_number")
+                    .first()
+                )
+
+                if next_fund:
+                    Fund.recalc_final_amounts_from(next_fund)
+
+                # ------------------------------------------
+                # ۵. برگرداندن شارژ به حالت پرداخت‌نشده
+                # ------------------------------------------
+                charge.is_paid = False
+                charge.payment_gateway = None
+                charge.payment_date = None
+                charge.transaction_reference = None
+                charge.bank = None
+
+                update_fields = [
+                    "is_paid",
+                    "payment_gateway",
+                    "payment_date",
+                    "transaction_reference",
+                    "bank",
+                ]
+
+                if hasattr(charge, "payment_pending"):
+                    charge.payment_pending = False
+                    update_fields.append("payment_pending")
+
+                charge.save(update_fields=update_fields)
+
+            return Response({
+                "success": True,
+                "message": "پرداخت شارژ لغو شد و اسناد مالی اصلاح شدند.",
+                "charge_id": charge.pk,
+                "is_paid": False,
+            })
+
+        except ValidationError as exc:
+            errors = getattr(exc, "messages", [str(exc)])
+
+            return Response({
+                "success": False,
+                "message": " ".join(errors),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception:
+            logger.exception(
+                "خطا در لغو پرداخت شارژ ماهانه؛ charge_id=%s",
+                charge_id,
+            )
+
+            return Response({
+                "success": False,
+                "message": "لغو پرداخت انجام نشد؛ اسناد مالی بررسی شوند.",
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)

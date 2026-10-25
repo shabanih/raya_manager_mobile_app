@@ -38,7 +38,8 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerChargeCalculationItemsAPIView, ManagerChargeCalculationUnitsAPIView, ManagerChargeCalculationSendAPIView, \
     ManagerChargeCalculationCancelAPIView, ManagerChargeMethodsAPIView, ManagerCivilChargesAPIView, \
     ManagerCivilChargeDetailAPIView, ManagerCivilChargeUnitsAPIView, ManagerSendCivilChargeAPIView, \
-    ManagerCancelCivilChargeAPIView, ManagerMonthlyChargeUnitsAPIView, ManagerMonthlyChargesAPIView
+    ManagerCancelCivilChargeAPIView, ManagerMonthlyChargeUnitsAPIView, ManagerMonthlyChargesAPIView, \
+    ManagerMonthlyChargePaymentAPIView, ManagerMonthlyChargeCancelPaymentAPIView
 
 urlpatterns = [
     path(
@@ -891,6 +892,16 @@ urlpatterns = [
         "manager/monthly-charges/<str:app_label>/<str:model_name>/<int:charge_id>/units/",
         ManagerMonthlyChargeUnitsAPIView.as_view(),
         name="manager-monthly-charge-units",
+    ),
+    path(
+        "manager/monthly-charges/units/<int:charge_id>/pay/",
+        ManagerMonthlyChargePaymentAPIView.as_view(),
+        name="manager-monthly-charge-pay",
+    ),
+    path(
+        "manager/monthly-charges/<int:charge_id>/cancel-payment/",
+        ManagerMonthlyChargeCancelPaymentAPIView.as_view(),
+        name="manager-monthly-charge-cancel-payment",
     ),
 
 
