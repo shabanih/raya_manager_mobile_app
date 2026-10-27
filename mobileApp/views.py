@@ -1,9 +1,10 @@
+import datetime
 import json
 import logging
 import secrets
 from collections import OrderedDict
 from datetime import date
-
+from django.core.exceptions import ValidationError as DjangoValidationError
 import jdatetime
 from dateutil.relativedelta import relativedelta
 from django.core.exceptions import ValidationError
@@ -43,7 +44,8 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
     SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund, \
     FixCharge, AreaCharge, Subscription, PersonCharge, FixAreaCharge, FixPersonCharge, ChargeByPersonArea, \
     ChargeByFixPersonArea, ChargeFixVariable, ChargeCalculation, Expense, Maintenance, ChargeCalculationItem, \
-    ChargeAllocation, CivilDocument
+    ChargeAllocation, CivilDocument, ExpenseCategory, ExpenseDocument
+from middleAdmin_panel.services.bank_balance_service import recalculate_bank_balance
 from middleAdmin_panel.services.bank_services import BankTransactionService, validate_bank_transaction_date
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
@@ -25763,7 +25765,8 @@ def civil_prepare_installments(civil, user):
     if installment_count < 0:
         raise ValueError("تعداد اقساط نمی‌تواند منفی باشد.")
     if installment_count == 0 and prepayment_total not in (0, total):
-        raise ValueError("برای مبلغ باقی‌مانده، تعداد اقساط باید بیشتر از صفر باشد؛ برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید.")
+        raise ValueError(
+            "برای مبلغ باقی‌مانده، تعداد اقساط باید بیشتر از صفر باشد؛ برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید.")
 
     # تقسیم باقیمانده نیز حفظ می‌شود تا مجموع سهم واحدها دقیقاً برابر مبلغ کل باشد.
     total_base, total_extra = divmod(total, count)
@@ -25827,7 +25830,8 @@ def civil_prepare_installments(civil, user):
         "created_installments_count": created_rows,
         "share_per_unit": total // count,
         "prepayment_per_unit": prepayment_total // count,
-        "installment_amount_per_unit": ((total - prepayment_total) // count // installment_count) if installment_count else 0,
+        "installment_amount_per_unit": (
+                    (total - prepayment_total) // count // installment_count) if installment_count else 0,
     }
 
 
@@ -25905,16 +25909,20 @@ class ManagerCivilChargesAPIView(APIView):
     def post(self, request):
         house = self.get_house(request)
         if not house:
-            return Response({"success": False, "message": "ساختمان فعالی برای مدیر پیدا نشد."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "ساختمان فعالی برای مدیر پیدا نشد."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         files = request.FILES.getlist("document")
         if len(files) > 2:
-            return Response({"success": False, "message": "حداکثر دو فایل مجاز است."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "حداکثر دو فایل مجاز است."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         data = request.data.copy()
         parsed_date = civil_parse_date(data.get("first_due_date"))
         if not parsed_date:
-            return Response({"success": False, "message": "تاریخ اولین سررسید معتبر نیست.", "errors": {"first_due_date": ["تاریخ را به صورت YYYY-MM-DD وارد کنید."]}}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "تاریخ اولین سررسید معتبر نیست.",
+                             "errors": {"first_due_date": ["تاریخ را به صورت YYYY-MM-DD وارد کنید."]}},
+                            status=status.HTTP_400_BAD_REQUEST)
         data["first_due_date"] = jdatetime.date.fromgregorian(date=parsed_date).strftime("%Y-%m-%d")
         if data.get("prepayment") in (None, ""):
             data["prepayment"] = 0
@@ -25923,19 +25931,26 @@ class ManagerCivilChargesAPIView(APIView):
 
         form = CivilForm(data=data, files=request.FILES)
         if not form.is_valid():
-            return Response({"success": False, "message": "اطلاعات شارژ عمرانی معتبر نیست.", "errors": form.errors.get_json_data()}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": "اطلاعات شارژ عمرانی معتبر نیست.", "errors": form.errors.get_json_data()},
+                status=status.HTTP_400_BAD_REQUEST)
 
         amount = form.cleaned_data["amount"]
         prepayment = form.cleaned_data.get("prepayment") or 0
         installment_count = form.cleaned_data.get("installment_count") or 0
         if amount <= 0:
-            return Response({"success": False, "message": "مبلغ شارژ باید بیشتر از صفر باشد."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "مبلغ شارژ باید بیشتر از صفر باشد."},
+                            status=status.HTTP_400_BAD_REQUEST)
         if prepayment < 0 or prepayment > amount:
-            return Response({"success": False, "message": "پیش‌پرداخت باید بین صفر و مبلغ شارژ باشد."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "پیش‌پرداخت باید بین صفر و مبلغ شارژ باشد."},
+                            status=status.HTTP_400_BAD_REQUEST)
         if installment_count < 0:
-            return Response({"success": False, "message": "تعداد اقساط نمی‌تواند منفی باشد."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "تعداد اقساط نمی‌تواند منفی باشد."},
+                            status=status.HTTP_400_BAD_REQUEST)
         if installment_count == 0 and prepayment not in (0, amount):
-            return Response({"success": False, "message": "برای مبلغ باقی‌مانده، تعداد اقساط را بیشتر از صفر وارد کنید؛ برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False,
+                             "message": "برای مبلغ باقی‌مانده، تعداد اقساط را بیشتر از صفر وارد کنید؛ برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         try:
             with transaction.atomic():
@@ -25953,11 +25968,13 @@ class ManagerCivilChargesAPIView(APIView):
         except Exception:
             import logging
             logging.getLogger(__name__).exception("Creating civil charge/installments failed")
-            return Response({"success": False, "message": "ثبت شارژ و محاسبه اقساط انجام نشد."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"success": False, "message": "ثبت شارژ و محاسبه اقساط انجام نشد."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         result = civil_serialize(civil, request)
         result["calculation"] = calculation
-        return Response({"success": True, "message": "شارژ عمرانی ثبت و اقساط آن محاسبه شد.", "result": result}, status=status.HTTP_201_CREATED)
+        return Response({"success": True, "message": "شارژ عمرانی ثبت و اقساط آن محاسبه شد.", "result": result},
+                        status=status.HTTP_201_CREATED)
 
 
 class ManagerCivilChargeDetailAPIView(APIView):
@@ -25985,20 +26002,26 @@ class ManagerCivilChargeDetailAPIView(APIView):
 
         existing = CivilInstallment.objects.filter(civil_manage=civil)
         if existing.filter(send_notification=True).exists():
-            return Response({"success": False, "message": "این شارژ قبلاً اعلان شده است و برای جلوگیری از تغییر سوابق، قابل ویرایش نیست."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False,
+                             "message": "این شارژ قبلاً اعلان شده است و برای جلوگیری از تغییر سوابق، قابل ویرایش نیست."},
+                            status=status.HTTP_400_BAD_REQUEST)
         if existing.filter(is_paid=True).exists():
-            return Response({"success": False, "message": "این شارژ دارای قسط پرداخت‌شده است و امکان بازسازی اقساط آن وجود ندارد."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": "این شارژ دارای قسط پرداخت‌شده است و امکان بازسازی اقساط آن وجود ندارد."},
+                status=status.HTTP_400_BAD_REQUEST)
 
         files = request.FILES.getlist("document")
         if len(files) > 2:
-            return Response({"success": False, "message": "حداکثر دو فایل جدید مجاز است."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "حداکثر دو فایل جدید مجاز است."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         data = request.data.copy()
         raw_date = data.get("first_due_date")
         if raw_date:
             parsed_date = civil_parse_date(raw_date)
             if not parsed_date:
-                return Response({"success": False, "message": "تاریخ اولین سررسید معتبر نیست."}, status=status.HTTP_400_BAD_REQUEST)
+                return Response({"success": False, "message": "تاریخ اولین سررسید معتبر نیست."},
+                                status=status.HTTP_400_BAD_REQUEST)
             data["first_due_date"] = jdatetime.date.fromgregorian(date=parsed_date).strftime("%Y-%m-%d")
         if data.get("prepayment") in (None, ""):
             data["prepayment"] = 0
@@ -26007,19 +26030,26 @@ class ManagerCivilChargeDetailAPIView(APIView):
 
         form = CivilForm(data=data, files=request.FILES, instance=civil)
         if not form.is_valid():
-            return Response({"success": False, "message": "اطلاعات شارژ عمرانی معتبر نیست.", "errors": form.errors.get_json_data()}, status=status.HTTP_400_BAD_REQUEST)
+            return Response(
+                {"success": False, "message": "اطلاعات شارژ عمرانی معتبر نیست.", "errors": form.errors.get_json_data()},
+                status=status.HTTP_400_BAD_REQUEST)
 
         amount = form.cleaned_data["amount"]
         prepayment = form.cleaned_data.get("prepayment") or 0
         installment_count = form.cleaned_data.get("installment_count") or 0
         if amount <= 0:
-            return Response({"success": False, "message": "مبلغ شارژ باید بیشتر از صفر باشد."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "مبلغ شارژ باید بیشتر از صفر باشد."},
+                            status=status.HTTP_400_BAD_REQUEST)
         if prepayment < 0 or prepayment > amount:
-            return Response({"success": False, "message": "پیش‌پرداخت باید بین صفر و مبلغ شارژ باشد."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "پیش‌پرداخت باید بین صفر و مبلغ شارژ باشد."},
+                            status=status.HTTP_400_BAD_REQUEST)
         if installment_count < 0:
-            return Response({"success": False, "message": "تعداد اقساط نمی‌تواند منفی باشد."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "تعداد اقساط نمی‌تواند منفی باشد."},
+                            status=status.HTTP_400_BAD_REQUEST)
         if installment_count == 0 and prepayment not in (0, amount):
-            return Response({"success": False, "message": "برای مبلغ باقی‌مانده، تعداد اقساط را بیشتر از صفر وارد کنید؛ برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False,
+                             "message": "برای مبلغ باقی‌مانده، تعداد اقساط را بیشتر از صفر وارد کنید؛ برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         try:
             with transaction.atomic():
@@ -26036,11 +26066,13 @@ class ManagerCivilChargeDetailAPIView(APIView):
         except Exception:
             import logging
             logging.getLogger(__name__).exception("Updating civil charge/installments failed")
-            return Response({"success": False, "message": "ویرایش شارژ و محاسبه مجدد اقساط انجام نشد."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"success": False, "message": "ویرایش شارژ و محاسبه مجدد اقساط انجام نشد."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         result = civil_serialize(civil, request)
         result["calculation"] = calculation
-        return Response({"success": True, "message": "شارژ عمرانی و اقساط آن ویرایش شدند.", "result": result}, status=status.HTTP_200_OK)
+        return Response({"success": True, "message": "شارژ عمرانی و اقساط آن ویرایش شدند.", "result": result},
+                        status=status.HTTP_200_OK)
 
     def delete(self, request, civil_id):
         civil = self.get_civil(request, civil_id)
@@ -26118,7 +26150,7 @@ class ManagerCivilChargeUnitsAPIView(APIView):
                 str(renter.renter_name).strip()
                 for renter in active_renters
                 if getattr(renter, "renter_name", None)
-                and str(renter.renter_name).strip()
+                   and str(renter.renter_name).strip()
             ]
 
             people_count = sum(
@@ -26240,7 +26272,8 @@ class ManagerSendCivilChargeAPIView(APIView):
                     continue
             units = list(units_qs.filter(id__in=ids))
         if not units:
-            return Response({"success": False, "message": "هیچ واحد معتبری در محدوده این شارژ انتخاب نشده است."}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({"success": False, "message": "هیچ واحد معتبری در محدوده این شارژ انتخاب نشده است."},
+                            status=status.HTTP_400_BAD_REQUEST)
 
         sent_count = 0
         already_sent_count = 0
@@ -26268,7 +26301,8 @@ class ManagerSendCivilChargeAPIView(APIView):
         except Exception:
             import logging
             logging.getLogger(__name__).exception("Updating civil installment notification status failed")
-            return Response({"success": False, "message": "ثبت وضعیت ارسال شارژ انجام نشد."}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return Response({"success": False, "message": "ثبت وضعیت ارسال شارژ انجام نشد."},
+                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         return Response({
             "success": True,
@@ -26367,9 +26401,9 @@ class ManagerCancelCivilChargeAPIView(APIView):
                     # اگر هر قسطی پرداخت شده باشد، اعلان این واحد
                     # به‌طور کامل دست‌نخورده باقی می‌ماند.
                     if CivilInstallment.objects.filter(
-                        civil_manage=civil,
-                        unit=unit,
-                        is_paid=True,
+                            civil_manage=civil,
+                            unit=unit,
+                            is_paid=True,
                     ).exists():
                         skipped_paid_units_count += 1
                         continue
@@ -26461,9 +26495,9 @@ class ManagerMonthlyChargesAPIView(APIView):
                     "content_type": charge.content_type,
                     "object_id": charge.object_id,
                     "title": (
-                        charge.title
-                        or charge.details
-                        or charge.get_charge_type_display()
+                            charge.title
+                            or charge.details
+                            or charge.get_charge_type_display()
                     ),
                     "charge_type": charge.charge_type,
                     "charge_type_display": (
@@ -26487,8 +26521,8 @@ class ManagerMonthlyChargesAPIView(APIView):
                 item["total_count"] += 1
 
                 if (
-                    charge.send_notification
-                    and charge.send_notification_date
+                        charge.send_notification
+                        and charge.send_notification_date
                 ):
                     item["notified_count"] += 1
 
@@ -26530,6 +26564,7 @@ class ManagerMonthlyChargesAPIView(APIView):
             "results": results,
         })
 
+
 class ManagerMonthlyChargeUnitsAPIView(APIView):
     """
     دریافت واحدهای اعلان‌شده مربوط به یک شارژ اصلی.
@@ -26555,24 +26590,24 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
                 "resident_type": "renter",
                 "resident_type_display": "مستأجر",
                 "resident_name": (
-                    getattr(renter, "renter_name", "") or
-                    getattr(
-                        getattr(renter, "user", None),
-                        "get_full_name",
-                        lambda: "",
-                    )() or
-                    "نامشخص"
+                        getattr(renter, "renter_name", "") or
+                        getattr(
+                            getattr(renter, "user", None),
+                            "get_full_name",
+                            lambda: "",
+                        )() or
+                        "نامشخص"
                 ),
             }
 
         owner_name = (
-            getattr(unit, "owner_name", "") or
-            getattr(
-                getattr(unit, "user", None),
-                "get_full_name",
-                lambda: "",
-            )() or
-            "نامشخص"
+                getattr(unit, "owner_name", "") or
+                getattr(
+                    getattr(unit, "user", None),
+                    "get_full_name",
+                    lambda: "",
+                )() or
+                "نامشخص"
         )
 
         return {
@@ -26666,19 +26701,23 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
 
             # مبلغ پایه قابل پرداخت، بدون احتساب جریمه
             charge_amount = (
-                item.total_charge_month
-                if item.total_charge_month is not None
-                else amount
-            ) or 0
+                                item.total_charge_month
+                                if item.total_charge_month is not None
+                                else amount
+                            ) or 0
 
             # مبلغ قابل پرداخت با احتساب جریمه
             payable_amount = charge_amount + penalty
 
             results.append({
+                # شناسه رکورد شارژ این واحد در UnifiedCharge
+                "unified_charge_id": item.id,
+
+                # برای سازگاری با کدهای قبلی Flutter حفظ شود
                 "id": item.id,
 
+                # شناسه واحد در مدل Unit
                 "unit_id": unit.id,
-                "unit_number": str(unit.unit),
 
                 # مالک یا مستأجر فعال
                 **resident,
@@ -26690,10 +26729,10 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
                 ),
 
                 "title": (
-                    item.title
-                    or item.details
-                    or getattr(charge, "name", "")
-                    or ""
+                        item.title
+                        or item.details
+                        or getattr(charge, "name", "")
+                        or ""
                 ),
 
                 "charge_type": item.charge_type,
@@ -26710,10 +26749,10 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
                 # وضعیت پرداخت
                 "is_paid": item.is_paid,
                 "payment_pending": item.payment_pending,
-                "payment_date": (
-                    item.payment_date.isoformat()
-                    if item.payment_date else None
-                ),
+                # "payment_date": (
+                #     item.payment_date.isoformat()
+                #     if item.payment_date else None
+                # ),
 
                 # مهلت و تاریخ اعلام
                 "payment_deadline_date": (
@@ -26729,6 +26768,21 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
                 "financial_document_number": (
                     item.financial_document_number
                 ),
+                "bank_name": (
+                    str(item.bank)
+                    if item.bank_id
+                    else None
+                ),
+                "payment_date": (
+                    item.payment_date.isoformat()
+                    if item.is_paid and item.payment_date
+                    else None
+                ),
+                "transaction_reference": (
+                    item.transaction_reference
+                    if item.is_paid
+                    else None
+                ),
             })
 
         return Response({
@@ -26740,7 +26794,6 @@ class ManagerMonthlyChargeUnitsAPIView(APIView):
             "count": len(results),
             "results": results,
         })
-
 
 
 class ManagerMonthlyChargePaymentAPIView(APIView):
@@ -26816,12 +26869,11 @@ class ManagerMonthlyChargePaymentAPIView(APIView):
                 {
                     "id": bank.pk,
                     "bank_name": bank.bank_name,
-                    "cart_number": bank.cart_number,
+                    "account_no": bank.account_no,
                     "is_default": bank.is_default,
-                    "label": (
-                        f"{bank.bank_name} - {bank.cart_number}"
-                        + (" (پیش‌فرض)" if bank.is_default else "")
-                    ),
+                    # "label": (
+                    #     f"{bank.bank_name} - {bank.account_no}"
+                    # ),
                 }
                 for bank in banks
             ],
@@ -26890,9 +26942,9 @@ class ManagerMonthlyChargePaymentAPIView(APIView):
                     status=status.HTTP_400_BAD_REQUEST,
                 )
         else:
-            payment_date = timezone.localdate()
+            payment_date = date.today()
 
-        if payment_date > timezone.localdate():
+        if payment_date > date.today():
             return Response(
                 {
                     "success": False,
@@ -27004,13 +27056,13 @@ class ManagerMonthlyChargePaymentAPIView(APIView):
                     payer_type = "renter"
                     payer_renter = active_renter
                     payer_person_name = (
-                        active_renter.renter_name or ""
+                            active_renter.renter_name or ""
                     ).strip()
                 else:
                     payer_type = "owner"
                     payer_renter = None
                     payer_person_name = (
-                        unit.owner_name or ""
+                            unit.owner_name or ""
                     ).strip()
 
                 if not payer_person_name:
@@ -27188,9 +27240,7 @@ class ManagerMonthlyChargeCancelPaymentAPIView(APIView):
                         "شماره سند مالی شارژ مشخص نیست؛ لغو انجام نشد."
                     )
 
-                # ------------------------------------------
                 # ۱. پیدا کردن سند صندوق
-                # ------------------------------------------
                 unified_ct = ContentType.objects.get_for_model(
                     UnifiedCharge
                 )
@@ -27207,15 +27257,9 @@ class ManagerMonthlyChargeCancelPaymentAPIView(APIView):
                     )
 
                 fund = funds.select_for_update().get()
-
                 fund_doc_number = fund.doc_number
 
-                # ------------------------------------------
-                # ۲. پیدا کردن سند بانکی
-                #
-                # deposit در این پروژه content_object=unit
-                # دریافت می‌کند، نه UnifiedCharge.
-                # ------------------------------------------
+                # ۲. پیدا کردن تراکنش بانکی متناظر
                 unit_ct = ContentType.objects.get_for_model(
                     charge.unit
                 )
@@ -27243,18 +27287,11 @@ class ManagerMonthlyChargeCancelPaymentAPIView(APIView):
                 bank_fund = bank_funds.select_for_update().get()
                 bank = bank_fund.bank
 
-                # ------------------------------------------
-                # ۳. حذف اسناد و بازمحاسبه موجودی بانک
-                # ------------------------------------------
+                # ۳. حذف تراکنش بانکی و محاسبه مجدد موجودی
                 bank_fund.delete()
-
-                # از تابع بازمحاسبه خود پروژه استفاده می‌کنیم؛
-                # موجودی را مستقیماً کم نمی‌کنیم.
                 recalculate_bank_balance(bank)
 
-                # ------------------------------------------
-                # ۴. حذف سند صندوق و بازمحاسبه
-                # ------------------------------------------
+                # ۴. حذف سند صندوق و محاسبه مجدد
                 fund.delete()
 
                 next_fund = (
@@ -27270,9 +27307,7 @@ class ManagerMonthlyChargeCancelPaymentAPIView(APIView):
                 if next_fund:
                     Fund.recalc_final_amounts_from(next_fund)
 
-                # ------------------------------------------
                 # ۵. برگرداندن شارژ به حالت پرداخت‌نشده
-                # ------------------------------------------
                 charge.is_paid = False
                 charge.payment_gateway = None
                 charge.payment_date = None
@@ -27318,3 +27353,1382 @@ class ManagerMonthlyChargeCancelPaymentAPIView(APIView):
                 "success": False,
                 "message": "لغو پرداخت انجام نشد؛ اسناد مالی بررسی شوند.",
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+# =========================================================
+# Civil Charge List
+# =========================================================
+
+def civil_api_error(message, status=400):
+    return Response(
+        {
+            "success": False,
+            "message": message,
+        },
+        status=status,
+    )
+
+
+def civil_get_manager_house(user):
+    """
+    ساختمان مرتبط با مدیر.
+    اگر مدیر در پروژه چند ساختمان دارد، این تابع باید مطابق
+    سازوکار انتخاب ساختمان در Raya Charge تنظیم شود.
+    """
+    return MyHouse.objects.filter(user=user).first()
+
+
+def civil_get_manager_charge(user, civil_id):
+    return CivilManage.objects.filter(
+        pk=civil_id,
+        user=user,
+        house__isnull=False,
+    ).first()
+
+
+def civil_get_manager_unit(user, unit_id, house=None):
+    units = Unit.objects.filter(
+        pk=unit_id,
+        user__manager=user,
+        is_active=True,
+    )
+
+    if house is not None:
+        units = units.filter(myhouse=house)
+
+    return units.first()
+
+
+def civil_installment_total(civil, unit):
+    return CivilInstallment.objects.filter(
+        civil_manage=civil,
+        unit=unit,
+    ).count()
+
+
+def civil_installment_is_previous_paid(installment):
+    """
+    اجازه پرداخت قسط بعدی فقط در صورت پرداخت قسط قبلی.
+    قسط شماره صفر پیش‌پرداخت است.
+    """
+    if installment.installment_number == 0:
+        return True
+
+    previous = CivilInstallment.objects.filter(
+        civil_manage=installment.civil_manage,
+        unit=installment.unit,
+        installment_number=installment.installment_number - 1,
+    ).first()
+
+    return previous is None or previous.is_paid
+
+
+def civil_serialize_installment(installment):
+    return {
+        "id": installment.id,
+        "civil_id": installment.civil_manage_id,
+        "unit_id": installment.unit_id,
+        "installment_number": installment.installment_number,
+        "amount": installment.amount,
+        "prepayment_per_unit": installment.prepayment_per_unit,
+        "due_date": (
+            installment.due_date.isoformat()
+            if installment.due_date else None
+        ),
+        "is_paid": installment.is_paid,
+        "payment_pending": installment.payment_pending,
+        "payment_date": (
+            installment.payment_date.isoformat()
+            if installment.payment_date else None
+        ),
+        "transaction_reference": (
+            str(installment.transaction_reference)
+            if installment.transaction_reference is not None else ""
+        ),
+        "send_notification": installment.send_notification,
+        "can_pay": (
+                not installment.is_paid
+                and not installment.payment_pending
+                and civil_installment_is_previous_paid(installment)
+        ),
+    }
+
+
+class ManagerCivilChargesListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        if not getattr(user, "is_middle_admin", False):
+            return civil_api_error(
+                "شما اجازه دسترسی به این بخش را ندارید.",
+                403,
+            )
+
+        charges = CivilManage.objects.filter(
+            user=user,
+            house__isnull=False,
+
+        ).order_by("-created_at")
+
+        search = request.query_params.get("q", "").strip()
+
+        if search:
+            query = (
+                    Q(name__icontains=search)
+                    | Q(details__icontains=search)
+            )
+
+            if search.isdigit():
+                query |= (
+                        Q(amount__icontains=search)
+                        | Q(prepayment__icontains=search)
+                        | Q(installment_count__icontains=search)
+                )
+
+            charges = charges.filter(query)
+
+        try:
+            page = max(int(request.query_params.get("page", 1)), 1)
+            page_size = min(
+                max(int(request.query_params.get("page_size", 20)), 1),
+                100,
+            )
+        except (ValueError, TypeError):
+            return civil_api_error("شماره صفحه یا اندازه صفحه معتبر نیست.")
+
+        total = charges.count()
+        start = (page - 1) * page_size
+
+        results = []
+
+        for civil in charges[start:start + page_size]:
+            installments = CivilInstallment.objects.filter(
+                civil_manage=civil,
+            )
+
+            results.append({
+                "id": civil.id,
+                "name": civil.name,
+                "amount": civil.amount,
+                "prepayment": civil.prepayment,
+                "installment_count": civil.installment_count,
+                "first_due_date": (
+                    civil.first_due_date.isoformat()
+                    if civil.first_due_date else None
+                ),
+                "details": civil.details or "",
+                "created_at": (
+                    civil.created_at.isoformat()
+                    if civil.created_at else None
+                ),
+                "is_active": civil.is_active,
+                "unit_count": installments.values(
+                    "unit_id"
+                ).distinct().count(),
+                "paid_installment_count": installments.filter(
+                    is_paid=True
+                ).count(),
+                "unpaid_installment_count": installments.filter(
+                    is_paid=False
+                ).count(),
+            })
+
+        return Response({
+            "success": True,
+            "count": total,
+            "page": page,
+            "page_size": page_size,
+            "results": results,
+        })
+
+
+class ManagerCivilChargeUnitsListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, civil_id):
+        civil = civil_get_manager_charge(request.user, civil_id)
+
+        if not civil:
+            return civil_api_error("شارژ عمرانی پیدا نشد.", 404)
+
+        # فقط واحدهایی که برای همین شارژ، قسط ارسال‌شده دارند
+        unit_ids = (
+            CivilInstallment.objects.filter(
+                civil_manage=civil,
+                send_notification=True,
+                unit__isnull=False,
+                unit__is_active=True,
+                unit__user__manager=request.user,
+                unit__myhouse=civil.house,
+            )
+            .values_list("unit_id", flat=True)
+            .distinct()
+        )
+
+        units = Unit.objects.filter(
+            id__in=unit_ids,
+            is_active=True,
+            user__manager=request.user,
+            myhouse=civil.house,
+        ).order_by("unit")
+
+        # جست‌وجو بر اساس شماره واحد، مالک یا مستأجر فعال
+        search = request.query_params.get("q", "").strip()
+
+        if search:
+            units = units.filter(
+                Q(unit__icontains=search)
+                | Q(owner_name__icontains=search)
+                | Q(owner_mobile__icontains=search)
+                | Q(
+                    renters__renter_name__icontains=search,
+                    renters__renter_is_active=True,
+                )
+            ).distinct()
+
+        results = []
+
+        for unit in units:
+            # دریافت تمام رکوردهای ارسال‌شده برای این واحد
+            all_installments = list(
+                CivilInstallment.objects.filter(
+                    civil_manage=civil,
+                    unit=unit,
+                    send_notification=True,
+                ).order_by("installment_number", "id")
+            )
+
+            # قسط شماره صفر، رکورد پیش‌پرداخت است
+            prepayment_installments = [
+                item
+                for item in all_installments
+                if item.installment_number == 0
+            ]
+
+            # اقساط ماهانه؛ بدون قسط شماره صفر
+            installments = [
+                item
+                for item in all_installments
+                if item.installment_number > 0
+            ]
+
+            # مبلغ پیش‌پرداخت از رکورد شماره صفر
+            prepayment = next(
+                (
+                    item.amount or item.prepayment_per_unit or 0
+                    for item in prepayment_installments
+                ),
+                0,
+            )
+
+            # در نبود رکورد شماره صفر، از مبلغ پروژه استفاده می‌شود
+            if not prepayment:
+                prepayment = civil.prepayment or 0
+
+            # وضعیت پرداخت پیش‌پرداخت
+            prepayment_is_paid = any(
+                item.is_paid
+                for item in prepayment_installments
+            )
+
+            # اقساط ماهانه پرداخت‌شده
+            paid_installments = [
+                item
+                for item in installments
+                if item.is_paid
+            ]
+
+            # اقساط ماهانه پرداخت‌نشده
+            unpaid_installments = [
+                item
+                for item in installments
+                if not item.is_paid
+            ]
+
+            # تعداد اقساط شامل پیش‌پرداخت، در صورت وجود رکورد آن
+            has_prepayment_installment = bool(
+                prepayment_installments
+            )
+
+            total_installments = (
+                len(installments)
+                + (1 if has_prepayment_installment else 0)
+            )
+
+            paid_count = (
+                len(paid_installments)
+                + (
+                    1
+                    if has_prepayment_installment
+                    and prepayment_is_paid
+                    else 0
+                )
+            )
+
+            unpaid_count = (
+                len(unpaid_installments)
+                + (
+                    1
+                    if has_prepayment_installment
+                    and not prepayment_is_paid
+                    else 0
+                )
+            )
+
+            # مجموع مبلغ اقساط ماهانه؛ بدون پیش‌پرداخت
+            installments_total_amount = sum(
+                item.amount or 0
+                for item in installments
+            )
+
+            # مبلغ کل سهم واحد = پیش‌پرداخت + اقساط ماهانه
+            total_charge_amount = (
+                prepayment + installments_total_amount
+            )
+
+            # مبلغ پرداخت‌شده شامل پیش‌پرداخت پرداخت‌شده
+            paid_amount = sum(
+                item.amount or 0
+                for item in paid_installments
+            )
+
+            if has_prepayment_installment and prepayment_is_paid:
+                paid_amount += prepayment
+
+            # مبلغ پرداخت‌نشده شامل پیش‌پرداخت پرداخت‌نشده
+            unpaid_amount = sum(
+                item.amount or 0
+                for item in unpaid_installments
+            )
+
+            if (
+                has_prepayment_installment
+                and not prepayment_is_paid
+            ):
+                unpaid_amount += prepayment
+
+            # اطلاعات مالک یا مستأجر فعال
+            active_renter = unit.get_active_renter()
+
+            if active_renter:
+                resident_type = "renter"
+                resident_type_display = "مستأجر"
+                resident_name = (
+                    active_renter.renter_name or "نامشخص"
+                )
+                active_tenant_name = (
+                    active_renter.renter_name or ""
+                )
+            else:
+                resident_type = "owner"
+                resident_type_display = "مالک"
+                resident_name = unit.owner_name or "نامشخص"
+                active_tenant_name = ""
+
+            results.append({
+                "id": unit.id,
+                "unit": unit.unit,
+
+                # اطلاعات مالک
+                "owner_name": unit.owner_name or "",
+                "owner_mobile": unit.owner_mobile or "",
+
+                # اطلاعات ساکن فعلی
+                "resident_type": resident_type,
+                "resident_type_display": resident_type_display,
+                "resident_name": resident_name,
+                "active_tenant_name": active_tenant_name,
+
+                # مبالغ مالی
+                "prepayment": prepayment,
+                "installments_total_amount": (
+                    installments_total_amount
+                ),
+                "amount": total_charge_amount,
+                "total_charge_amount": total_charge_amount,
+                "paid_amount": paid_amount,
+                "unpaid_amount": unpaid_amount,
+                "remaining_installments_amount": unpaid_amount,
+
+                # تعداد اقساط با احتساب پیش‌پرداخت
+                "paid_count": paid_count,
+                "total_installments": total_installments,
+                "unpaid_count": unpaid_count,
+
+                # جزئیات فقط اقساط ماهانه
+                "installments": [
+                    civil_serialize_installment(item)
+                    for item in installments
+                ],
+            })
+
+        return Response({
+            "success": True,
+            "civil_id": civil.id,
+            "civil_name": civil.name,
+            "count": len(results),
+            "results": results,
+        })
+
+
+class ManagerCivilUnitInstallmentsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, civil_id, unit_id):
+        civil = civil_get_manager_charge(request.user, civil_id)
+
+        if not civil:
+            return civil_api_error("شارژ عمرانی پیدا نشد.", 404)
+
+        unit = civil_get_manager_unit(
+            request.user,
+            unit_id,
+            house=civil.house,
+        )
+
+        if not unit:
+            return civil_api_error("واحد پیدا نشد.", 404)
+
+        installments = CivilInstallment.objects.filter(
+            civil_manage=civil,
+            unit=unit,
+        ).order_by("installment_number")
+
+        return Response({
+            "success": True,
+            "civil": {
+                "id": civil.id,
+                "name": civil.name,
+            },
+            "unit": {
+                "id": unit.id,
+                "unit": unit.unit,
+                "owner_name": unit.owner_name or "",
+            },
+            "count": installments.count(),
+            "paid_count": installments.filter(is_paid=True).count(),
+            "unpaid_count": installments.filter(is_paid=False).count(),
+            "results": [
+                civil_serialize_installment(item)
+                for item in installments
+            ],
+        })
+
+
+class ManagerCivilInstallmentPaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, installment_id):
+        installment = CivilInstallment.objects.filter(
+            pk=installment_id,
+            civil_manage__user=request.user,
+            civil_manage__house__isnull=False,
+            unit__user__manager=request.user,
+        ).select_related(
+            "civil_manage",
+            "unit",
+            "civil_manage__house",
+        ).first()
+
+        if not installment:
+            return civil_api_error("قسط پیدا نشد.", 404)
+
+        if not installment.send_notification:
+            return civil_api_error(
+                "این قسط هنوز برای واحد ارسال نشده است."
+            )
+
+        if installment.is_paid:
+            return civil_api_error("این قسط قبلاً پرداخت شده است.")
+
+        if not civil_installment_is_previous_paid(installment):
+            return civil_api_error("ابتدا باید قسط قبلی پرداخت شود.")
+
+        banks = Bank.objects.filter(
+            is_active=True,
+            house=installment.civil_manage.house,
+        ).order_by("-is_default", "bank_name")
+
+        return Response({
+            "success": True,
+            "installment": civil_serialize_installment(installment),
+            "banks": [
+                {
+                    "id": bank.pk,
+                    "bank_name": bank.bank_name,
+                    "account_no": bank.account_no,
+                    "cart_number": bank.cart_number,
+                    "is_default": bank.is_default,
+                }
+                for bank in banks
+            ],
+        })
+
+    def post(self, request, installment_id):
+        user = request.user
+
+        if not getattr(user, "is_middle_admin", False):
+            return civil_api_error("دسترسی غیرمجاز.", 403)
+
+        # همه کنترل‌های دسترسی باید قبل از تغییر مالی انجام شوند.
+        installment = CivilInstallment.objects.filter(
+            pk=installment_id,
+            civil_manage__user=user,
+            civil_manage__house__isnull=False,
+            unit__user__manager=user,
+        ).select_related(
+            "civil_manage",
+            "unit",
+            "civil_manage__house",
+        ).first()
+
+        if not installment:
+            return civil_api_error("قسط پیدا نشد.", 404)
+
+        if not installment.send_notification:
+            return civil_api_error(
+                "این قسط برای واحد ارسال نشده است."
+            )
+
+        try:
+            bank_id = int(request.data.get("bank_id"))
+        except (ValueError, TypeError):
+            return civil_api_error("حساب بانکی معتبر انتخاب کنید.")
+
+        bank = Bank.objects.filter(
+            pk=bank_id,
+            house=installment.civil_manage.house,
+            is_active=True,
+        ).first()
+
+        if not bank:
+            return civil_api_error(
+                "حساب بانکی معتبر برای این ساختمان پیدا نشد."
+            )
+
+        raw_date = request.data.get("payment_date")
+
+        if raw_date:
+            try:
+                payment_date = datetime.date.fromisoformat(str(raw_date)[:10])
+            except (ValueError, TypeError):
+                return civil_api_error(
+                    "تاریخ پرداخت باید به قالب YYYY-MM-DD باشد."
+                )
+        else:
+            payment_date = date.today()
+
+        if payment_date > date.today():
+            return civil_api_error(
+                "تاریخ پرداخت نمی‌تواند بعد از امروز باشد."
+            )
+
+        transaction_reference = str(
+            request.data.get("transaction_reference") or ""
+        ).strip()
+
+        if len(transaction_reference) > 20:
+            return civil_api_error(
+                "شماره پیگیری نمی‌تواند بیشتر از ۲۰ کاراکتر باشد."
+            )
+
+        # بررسی تاریخ افتتاح حساب، مطابق فرم وب
+        try:
+            validate_bank_transaction_date(bank, payment_date)
+        except Exception as exc:
+            return civil_api_error(str(exc))
+
+        with transaction.atomic():
+            # قفل رکورد برای جلوگیری از ثبت هم‌زمان پرداخت
+            installment = CivilInstallment.objects.select_for_update().filter(
+                pk=installment_id,
+                civil_manage__user=user,
+                unit__user__manager=user,
+            ).first()
+
+            if not installment:
+                return civil_api_error("قسط پیدا نشد.", 404)
+
+            if installment.is_paid:
+                return civil_api_error(
+                    "این قسط قبلاً پرداخت شده است."
+                )
+
+            if installment.payment_pending:
+                return civil_api_error(
+                    "این قسط در انتظار تأیید پرداخت است."
+                )
+
+            if not civil_installment_is_previous_paid(installment):
+                return civil_api_error(
+                    "ابتدا باید قسط قبلی پرداخت شود."
+                )
+
+            content_type = ContentType.objects.get_for_model(
+                CivilInstallment
+            )
+
+            # جلوگیری از ایجاد پرداخت مالی تکراری
+            existing_fund = Fund.objects.filter(
+                content_type=content_type,
+                object_id=installment.pk,
+            ).exists()
+
+            if existing_fund:
+                return civil_api_error(
+                    "برای این قسط سند مالی وجود دارد؛ "
+                    "ابتدا وضعیت آن را بررسی کنید."
+                )
+
+            unit = installment.unit
+            house = installment.civil_manage.house
+
+            owner_name = (unit.owner_name or "").strip()
+            payer_name_snapshot = (
+                f"واحد {unit.unit} - {owner_name}"
+                if owner_name
+                else f"واحد {unit.unit}"
+            )
+
+            payment_description = (
+                f"پرداخت شارژ عمرانی: "
+                f"{(installment.civil_manage.name or '')[:50]}"
+            )
+
+            installment.bank = bank
+            installment.is_paid = True
+            installment.payment_date = payment_date
+            installment.transaction_reference = (
+                    transaction_reference or None
+            )
+            installment.payment_gateway = "پرداخت الکترونیک"
+            installment.payment_pending = False
+            installment.save(update_fields=[
+                "bank",
+                "is_paid",
+                "payment_date",
+                "transaction_reference",
+                "payment_gateway",
+                "payment_pending",
+            ])
+
+            # مطابق منطق مالی موجود در ویوی وب
+            Fund.objects.create(
+                content_type=content_type,
+                object_id=installment.id,
+                unit=unit,
+                house=house,
+                bank=bank,
+                payer_type="owner",
+                payer_renter=None,
+                payer_name=payer_name_snapshot,
+                debtor_amount=installment.amount,
+                amount=installment.amount,
+                creditor_amount=0,
+                user=user,
+                is_paid=True,
+                payment_date=installment.payment_date,
+                payment_description=payment_description,
+                transaction_no=installment.transaction_reference,
+                financial_document_number=(
+                    installment.financial_document_number
+                ),
+                payment_gateway="پرداخت الکترونیک",
+            )
+
+            BankTransactionService.deposit(
+                user=user,
+                bank=bank,
+                unit=unit,
+                amount=Decimal(installment.amount),
+                description=payment_description,
+                payer_type="owner",
+                payer_renter=None,
+                payer_name=owner_name or None,
+                content_object=installment,
+                payment_date=installment.payment_date,
+                financial_document_number=(
+                    installment.financial_document_number
+                ),
+                transaction_no=installment.transaction_reference,
+                gateway="پرداخت الکترونیک",
+                house=house,
+            )
+
+        return Response({
+            "success": True,
+            "message": "پرداخت با موفقیت ثبت شد.",
+            "installment": civil_serialize_installment(installment),
+        })
+
+
+class ManagerCivilInstallmentCancelPaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, installment_id):
+        user = request.user
+
+        if not getattr(user, "is_middle_admin", False):
+            return civil_api_error("دسترسی غیرمجاز.", 403)
+
+        with transaction.atomic():
+            installment = (
+                CivilInstallment.objects
+                .select_for_update()
+                .filter(
+                    pk=installment_id,
+                    civil_manage__user=user,
+                    unit__user__manager=user,
+                )
+                .select_related(
+                    "civil_manage",
+                    "unit",
+                    "civil_manage__house",
+                )
+                .first()
+            )
+
+            if not installment:
+                return civil_api_error("قسط پیدا نشد.", 404)
+
+            if not installment.is_paid:
+                return civil_api_error("این قسط قبلاً پرداخت نشده است.")
+
+            content_type = ContentType.objects.get_for_model(
+                CivilInstallment
+            )
+
+            fund = Fund.objects.filter(
+                content_type=content_type,
+                object_id=installment.id,
+            ).first()
+
+            if not fund:
+                return civil_api_error(
+                    "سند مالی مرتبط با این پرداخت پیدا نشد."
+                )
+
+            bank_fund = BankFund.objects.filter(
+                content_type=content_type,
+                object_id=installment.id,
+            ).select_related("bank").first()
+
+            if bank_fund:
+                bank = bank_fund.bank
+                amount = bank_fund.amount or 0
+
+                if bank_fund.transaction_type == "deposit":
+                    bank.current_balance -= amount
+                else:
+                    bank.current_balance += amount
+
+                bank.save(update_fields=["current_balance"])
+                bank_fund.delete()
+
+            fund_doc_number = fund.doc_number
+            fund.delete()
+
+            next_fund = (
+                Fund.objects
+                .filter(doc_number__gt=fund_doc_number)
+                .order_by("doc_number")
+                .first()
+            )
+
+            if next_fund:
+                Fund.recalc_final_amounts_from(next_fund)
+
+            installment.is_paid = False
+            installment.bank = None
+            installment.transaction_reference = None
+            installment.payment_date = None
+            installment.payment_gateway = None
+            installment.payment_pending = False
+
+            installment.save(update_fields=[
+                "is_paid",
+                "bank",
+                "transaction_reference",
+                "payment_date",
+                "payment_gateway",
+                "payment_pending",
+            ])
+
+        return Response({
+            "success": True,
+            "message": "پرداخت لغو شد و وضعیت مالی اصلاح شد.",
+            "installment": civil_serialize_installment(installment),
+        })
+
+
+# ====================== Expense Views =======================
+
+
+class ManagerExpenseBaseAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_house(self, request):
+        if not getattr(request.user, "is_middle_admin", False):
+            return None, Response(
+                {
+                    "success": False,
+                    "message": "شما دسترسی مدیر ساختمان را ندارید.",
+                },
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        house = MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not house:
+            return None, Response(
+                {
+                    "success": False,
+                    "message": "ساختمان فعالی برای شما یافت نشد.",
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        return house, None
+
+    @staticmethod
+    def normalize_digits(value):
+        """تبدیل ارقام فارسی و عربی به انگلیسی."""
+        if value is None:
+            return value
+
+        value = str(value)
+
+        translation = str.maketrans(
+            "۰۱۲۳۴۵۶۷۸۹٠١٢٣٤٥٦٧٨٩",
+            "01234567890123456789",
+        )
+
+        return value.translate(translation).replace(",", "").replace("٬", "")
+
+    @staticmethod
+    def category_queryset(user):
+        # سرفصل‌های اختصاصی مدیر و سرفصل‌های پیش‌فرض او
+        return ExpenseCategory.objects.filter(
+            Q(user=user) | Q(is_default=True),
+            is_active=True,
+        ).distinct()
+
+    @staticmethod
+    def expense_queryset(user, house):
+        return Expense.objects.filter(
+            user=user,
+            house=house,
+            is_active=True,
+        ).select_related("category", "unit", "bank").prefetch_related(
+            "documents"
+        )
+
+    @staticmethod
+    def serialize_category(category):
+        return {
+            "id": category.id,
+            "title": category.title,
+            "is_default": category.is_default,
+            "is_active": category.is_active,
+        }
+
+    @staticmethod
+    def serialize_expense(expense):
+        return {
+            "id": expense.id,
+            "category_id": expense.category_id,
+            "category": expense.category.title if expense.category else None,
+            "description": expense.description or "",
+            "details": expense.details or "",
+            "amount": str(expense.amount),
+            "date": expense.date.isoformat() if expense.date else None,
+            "doc_no": expense.doc_no or "",
+            "financial_document_number": (
+                expense.financial_document_number
+            ),
+            "is_paid": expense.is_paid,
+            "payment_date": (
+                expense.payment_date.isoformat()
+                if expense.payment_date else None
+            ),
+            "transaction_reference": expense.transaction_reference or "",
+            "documents": [
+                {
+                    "id": document.id,
+                    "url": (
+                        document.document.url
+                        if document.document else None
+                    ),
+                }
+                for document in expense.documents.all()
+            ],
+        }
+
+    def parse_amount(self, value):
+        try:
+            amount = Decimal(self.normalize_digits(value))
+        except (InvalidOperation, TypeError, ValueError):
+            raise ValueError("مبلغ هزینه معتبر نیست.")
+
+        if not amount.is_finite() or amount <= 0:
+            raise ValueError("مبلغ هزینه باید بیشتر از صفر باشد.")
+
+        return amount
+
+    def parse_expense_date(self, value):
+        value = self.normalize_digits(value)
+        parsed = parse_date(value) if value else None
+
+        if not parsed:
+            raise ValueError(
+                "تاریخ نامعتبر است؛ تاریخ را به شکل YYYY-MM-DD ارسال کنید."
+            )
+
+        return parsed
+
+    def get_category(self, user, category_id):
+        try:
+            category_id = int(category_id)
+        except (TypeError, ValueError):
+            raise ValueError("سرفصل هزینه معتبر نیست.")
+
+        category = self.category_queryset(user).filter(
+            pk=category_id
+        ).first()
+
+        if not category:
+            raise ValueError("سرفصل هزینه یافت نشد یا غیرفعال است.")
+
+        return category
+
+    @staticmethod
+    def get_uploaded_documents(request):
+        # هر دو قالب documents و document پشتیبانی می‌شوند.
+        files = request.FILES.getlist("documents")
+        if not files:
+            files = request.FILES.getlist("document")
+
+        if len(files) > 2:
+            raise ValueError("حداکثر دو مدرک برای هر هزینه مجاز است.")
+
+        return files
+
+
+class ManagerExpenseCategoriesAPIView(ManagerExpenseBaseAPIView):
+
+    def get(self, request):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        categories = self.category_queryset(request.user).order_by(
+            "-is_default", "title"
+        )
+
+        return Response({
+            "success": True,
+            "results": [
+                self.serialize_category(category)
+                for category in categories
+            ],
+        })
+
+    def post(self, request):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        title = (request.data.get("title") or "").strip()
+
+        if not title:
+            return Response(
+                {"success": False, "message": "عنوان سرفصل الزامی است."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        duplicate = ExpenseCategory.objects.filter(
+            user=request.user,
+            title__iexact=title,
+            is_active=True,
+        ).exists()
+
+        if duplicate:
+            return Response(
+                {
+                    "success": False,
+                    "message": "این سرفصل قبلاً ثبت شده است.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        category = ExpenseCategory.objects.create(
+            user=request.user,
+            title=title,
+            is_active=True,
+            is_default=False,
+        )
+
+        return Response(
+            {
+                "success": True,
+                "message": "سرفصل هزینه با موفقیت ثبت شد.",
+                "category": self.serialize_category(category),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+class ManagerExpenseCategoryDetailAPIView(ManagerExpenseBaseAPIView):
+
+    def get_category(self, request, pk):
+        return get_object_or_404(
+            ExpenseCategory,
+            pk=pk,
+            user=request.user,
+            is_default=False,
+        )
+
+    def patch(self, request, pk):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        category = self.get_category(request, pk)
+
+        title = request.data.get("title")
+        if title is not None:
+            title = title.strip()
+
+            if not title:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "عنوان سرفصل نمی‌تواند خالی باشد.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            duplicate = ExpenseCategory.objects.filter(
+                user=request.user,
+                title__iexact=title,
+                is_active=True,
+            ).exclude(pk=category.pk).exists()
+
+            if duplicate:
+                return Response(
+                    {
+                        "success": False,
+                        "message": "سرفصلی با این عنوان وجود دارد.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            category.title = title
+
+        if "is_active" in request.data:
+            raw_active = request.data.get("is_active")
+
+            if raw_active not in (True, False, "true", "false", 1, 0):
+                return Response(
+                    {
+                        "success": False,
+                        "message": "مقدار is_active معتبر نیست.",
+                    },
+                    status=status.HTTP_400_BAD_REQUEST,
+                )
+
+            category.is_active = raw_active in (True, "true", 1)
+
+        category.save()
+
+        return Response({
+            "success": True,
+            "message": "سرفصل با موفقیت ویرایش شد.",
+            "category": self.serialize_category(category),
+        })
+
+    def delete(self, request, pk):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        category = self.get_category(request, pk)
+
+        has_expenses = Expense.objects.filter(
+            category=category
+        ).exists()
+
+        if has_expenses:
+            category.is_active = False
+            category.save(update_fields=["is_active"])
+
+            message = (
+                "سرفصل غیرفعال شد؛ سوابق هزینه‌های وابسته حفظ شدند."
+            )
+        else:
+            category.delete()
+            message = "سرفصل با موفقیت حذف شد."
+
+        return Response({
+            "success": True,
+            "message": message,
+        })
+
+class ManagerExpenseAPIView(ManagerExpenseBaseAPIView):
+
+    def get(self, request):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        expenses = self.expense_queryset(request.user, house)
+
+        payment_status = request.query_params.get("payment_status")
+        if payment_status == "paid":
+            expenses = expenses.filter(is_paid=True)
+        elif payment_status == "unpaid":
+            expenses = expenses.filter(is_paid=False)
+
+        category_id = request.query_params.get("category_id")
+        if category_id:
+            expenses = expenses.filter(category_id=category_id)
+
+        expenses = expenses.order_by("-date", "-id")
+
+        return Response({
+            "success": True,
+            "results": [
+                self.serialize_expense(expense)
+                for expense in expenses
+            ],
+        })
+
+    def post(self, request):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        try:
+            category = self.get_category(
+                request.user,
+                request.data.get("category_id"),
+            )
+            amount = self.parse_amount(request.data.get("amount"))
+            expense_date = self.parse_expense_date(
+                request.data.get("date")
+            )
+            documents = self.get_uploaded_documents(request)
+
+        except ValueError as exc:
+            return Response(
+                {"success": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        description = (request.data.get("description") or "").strip()
+        details = (request.data.get("details") or "").strip()
+        doc_no = (request.data.get("doc_no") or "").strip()
+
+        if not description:
+            return Response(
+                {
+                    "success": False,
+                    "message": "شرح هزینه الزامی است.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            expense = Expense.objects.create(
+                user=request.user,
+                house=house,
+                category=category,
+                amount=amount,
+                date=expense_date,
+                description=description,
+                details=details,
+                doc_no=doc_no,
+                is_paid=False,
+                is_active=True,
+            )
+
+            # استفاده از شماره‌گذار مالی موجود در پروژه
+            from admin_panel.services import get_next_financial_document_number
+
+            expense.financial_document_number = (
+                get_next_financial_document_number(house)
+            )
+            expense.save(
+                update_fields=["financial_document_number"]
+            )
+
+            for uploaded_file in documents:
+                ExpenseDocument.objects.create(
+                    expense=expense,
+                    document=uploaded_file,
+                )
+
+        expense = self.expense_queryset(
+            request.user, house
+        ).get(pk=expense.pk)
+
+        return Response(
+            {
+                "success": True,
+                "message": "هزینه با موفقیت ثبت شد.",
+                "expense": self.serialize_expense(expense),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+class ManagerExpenseDetailAPIView(ManagerExpenseBaseAPIView):
+
+    def get_expense(self, request, house, pk):
+        return get_object_or_404(
+            self.expense_queryset(request.user, house),
+            pk=pk,
+        )
+
+    def patch(self, request, pk):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        expense = self.get_expense(request, house, pk)
+
+        if expense.is_paid:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "هزینه پرداخت شده است؛ ابتدا باید پرداخت "
+                        "از مسیر مالی معتبر لغو شود."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            category = None
+            if "category_id" in request.data:
+                category = self.get_category(
+                    request.user,
+                    request.data.get("category_id"),
+                )
+
+            amount = None
+            if "amount" in request.data:
+                amount = self.parse_amount(request.data.get("amount"))
+
+            expense_date = None
+            if "date" in request.data:
+                expense_date = self.parse_expense_date(
+                    request.data.get("date")
+                )
+
+            new_documents = self.get_uploaded_documents(request)
+
+        except ValueError as exc:
+            return Response(
+                {"success": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        if len(expense.documents.all()) + len(new_documents) > 2:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "مجموع مدارک هزینه نمی‌تواند بیشتر از دو فایل باشد."
+                    ),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        with transaction.atomic():
+            if category is not None:
+                expense.category = category
+
+            if amount is not None:
+                expense.amount = amount
+
+            if expense_date is not None:
+                expense.date = expense_date
+
+            if "description" in request.data:
+                description = (
+                    request.data.get("description") or ""
+                ).strip()
+
+                if not description:
+                    return Response(
+                        {
+                            "success": False,
+                            "message": "شرح هزینه نمی‌تواند خالی باشد.",
+                        },
+                        status=status.HTTP_400_BAD_REQUEST,
+                    )
+
+                expense.description = description
+
+            if "details" in request.data:
+                expense.details = (
+                    request.data.get("details") or ""
+                ).strip()
+
+            if "doc_no" in request.data:
+                expense.doc_no = (
+                    request.data.get("doc_no") or ""
+                ).strip()
+
+            # شماره سند مالی عمداً تغییر داده نمی‌شود.
+            expense.save()
+
+            for uploaded_file in new_documents:
+                ExpenseDocument.objects.create(
+                    expense=expense,
+                    document=uploaded_file,
+                )
+
+        expense = self.expense_queryset(
+            request.user, house
+        ).get(pk=expense.pk)
+
+        return Response({
+            "success": True,
+            "message": "هزینه با موفقیت ویرایش شد.",
+            "expense": self.serialize_expense(expense),
+        })
+
+    def delete(self, request, pk):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        expense = self.get_expense(request, house, pk)
+
+        if expense.is_paid:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "هزینه پرداخت شده است و حذف مستقیم آن مجاز نیست."
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT,
+            )
+
+        # حذف فیزیکی ممکن است سوابق مالی یا وابستگی‌های دیگری را
+        # از بین ببرد؛ ابتدا هزینه را غیرفعال می‌کنیم.
+        expense.is_active = False
+        expense.save(update_fields=["is_active"])
+
+        return Response({
+            "success": True,
+            "message": "هزینه با موفقیت غیرفعال شد.",
+        })
+

@@ -1947,8 +1947,27 @@ class UnifiedCharge(models.Model):
 
 
 class Fund(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True, related_name='funds')
+    PAYER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='funds'
+    )
+
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -1957,84 +1976,383 @@ class Fund(models.Model):
         related_name='house_funds',
         verbose_name='ساختمان مرتبط'
     )
-    bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
-    doc_number = models.PositiveIntegerField(null=True, blank=True)
-    financial_document_number = models.PositiveIntegerField(null=True, blank=True)
 
-    payer_name = models.CharField(max_length=200, null=True, blank=True)
-    receiver_name = models.CharField(max_length=200, null=True, blank=True)
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
+    bank = models.ForeignKey(
+        Bank,
+        on_delete=models.CASCADE,
+        verbose_name='شماره حساب',
+        null=True,
+        blank=True
+    )
+
+    doc_number = models.PositiveIntegerField(
+        null=True,
+        blank=True
+    )
+
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True
+    )
+
+    # =====================================================
+    # پرداخت کننده
+    # =====================================================
+
+    PAYER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    payer_type = models.CharField(
+        max_length=20,
+        choices=PAYER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع پرداخت کننده'
+    )
+
+    payer_renter = models.ForeignKey(
+        'user_app.Renter',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fund_payments',
+        verbose_name='مستاجر پرداخت کننده'
+    )
+
+    payer_name = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        verbose_name='نام پرداخت کننده'
+    )
+
+    # =====================================================
+    # دریافت کننده
+    # =====================================================
+
+    RECEIVER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    receiver_type = models.CharField(
+        max_length=20,
+        choices=RECEIVER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع دریافت کننده'
+    )
+
+    receiver_renter = models.ForeignKey(
+        'user_app.Renter',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='fund_receiver_records',
+        verbose_name='مستاجر دریافت کننده'
+    )
+
+    receiver_name = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        verbose_name='نام دریافت کننده'
+    )
+
+    # پرداخت‌کننده شخص ثالث
+    payer_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payer_funds',
+        verbose_name='شخص ثالث پرداخت‌کننده',
+    )
+
+    # دریافت‌کننده شخص ثالث
+    receiver_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='receiver_funds',
+        verbose_name='شخص ثالث دریافت‌کننده',
+    )
+
+    # =====================================================
+
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE
+    )
+
     object_id = models.PositiveIntegerField()
-    content_object = GenericForeignKey('content_type', 'object_id')
 
-    amount = models.DecimalField(max_digits=12, decimal_places=0, null=True, blank=True)
-    debtor_amount = models.DecimalField(max_digits=12, decimal_places=0)
-    creditor_amount = models.DecimalField(max_digits=12, decimal_places=0)
-    final_amount = models.DecimalField(max_digits=12, decimal_places=0, default=0)
+    content_object = GenericForeignKey(
+        'content_type',
+        'object_id'
+    )
 
-    payment_gateway = models.CharField(max_length=100, null=True, blank=True)
-    payment_date = models.DateField(null=True, blank=True)
-    transaction_no = models.CharField(max_length=15, null=True, blank=True)
-    payment_description = models.CharField(max_length=500, blank=True, null=True)
-    is_initial = models.BooleanField(default=False, verbose_name='افتتاحیه حساب')
-    created_at = models.DateTimeField(auto_now_add=True)
-    is_received_money = models.BooleanField(default=False)
-    is_paid_money = models.BooleanField(default=False)
-    is_paid = models.BooleanField(default=False)
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=0,
+        null=True,
+        blank=True
+    )
+
+    debtor_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=0
+    )
+
+    creditor_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=0
+    )
+
+    final_amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=0,
+        default=0
+    )
+
+    payment_gateway = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True
+    )
+
+    payment_date = models.DateField(
+        null=True,
+        blank=True
+    )
+
+    transaction_no = models.CharField(
+        max_length=15,
+        null=True,
+        blank=True
+    )
+
+    payment_description = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True
+    )
+
+    is_initial = models.BooleanField(
+        default=False,
+        verbose_name='افتتاحیه حساب'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    is_received_money = models.BooleanField(
+        default=False
+    )
+
+    is_paid_money = models.BooleanField(
+        default=False
+    )
+
+    is_paid = models.BooleanField(
+        default=False
+    )
 
     def __str__(self):
-        return f"Fund: {self.payment_description} for {self.content_object}"
+
+        return (
+            f"Fund: "
+            f"{self.payment_description} "
+            f"for {self.content_object}"
+        )
+
+    def get_payer_display(self):
+
+        if self.payer_name:
+            return self.payer_name
+
+        if self.payer_type == 'other' and self.payer_third_party_id:
+            return self.payer_third_party.name
+
+        if self.unit:
+            return f"واحد {self.unit.unit}"
+
+        if self.payer_type == 'owner':
+            return "مالک"
+
+        if self.payer_type == 'renter':
+            return "مستاجر"
+
+        if self.payer_type == 'other':
+            return "اشخاص ثالث"
+
+        return "-"
+
+    def get_receiver_display(self):
+
+        if self.receiver_name:
+            return self.receiver_name
+
+        if self.receiver_type == 'other' and self.receiver_third_party_id:
+            return self.receiver_third_party.name
+
+        if self.unit:
+            return f"واحد {self.unit.unit}"
+
+        if self.receiver_type == 'owner':
+            return "مالک"
+
+        if self.receiver_type == 'renter':
+            return "مستاجر"
+
+        if self.receiver_type == 'other':
+            return "اشخاص ثالث"
+
+        return "-"
 
     def clean(self):
-        """
-        قبل از ذخیره، مطمئن شویم final_amount منفی نمی‌شود
-        """
+
         if self.final_amount < 0:
-            raise ValidationError("موجودی صندوق کافی نیست. ثبت این تراکنش باعث منفی شدن موجودی می‌شود.")
+            raise ValidationError(
+                "موجودی صندوق کافی نیست. "
+                "ثبت این تراکنش باعث منفی شدن موجودی می‌شود."
+            )
 
     @transaction.atomic
     def save(self, *args, **kwargs):
-        # تعیین شماره سند فقط برای رکورد جدید
+
         if not self.pk:
+
             if not self.doc_number:
-                last_doc_number = Fund.objects.aggregate(models.Max('doc_number'))['doc_number__max']
+                last_doc_number = (
+                    Fund.objects
+                    .filter(house_id=self.house_id)
+                    .aggregate(
+                        max_doc=models.Max('doc_number')
+                    )['max_doc']
+                )
+
                 self.doc_number = (last_doc_number or 0) + 1
 
-            # محاسبه final_amount فقط برای رکورد جدید
-            last_fund = Fund.objects.order_by('-doc_number').first()
-            previous_final = Decimal(last_fund.final_amount if last_fund and last_fund.final_amount is not None else 0)
-            self.final_amount = previous_final + (self.debtor_amount or 0) - (self.creditor_amount or 0)
+            last_fund = (
+                Fund.objects
+                .filter(
+                    house_id=self.house_id,
+                    doc_number__lt=self.doc_number,
+                )
+                .order_by('-doc_number', '-pk')
+                .first()
+            )
 
-            # بررسی منفی شدن موجودی
+            previous_final = Decimal(
+                str(
+                    last_fund.final_amount
+                    if last_fund and last_fund.final_amount is not None
+                    else 0
+                )
+            )
+
+            debtor = Decimal(str(self.debtor_amount or 0))
+            creditor = Decimal(str(self.creditor_amount or 0))
+
+            self.final_amount = previous_final + debtor - creditor
+
             if self.final_amount < 0:
-                raise ValidationError("موجودی صندوق کافی نیست. ثبت این تراکنش باعث منفی شدن موجودی می‌شود.")
+                raise ValidationError(
+                    f'موجودی صندوق ساختمان کافی نیست. '
+                    f'ساختمان: {self.house_id}، '
+                    f'مانده قبلی: {previous_final}، '
+                    f'بدهکار: {debtor}، '
+                    f'بستانکار: {creditor}'
+                )
 
-        # برای رکوردهای موجود، final_amount با recalc_final_amounts_from به‌روزرسانی می‌شود
         super().save(*args, **kwargs)
 
     @classmethod
     def recalc_final_amounts_from(cls, fund):
-        """
-        بازمحاسبه final_amount فقط از Fund داده شده به بعد
-        """
-        with transaction.atomic():
-            # موجودی قبل از fund
-            last_before = cls.objects.filter(doc_number__lt=fund.doc_number).order_by('-doc_number').first()
-            running_total = Decimal(last_before.final_amount if last_before else 0)
 
-            # بروزرسانی این Fund و بعدی‌ها
-            qs = cls.objects.filter(doc_number__gte=fund.doc_number).order_by('doc_number')
-            for f in qs:
-                running_total += (f.debtor_amount or 0) - (f.creditor_amount or 0)
+        with transaction.atomic():
+
+            house_id = fund.house_id
+            start_doc_number = fund.doc_number
+
+            qs = cls.objects.filter(
+                house_id=house_id
+            )
+
+            last_before = (
+                qs.filter(
+                    doc_number__lt=start_doc_number
+                )
+                .order_by('-doc_number', '-pk')
+                .first()
+            )
+
+            running_total = Decimal(
+                str(
+                    last_before.final_amount
+                    if last_before and last_before.final_amount is not None
+                    else 0
+                )
+            )
+
+            subsequent_funds = (
+                qs.filter(
+                    doc_number__gte=start_doc_number
+                )
+                .order_by('doc_number', 'pk')
+            )
+
+            for f in subsequent_funds:
+
+                debtor = Decimal(str(f.debtor_amount or 0))
+                creditor = Decimal(str(f.creditor_amount or 0))
+
+                running_total += debtor - creditor
+
                 if running_total < 0:
-                    raise ValidationError(f"خطا: موجودی صندوق در سند شماره {f.doc_number} منفی شد!")
-                f.final_amount = running_total
-                f.save(update_fields=['final_amount'])
+                    raise ValidationError(
+                        f'موجودی صندوق ساختمان در سند شماره '
+                        f'{f.doc_number} منفی شده است. '
+                        f'ساختمان: {house_id}، '
+                        f'مانده محاسبه‌شده: {running_total}، '
+                        f'بدهکار: {debtor}، '
+                        f'بستانکار: {creditor}'
+                    )
+
+                cls.objects.filter(pk=f.pk).update(
+                    final_amount=running_total
+                )
 
 
 class BankFund(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE, null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.CASCADE, null=True, blank=True, related_name='banks_funds')
+    PAYER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name='banks_funds'
+    )
+
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -2043,6 +2361,7 @@ class BankFund(models.Model):
         related_name='bank_funds',
         verbose_name='ساختمان مرتبط'
     )
+
     TRANSACTION_TYPES = (
         ('deposit', 'واریز'),
         ('withdraw', 'برداشت'),
@@ -2054,7 +2373,13 @@ class BankFund(models.Model):
         choices=TRANSACTION_TYPES,
         default='deposit'
     )
-    transfer_group_id = models.UUIDField(null=True, blank=True, editable=False, db_index=True)
+
+    transfer_group_id = models.UUIDField(
+        null=True,
+        blank=True,
+        editable=False,
+        db_index=True
+    )
 
     to_bank = models.ForeignKey(
         Bank,
@@ -2063,29 +2388,223 @@ class BankFund(models.Model):
         blank=True,
         related_name='received_transfers'
     )
+
     balance_after = models.DecimalField(
         max_digits=12,
         decimal_places=0,
         default=0
     )
-    financial_document_number = models.PositiveIntegerField(null=True, blank=True)
-    payer_name = models.CharField(max_length=200, null=True, blank=True)
-    receiver_name = models.CharField(max_length=200, null=True, blank=True)
-    bank = models.ForeignKey(Bank, on_delete=models.CASCADE, verbose_name='شماره حساب', null=True, blank=True)
-    content_type = models.ForeignKey(ContentType, on_delete=models.CASCADE)
-    object_id = models.PositiveIntegerField()
-    content_object = GenericForeignKey('content_type', 'object_id')
 
-    amount = models.DecimalField(max_digits=12, decimal_places=0, null=True, blank=True)
-    payment_gateway = models.CharField(max_length=100, null=True, blank=True)
-    payment_date = models.DateField(null=True, blank=True)
-    transaction_no = models.CharField(max_length=15, null=True, blank=True)
-    payment_description = models.CharField(max_length=500, blank=True, null=True)
-    created_at = models.DateTimeField(auto_now_add=True)
-    is_paid = models.BooleanField(default=False)
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True
+    )
+
+    # =====================================================
+    # پرداخت کننده
+    # =====================================================
+
+    PAYER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    payer_type = models.CharField(
+        max_length=20,
+        choices=PAYER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع پرداخت کننده'
+    )
+
+    payer_renter = models.ForeignKey(
+        'user_app.Renter',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bank_fund_payments',
+        verbose_name='مستاجر پرداخت کننده'
+    )
+
+    payer_name = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        verbose_name='نام پرداخت کننده'
+    )
+
+    # =====================================================
+    # دریافت کننده
+    # =====================================================
+
+    RECEIVER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    receiver_type = models.CharField(
+        max_length=20,
+        choices=RECEIVER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع دریافت کننده'
+    )
+
+    receiver_renter = models.ForeignKey(
+        'user_app.Renter',
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bank_fund_receiver_records',
+        verbose_name='مستاجر دریافت کننده'
+    )
+
+    receiver_name = models.CharField(
+        max_length=200,
+        null=True,
+        blank=True,
+        verbose_name='نام دریافت کننده'
+    )
+
+    # پرداخت‌کننده شخص ثالث
+    payer_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bank_payer_funds',
+        verbose_name='شخص ثالث پرداخت‌کننده',
+    )
+
+    # دریافت‌کننده شخص ثالث
+    receiver_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='bank_receiver_funds',
+        verbose_name='شخص ثالث دریافت‌کننده',
+    )
+
+    # =====================================================
+
+    # receiver_name = models.CharField(
+    #     max_length=200,
+    #     null=True,
+    #     blank=True
+    # )
+
+    bank = models.ForeignKey(
+        Bank,
+        on_delete=models.CASCADE,
+        verbose_name='شماره حساب',
+        null=True,
+        blank=True
+    )
+
+    content_type = models.ForeignKey(
+        ContentType,
+        on_delete=models.CASCADE
+    )
+
+    object_id = models.PositiveIntegerField()
+
+    content_object = GenericForeignKey(
+        'content_type',
+        'object_id'
+    )
+
+    amount = models.DecimalField(
+        max_digits=12,
+        decimal_places=0,
+        null=True,
+        blank=True
+    )
+
+    payment_gateway = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True
+    )
+
+    payment_date = models.DateField(
+        null=True,
+        blank=True
+    )
+
+    transaction_no = models.CharField(
+        max_length=15,
+        null=True,
+        blank=True
+    )
+
+    payment_description = models.CharField(
+        max_length=500,
+        blank=True,
+        null=True
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True
+    )
+
+    is_paid = models.BooleanField(
+        default=False
+    )
 
     def __str__(self):
-        return f"Fund: {self.payment_description} for {self.content_object}"
+
+        return (
+            f"BankFund: "
+            f"{self.payment_description} "
+            f"for {self.content_object}"
+        )
+
+    def get_payer_display(self):
+
+        if self.payer_name:
+            return self.payer_name
+
+        if self.payer_type == 'other' and self.payer_third_party_id:
+            return self.payer_third_party.name
+
+        if self.unit:
+            return f"واحد {self.unit.unit}"
+
+        if self.payer_type == 'owner':
+            return "مالک"
+
+        if self.payer_type == 'renter':
+            return "مستاجر"
+
+        if self.payer_type == 'other':
+            return "اشخاص ثالث"
+
+        return "-"
+
+    def get_receiver_display(self):
+
+        if self.receiver_name:
+            return self.receiver_name
+
+        if self.receiver_type == 'other' and self.receiver_third_party_id:
+            return self.receiver_third_party.name
+
+        if self.unit:
+            return f"واحد {self.unit.unit}"
+
+        if self.receiver_type == 'owner':
+            return "مالک"
+
+        if self.receiver_type == 'renter':
+            return "مستاجر"
+
+        if self.receiver_type == 'other':
+            return "اشخاص ثالث"
+
+        return "-"
 
 
 class AdminFund(models.Model):

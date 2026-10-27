@@ -39,7 +39,10 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerChargeCalculationCancelAPIView, ManagerChargeMethodsAPIView, ManagerCivilChargesAPIView, \
     ManagerCivilChargeDetailAPIView, ManagerCivilChargeUnitsAPIView, ManagerSendCivilChargeAPIView, \
     ManagerCancelCivilChargeAPIView, ManagerMonthlyChargeUnitsAPIView, ManagerMonthlyChargesAPIView, \
-    ManagerMonthlyChargePaymentAPIView, ManagerMonthlyChargeCancelPaymentAPIView
+    ManagerMonthlyChargePaymentAPIView, ManagerMonthlyChargeCancelPaymentAPIView, ManagerCivilChargesListAPIView, \
+    ManagerCivilUnitInstallmentsAPIView, ManagerCivilInstallmentPaymentAPIView, ManagerCivilChargeUnitsListAPIView, \
+    ManagerCivilInstallmentCancelPaymentAPIView, ManagerExpenseAPIView, \
+    ManagerExpenseDetailAPIView, ManagerExpenseCategoriesAPIView, ManagerExpenseCategoryDetailAPIView
 
 urlpatterns = [
     path(
@@ -882,7 +885,7 @@ urlpatterns = [
         ManagerCancelCivilChargeAPIView.as_view(),
         name="manager-civil-charge-cancel",
     ),
-
+    # ============= Monthly Charge List Urls ======================
     path(
         "manager/monthly-charges/",
         ManagerMonthlyChargesAPIView.as_view(),
@@ -902,6 +905,54 @@ urlpatterns = [
         "manager/monthly-charges/<int:charge_id>/cancel-payment/",
         ManagerMonthlyChargeCancelPaymentAPIView.as_view(),
         name="manager-monthly-charge-cancel-payment",
+    ),
+    # ============= Civil Charge List Urls ======================
+    path(
+        "manager/list/civil-charges/",
+        ManagerCivilChargesListAPIView.as_view(),
+        name="manager-civil-charges-list",
+    ),
+    path(
+        "manager/list/civil-charges/<int:civil_id>/units/",
+        ManagerCivilChargeUnitsListAPIView.as_view(),
+        name="manager-civil-charge-units-list",
+    ),
+    path(
+        "manager/civil-charges/<int:civil_id>/units/<int:unit_id>/installments/",
+        ManagerCivilUnitInstallmentsAPIView.as_view(),
+        name="manager-civil-unit-installments",
+    ),
+    path(
+        "manager/civil-installments/<int:installment_id>/pay/",
+        ManagerCivilInstallmentPaymentAPIView.as_view(),
+        name="manager-civil-installment-pay",
+    ),
+    path(
+        "manager/civil-installments/<int:installment_id>/cancel-payment/",
+        ManagerCivilInstallmentCancelPaymentAPIView.as_view(),
+        name="manager-civil-installment-cancel-payment",
+    ),
+    # ================== Expense Urls =====================
+
+    path(
+        "manager/expense-categories/",
+        ManagerExpenseCategoriesAPIView.as_view(),
+        name="manager-expense-categories",
+    ),
+    path(
+        "manager/expense-categories/<int:pk>/",
+        ManagerExpenseCategoryDetailAPIView.as_view(),
+        name="manager-expense-category-detail",
+    ),
+    path(
+        "manager/expenses/",
+        ManagerExpenseAPIView.as_view(),
+        name="manager-expenses",
+    ),
+    path(
+        "manager/expenses/<int:pk>/",
+        ManagerExpenseDetailAPIView.as_view(),
+        name="manager-expense-detail",
     ),
 
 
