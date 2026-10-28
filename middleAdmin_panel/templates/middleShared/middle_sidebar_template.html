@@ -262,6 +262,13 @@
                 <i class="mdi mdi-cash-multiple menu-icon menu-icon"></i>
               </a>
             </li>
+                             <li class="nav-item  mt-0">
+                 {% url 'third_party_list' as address_url %}
+                <a class="nav-link {% if request.path == address_url %}active{% endif %}" href="{{ address_url }}">
+                <i class="menu-title"> اشخاص ثالث</i>
+                <i class="mdi mdi-cash-multiple menu-icon menu-icon"></i>
+              </a>
+            </li>
 
 {% with url=request.resolver_match.url_name %}
 {% is_charge_section url as charge_open %}

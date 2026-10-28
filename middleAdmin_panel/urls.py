@@ -354,7 +354,23 @@ urlpatterns = [
         'charge/<int:pk>/toggle-unit/',
         views.toggle_unit_selection,
         name='toggle_unit_selection'
-    )
+    ),
+    path(
+        'third-parties/',
+        views.third_party_list_create,
+        name='third_party_list',
+    ),
+
+    path(
+        'third-parties/<int:pk>/edit/',
+        views.third_party_edit,
+        name='third_party_edit',
+    ),
+    path(
+        'third-parties/<int:pk>/delete/',
+        views.third_party_delete,
+        name='third_party_delete',
+    ),
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

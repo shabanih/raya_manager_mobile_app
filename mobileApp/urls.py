@@ -42,7 +42,8 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerMonthlyChargePaymentAPIView, ManagerMonthlyChargeCancelPaymentAPIView, ManagerCivilChargesListAPIView, \
     ManagerCivilUnitInstallmentsAPIView, ManagerCivilInstallmentPaymentAPIView, ManagerCivilChargeUnitsListAPIView, \
     ManagerCivilInstallmentCancelPaymentAPIView, ManagerExpenseAPIView, \
-    ManagerExpenseDetailAPIView, ManagerExpenseCategoriesAPIView, ManagerExpenseCategoryDetailAPIView
+    ManagerExpenseDetailAPIView, ManagerExpenseCategoriesAPIView, ManagerExpenseCategoryDetailAPIView, \
+    ManagerExpensePayAPIView, ManagerExpenseBanksAPIView, ManagerExpenseReceiversAPIView, ManagerExpenseCancelPayAPIView
 
 urlpatterns = [
     path(
@@ -954,6 +955,32 @@ urlpatterns = [
         ManagerExpenseDetailAPIView.as_view(),
         name="manager-expense-detail",
     ),
+    path(
+        "manager/expenses/<int:pk>/pay/",
+        ManagerExpensePayAPIView.as_view(),
+        name="manager-expense-pay",
+    ),
+    path(
+        "manager/expenses/<int:pk>/pay/",
+        ManagerExpensePayAPIView.as_view(),
+        name="manager-expense-pay",
+    ),
+    path(
+        "manager/expense-banks/",
+        ManagerExpenseBanksAPIView.as_view(),
+        name="manager-expense-banks",
+    ),
+    path(
+        "manager/expense-receivers/",
+        ManagerExpenseReceiversAPIView.as_view(),
+        name="manager-expense-receivers",
+    ),
+    path(
+        "manager/expenses/<int:pk>/cancel-payment/",
+        ManagerExpenseCancelPayAPIView.as_view(),
+        name="manager-expense-cancel-payment",
+    ),
+
 
 
 ]

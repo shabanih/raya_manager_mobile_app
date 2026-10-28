@@ -1,0 +1,168 @@
+{% extends 'middleShared/base_template.html' %}
+{% load static %}
+{% load poll_extras %}
+{% load jalali_tags %}
+
+{% block page_title %}
+مدیریت اشخاص ثالث
+{% endblock page_title %}
+
+{% block main_content %}
+    <hr/>
+<div class="container py-3">
+
+<div class="container">
+
+
+    <form method="post">
+        {% csrf_token %}
+
+         <div class="row g-2">
+                  <div class="col-12 col-lg-3 col-xl-3">
+                      {{ form.name.label_tag }}
+                      {{ form.name }}
+                      {{ form.name.errors }}
+                  </div>
+                      <div class="col-12 col-lg-3 col-xl-3">
+                       {{ form.person_type.label_tag }}
+                      {{ form.person_type }}
+                      {{ form.person_type.errors }}
+                  </div>
+                        <div class="col-12 col-lg-3 col-xl-3">
+                       {{ form.mobile.label_tag }}
+                      {{ form.mobile }}
+                      {{ form.mobile.errors }}
+                  </div>
+                        <div class="col-12 col-lg-3 col-xl-3">
+                       {{ form.is_active.label_tag }}
+                      {{ form.is_active }}
+                      {{ form.is_active.errors }}
+                  </div>
+                      <div class="col-12">
+                       {{ form.description.label_tag }}
+                      {{ form.description }}
+                      {{ form.description.errors }}
+                  </div>
+                     </div>
+                     <div class='text-start py-2 mb-4'>
+{% if form.instance.id %}
+ <button type="submit" class="btn btn-gradient-success">
+            ذخیره تغییرات
+        </button>
+{% else %}
+ <button type="submit" class="btn btn-gradient-success">
+            ثبت
+        </button>
+{% endif%}
+       </div>
+    </form>
+</div>
+
+
+    <div class="row mb-2">
+        <!-- بخش جستجو -->
+        <div class="col-12 col-md-10 col-xl-10 align-self-center">
+            <form method="get" action="" class="d-flex gap-2 align-items-center">
+                <input type="text"
+                       class="p-2 w-50 w-md-50"
+                       name="q"
+                       id="searchInput"
+                       autocomplete="off"
+                       value="{{ query }}"
+                       placeholder="جستجوی ..."
+                       dir="rtl"
+                       oninput="if(this.value === '') this.form.submit();">
+                <button type="submit" class="btn btn-info px-3 py-2">جستجو</button>
+            </form>
+        </div>
+
+        <!-- بخش تعداد نمایش → فقط دسکتاپ -->
+        <div class="col-12 col-md-2 col-xl-2 p-0 d-none d-md-block">
+            <div class="d-flex align-items-center gap-1">
+                <label for="cardsPerPage" class="form-label mb-0">تعداد نمایش:</label>
+           <select id="cardsPerPage" 
+        class="form-select select-fix"
+        style="width: auto;"
+        onchange="window.location.href='?q={{ query }}&paginate=' + this.value;">
+    <option value="20" {% if request.GET.paginate|default:'20' == '20' %}selected{% endif %}>20</option>
+    <option value="50" {% if request.GET.paginate == '50' %}selected{% endif %}>50</option>
+    <option value="100" {% if request.GET.paginate == '100' %}selected{% endif %}>100</option>
+    <option value="1000" {% if request.GET.paginate == '1000' %}selected{% endif %}>همه</option>
+</select>
+
+            </div>
+        </div>
+    </div>
+
+    <table class="table table-bordered table-striped m-0">
+        <thead>
+            <tr>
+                <th>نام</th>
+                <th>نوع</th>
+                <th>شماره تماس</th>
+                   <th> توضیحات</th>
+                <th>وضعیت</th>
+                <th>عملیات</th>
+            </tr>
+        </thead>
+
+        <tbody>
+            {% for item in third_parties %}
+            <tr>
+                <td>{{ item.name|to_persian_number }}</td>
+                <td>{{ item.get_person_type_display }}</td>
+                <td>{{ item.mobile|default:"-"|to_persian_number }}</td>
+                 <td>{{ item.description|default:"-"|to_persian_number }}</td>
+                <td>
+                    {% if item.is_active %}
+                  
+                    <button class="btn btn-primary bg-gradient-success p-1">فعال</button>
+                       {% else %}
+                       <button class="btn btn-gradient-danger p-1">غیر فعال</button>
+                   {% endif %}
+                </td>
+                <td>
+                    <a href="{% url 'third_party_edit' item.pk %}"
+                       class="btn btn-gradient-warning p-1">
+                         <i class="mdi mdi-lead-pencil" aria-hidden="true"></i>
+                    </a>
+                         
+                      <a href="{% url 'third_party_delete' item.id %}" class="btn btn-gradient-danger p-1"
+                    onclick="return confirmDeleteWithSweetAlert(event)">
+                          <i class="mdi mdi-delete" aria-hidden="true"></i>
+                        </a>
+                </td>
+            </tr>
+            {% empty %}
+            <tr>
+                <td colspan="5">هنوز شخصی ثبت نشده است.</td>
+            </tr>
+            {% endfor %}
+        </tbody>
+    </table>
+</div>
+
+ <!-- Pagination -->
+    <div class="col-12">
+        <div class="pagination d-flex justify-content-center mt-5">
+            {% if page_obj.has_previous %}
+                <a href="?q={{ query }}&paginate={{ request.GET.paginate|default:'20' }}&page={{ page_obj.previous_page_number }}" class="rounded mx-1">قبلی</a>
+            {% endif %}
+
+            {% for page_number in page_obj.paginator.page_range %}
+                <a href="?q={{ query }}&paginate={{ request.GET.paginate|default:'20' }}&page={{ page_number }}"
+                   class="rounded mx-1 {% if page_number == page_obj.number %}active{% endif %}">
+                    {{ page_number }}
+                </a>
+            {% endfor %}
+
+            {% if page_obj.has_next %}
+                <a href="?q={{ query }}&paginate={{ request.GET.paginate|default:'20' }}&page={{ page_obj.next_page_number }}" class="rounded mx-1">بعدی</a>
+            {% endif %}
+        </div>
+    </div>
+</div>
+    
+{% endblock %}
+
+

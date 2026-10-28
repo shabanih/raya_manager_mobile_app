@@ -23,6 +23,70 @@ import uuid
 import secrets
 
 
+class ThirdParty(models.Model):
+    PERSON_TYPE_CHOICES = (
+        ('person', 'شخص حقیقی'),
+        ('company', 'شرکت یا کسب‌وکار'),
+    )
+
+    house = models.ForeignKey(
+        MyHouse,
+        on_delete=models.CASCADE,
+        related_name='third_parties',
+        verbose_name='ساختمان',
+    )
+
+    name = models.CharField(
+        max_length=200,
+        verbose_name='نام شخص یا مجموعه',
+    )
+
+    person_type = models.CharField(
+        max_length=20,
+        choices=PERSON_TYPE_CHOICES,
+        default='person',
+        verbose_name='نوع شخص',
+    )
+
+    mobile = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True,
+        verbose_name='شماره تماس',
+    )
+
+    description = models.CharField(
+        max_length=500,
+        null=True,
+        blank=True,
+        verbose_name='توضیحات',
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='فعال',
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ثبت',
+    )
+
+    class Meta:
+        verbose_name = 'شخص ثالث'
+        verbose_name_plural = 'اشخاص ثالث'
+        ordering = ['name']
+        constraints = [
+            models.UniqueConstraint(
+                fields=['house', 'name'],
+                name='unique_third_party_name_per_house',
+            )
+        ]
+
+    def __str__(self):
+        return self.name
+
+
 class Announcement(models.Model):
     user = models.ForeignKey(User, on_delete=models.CASCADE)
     house = models.ForeignKey(MyHouse, on_delete=models.CASCADE)
@@ -182,9 +246,33 @@ class ExpenseCategory(models.Model):
 
 
 class Expense(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
+
+    RECEIVER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+
+    bank = models.ForeignKey(
+        Bank,
+        on_delete=models.SET_NULL,
+        verbose_name='شماره حساب',
+        null=True,
+        blank=True
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -193,38 +281,173 @@ class Expense(models.Model):
         related_name='house_expenses',
         verbose_name='ساختمان مرتبط'
     )
-    receiver_name = models.CharField(max_length=400, null=True, blank=True)
-    category = models.ForeignKey(ExpenseCategory, on_delete=models.CASCADE, verbose_name='گروه',
-                                 related_name='expenses')
-    date = models.DateField(verbose_name='تاریخ سند')
-    doc_no = models.IntegerField(null=True, blank=True, verbose_name='شماره سند')
+
+    # =====================================================
+    # دریافت کننده
+    # =====================================================
+
+    receiver_type = models.CharField(
+        max_length=20,
+        choices=RECEIVER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع دریافت کننده'
+    )
+
+    receiver_renter = models.ForeignKey(
+        Renter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='expense_receipts',
+        verbose_name='مستاجر دریافت کننده'
+    )
+    receiver_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='expence_third',
+        verbose_name='شخص دریافت ‌کننده',
+    )
+
+    receiver_name = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True
+    )
+
+    # =====================================================
+
+    category = models.ForeignKey(
+        ExpenseCategory,
+        on_delete=models.CASCADE,
+        verbose_name='گروه',
+        related_name='expenses'
+    )
+
+    date = models.DateField(
+        verbose_name='تاریخ سند'
+    )
+
+    doc_no = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='شماره سند'
+    )
+
     financial_document_number = models.PositiveIntegerField(
         null=True,
         blank=True,
         editable=False,
         verbose_name='شماره سند مالی'
     )
-    description = models.CharField(max_length=4000, verbose_name='شرح')
-    amount = models.PositiveIntegerField(verbose_name='قیمت', null=True, blank=True, default=0)
-    details = models.TextField(verbose_name='توضیحات', null=True, blank=True)
-    is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
+
+    description = models.CharField(
+        max_length=4000,
+        verbose_name='شرح'
+    )
+
+    amount = models.PositiveIntegerField(
+        verbose_name='قیمت',
+        null=True,
+        blank=True,
+        default=0
+    )
+
+    details = models.TextField(
+        verbose_name='توضیحات',
+        null=True,
+        blank=True
+    )
+
+    is_paid = models.BooleanField(
+        default=False,
+        verbose_name='پرداخت شده/ نشده'
+    )
+
+    transaction_reference = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True
+    )
+
     payment_date = models.DateField(
         null=True,
         blank=True,
         verbose_name="تاریخ پرداخت"
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاریخ ایجاد')
-    is_active = models.BooleanField(default=True, verbose_name='فعال/غیرفعال')
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ایجاد'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='فعال/غیرفعال'
+    )
 
     def __str__(self):
-        return str(self.doc_no)
+
+        return str(
+            self.doc_no
+        )
+
+    def get_receiver_display(self):
+
+        if self.receiver_type == 'renter':
+
+            if self.unit and self.receiver_name:
+
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مستاجر {self.receiver_name}"
+                )
+
+            if self.receiver_name:
+
+                return (
+                    f"مستاجر {self.receiver_name}"
+                )
+
+        elif self.receiver_type == 'owner':
+
+            if self.unit and self.receiver_name:
+
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مالک {self.receiver_name}"
+                )
+
+            if self.receiver_name:
+
+                return (
+                    f"مالک {self.receiver_name}"
+                )
+
+        elif self.receiver_name:
+
+            return self.receiver_name
+
+        if self.unit:
+
+            return f"واحد {self.unit.unit}"
+
+        return '-'
 
     def get_image_urls_json(self):
-        # Use the correct attribute to access the file URL in the related `ExpenseDocument` model
-        image_urls = [doc.document.url for doc in self.documents.all() if doc.document]
-        print(image_urls)
-        return mark_safe(json.dumps(image_urls))
+
+        image_urls = [
+            doc.document.url
+            for doc in self.documents.all()
+            if doc.document
+        ]
+
+        return mark_safe(
+            json.dumps(image_urls
+            )
+        )
 
 
 class ExpenseDocument(models.Model):
@@ -245,9 +468,33 @@ class IncomeCategory(models.Model):
 
 
 class Income(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
+
+    PAYER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+
+    bank = models.ForeignKey(
+        Bank,
+        on_delete=models.SET_NULL,
+        verbose_name='شماره حساب',
+        null=True,
+        blank=True
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -256,37 +503,172 @@ class Income(models.Model):
         related_name='house_incomes',
         verbose_name='ساختمان مرتبط'
     )
-    payer_name = models.CharField(max_length=400, null=True, blank=True)
-    category = models.ForeignKey(IncomeCategory, on_delete=models.CASCADE, verbose_name='گروه', related_name='incomes')
-    doc_date = models.DateField(verbose_name='تاریخ سند')
-    doc_number = models.IntegerField(null=True, blank=True, verbose_name='شماره سند')
+
+    # =====================================================
+    # پرداخت کننده
+    # =====================================================
+
+    payer_type = models.CharField(
+        max_length=20,
+        choices=PAYER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع پرداخت کننده'
+    )
+
+    payer_renter = models.ForeignKey(
+        Renter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='income_payments',
+        verbose_name='مستاجر پرداخت کننده'
+    )
+    payer_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='income_third',
+        verbose_name='شخص ثالث پرداخت‌کننده',
+    )
+
+    payer_name = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True
+    )
+
+    # =====================================================
+
+    category = models.ForeignKey(
+        IncomeCategory,
+        on_delete=models.CASCADE,
+        verbose_name='گروه',
+        related_name='incomes'
+    )
+
+    doc_date = models.DateField(
+        verbose_name='تاریخ سند'
+    )
+
+    doc_number = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='شماره سند'
+    )
+
     financial_document_number = models.PositiveIntegerField(
         null=True,
         blank=True,
         editable=False,
         verbose_name='شماره سند مالی'
     )
-    description = models.CharField(max_length=4000, verbose_name='شرح')
-    amount = models.PositiveIntegerField(verbose_name='قیمت', null=True, blank=True, default=0)
-    details = models.TextField(verbose_name='توضیحات', null=True, blank=True)
-    is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
+
+    description = models.CharField(
+        max_length=4000,
+        verbose_name='شرح'
+    )
+
+    amount = models.PositiveIntegerField(
+        verbose_name='قیمت',
+        null=True,
+        blank=True,
+        default=0
+    )
+
+    details = models.TextField(
+        verbose_name='توضیحات',
+        null=True,
+        blank=True
+    )
+
+    is_paid = models.BooleanField(
+        default=False,
+        verbose_name='پرداخت شده/ نشده'
+    )
+
+    transaction_reference = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True
+    )
+
     payment_date = models.DateField(
         null=True,
         blank=True,
         verbose_name="تاریخ پرداخت"
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاریخ ایجاد')
-    is_active = models.BooleanField(default=True, verbose_name='فعال/غیرفعال')
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ایجاد'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='فعال/غیرفعال'
+    )
 
     def __str__(self):
-        return str(self.doc_number)
+
+        return str(
+            self.doc_number
+        )
+
+    def get_payer_display(self):
+
+        if self.payer_type == 'renter':
+
+            if self.unit and self.payer_name:
+
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مستاجر {self.payer_name}"
+                )
+
+            if self.payer_name:
+
+                return (
+                    f"مستاجر {self.payer_name}"
+                )
+
+        elif self.payer_type == 'owner':
+
+            if self.unit and self.payer_name:
+
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مالک {self.payer_name}"
+                )
+
+            if self.payer_name:
+
+                return (
+                    f"مالک {self.payer_name}"
+                )
+
+        elif self.payer_name:
+
+            return self.payer_name
+
+        if self.unit:
+
+            return f"واحد {self.unit.unit}"
+
+        return '-'
 
     def get_document_urls_json(self):
-        # Use the correct attribute to access the file URL in the related `ExpenseDocument` model
-        image_urls = [doc.document.url for doc in self.documents.all() if doc.document]
 
-        return mark_safe(json.dumps(image_urls))
+        image_urls = [
+            doc.document.url
+            for doc in self.documents.all()
+            if doc.document
+        ]
+
+        return mark_safe(
+            json.dumps(image_urls)
+        )
 
 
 class IncomeDocument(models.Model):
@@ -300,9 +682,33 @@ class IncomeDocument(models.Model):
 
 # ======================= Receive & Pay Modals ==========================
 class ReceiveMoney(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
+
+    PAYER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+
+    bank = models.ForeignKey(
+        Bank,
+        on_delete=models.SET_NULL,
+        verbose_name='شماره حساب',
+        null=True,
+        blank=True
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -311,52 +717,170 @@ class ReceiveMoney(models.Model):
         related_name='house_receives',
         verbose_name='ساختمان مرتبط'
     )
-    payer_name = models.CharField(max_length=400, null=True, blank=True)
-    doc_date = models.DateField(verbose_name='تاریخ سند')
-    doc_number = models.IntegerField(null=True, blank=True, verbose_name='شماره سند')
+
+    # =====================================================
+    # پرداخت کننده
+    # =====================================================
+
+    payer_type = models.CharField(
+        max_length=20,
+        choices=PAYER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع پرداخت کننده'
+    )
+
+    payer_renter = models.ForeignKey(
+        Renter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='receive_money_payments',
+        verbose_name='مستاجر پرداخت کننده'
+    )
+    payer_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='receive_third',
+        verbose_name='شخص ثالث پرداخت‌کننده',
+    )
+
+    # نام پرداخت کننده در زمان ثبت سند
+    payer_name = models.CharField(
+        max_length=400,
+        null=True,
+        blank=True
+    )
+
+    # =====================================================
+
+    doc_date = models.DateField(
+        verbose_name='تاریخ سند'
+    )
+
+    doc_number = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='شماره سند'
+    )
+
     financial_document_number = models.PositiveIntegerField(
         null=True,
         blank=True,
         editable=False,
         verbose_name='شماره سند مالی'
     )
-    description = models.CharField(max_length=4000, verbose_name='شرح')
-    amount = models.PositiveIntegerField(verbose_name='مبلغ', null=True, blank=True, default=0)
-    details = models.TextField(verbose_name='توضیحات', null=True, blank=True)
-    is_received_money = models.BooleanField(default=False)
-    is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
+
+    description = models.CharField(
+        max_length=4000,
+        verbose_name='شرح'
+    )
+
+    amount = models.PositiveIntegerField(
+        verbose_name='مبلغ',
+        null=True,
+        blank=True,
+        default=0
+    )
+
+    details = models.TextField(
+        verbose_name='توضیحات',
+        null=True,
+        blank=True
+    )
+
+    is_received_money = models.BooleanField(
+        default=False
+    )
+
+    is_paid = models.BooleanField(
+        default=False,
+        verbose_name='پرداخت شده/ نشده'
+    )
+
+    transaction_reference = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True
+    )
+
     payment_date = models.DateField(
         null=True,
         blank=True,
         verbose_name="تاریخ پرداخت"
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاریخ ایجاد')
-    is_active = models.BooleanField(default=True, verbose_name='فعال/غیرفعال')
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ایجاد'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='فعال/غیرفعال'
+    )
 
     def __str__(self):
-        return str(self.unit.unit)
+
+        if self.unit:
+            return f"واحد {self.unit.unit}"
+
+        return self.payer_name or '-'
 
     def save(self, *args, **kwargs):
         super().save(*args, **kwargs)
 
     def get_document_json(self):
-        # Use the correct attribute to access the file URL in the related `ExpenseDocument` model
-        image_urls = [doc.document.url for doc in self.documents.all() if doc.document]
-        print(image_urls)
-        return mark_safe(json.dumps(image_urls))
+
+        image_urls = [
+            doc.document.url
+            for doc in self.documents.all()
+            if doc.document
+        ]
+
+        return mark_safe(
+            json.dumps(image_urls)
+        )
 
     def get_payer_display(self):
-        if self.unit:
-            renter = self.unit.get_active_renter()
-            if renter and getattr(renter, 'renter_name', None):
-                return f"واحد {self.unit.unit} - {renter.renter_name}"  # نام مستاجر
-            elif self.unit.owner_name:
-                return f"واحد {self.unit.unit} - {self.unit.owner_name}"  # نام مالک
-            else:
-                return f"واحد {self.unit.unit}"  # fallback امن
-        else:
+
+        if self.payer_type == 'renter':
+
+            if self.unit and self.payer_name:
+
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مستاجر {self.payer_name}"
+                )
+
+            if self.payer_name:
+
+                return f"مستاجر {self.payer_name}"
+
+        elif self.payer_type == 'owner':
+
+            if self.unit and self.payer_name:
+
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مالک {self.payer_name}"
+                )
+
+            if self.payer_name:
+
+                return f"مالک {self.payer_name}"
+
+        elif self.payer_name:
+
             return self.payer_name
+
+        if self.unit:
+
+            return f"واحد {self.unit.unit}"
+
+        return '-'
 
 
 class ReceiveDocument(models.Model):
@@ -371,9 +895,33 @@ class ReceiveDocument(models.Model):
 # =====================================================================
 
 class PayMoney(models.Model):
-    user = models.ForeignKey(User, on_delete=models.CASCADE)
-    bank = models.ForeignKey(Bank, on_delete=models.SET_NULL, verbose_name='شماره حساب', null=True, blank=True)
-    unit = models.ForeignKey(Unit, on_delete=models.SET_NULL, null=True, blank=True)
+
+    RECEIVER_TYPE_CHOICES = (
+        ('owner', 'مالک'),
+        ('renter', 'مستاجر'),
+        ('other', 'سایر'),
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.CASCADE
+    )
+
+    bank = models.ForeignKey(
+        Bank,
+        on_delete=models.SET_NULL,
+        verbose_name='شماره حساب',
+        null=True,
+        blank=True
+    )
+
+    unit = models.ForeignKey(
+        Unit,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True
+    )
+
     house = models.ForeignKey(
         MyHouse,
         on_delete=models.SET_NULL,
@@ -382,31 +930,116 @@ class PayMoney(models.Model):
         related_name='house_payments',
         verbose_name='ساختمان مرتبط'
     )
-    receiver_name = models.CharField(max_length=200, verbose_name='دریافت کننده')
-    document_date = models.DateField(verbose_name='تاریخ سند')
-    document_number = models.IntegerField(null=True, blank=True, verbose_name='شماره سند')
+
+    # =====================================================
+    # دریافت کننده
+    # =====================================================
+
+    receiver_type = models.CharField(
+        max_length=20,
+        choices=RECEIVER_TYPE_CHOICES,
+        null=True,
+        blank=True,
+        verbose_name='نوع دریافت کننده'
+    )
+
+    receiver_renter = models.ForeignKey(
+        Renter,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='pay_money_receipts',
+        verbose_name='مستاجر دریافت کننده'
+    )
+    receiver_third_party = models.ForeignKey(
+        ThirdParty,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='payer_third',
+        verbose_name='شخص ثالث پرداخت‌کننده',
+    )
+
+    receiver_name = models.CharField(
+        max_length=200,
+        verbose_name='دریافت کننده',
+        null=True,
+        blank=True
+    )
+
+    # =====================================================
+
+    document_date = models.DateField(
+        verbose_name='تاریخ سند'
+    )
+
+    document_number = models.IntegerField(
+        null=True,
+        blank=True,
+        verbose_name='شماره سند'
+    )
+
     financial_document_number = models.PositiveIntegerField(
         null=True,
         blank=True,
         editable=False,
         verbose_name='شماره سند مالی'
     )
-    description = models.CharField(max_length=4000, verbose_name='شرح')
-    amount = models.PositiveIntegerField(verbose_name='مبلغ', null=True, blank=True, default=0)
-    details = models.TextField(verbose_name='توضیحات', null=True, blank=True)
-    is_paid_money = models.BooleanField(default=False)
-    is_paid = models.BooleanField(default=False, verbose_name='پرداخت شده/ نشده')
-    transaction_reference = models.CharField(max_length=20, null=True, blank=True)
+
+    description = models.CharField(
+        max_length=4000,
+        verbose_name='شرح'
+    )
+
+    amount = models.PositiveIntegerField(
+        verbose_name='مبلغ',
+        null=True,
+        blank=True,
+        default=0
+    )
+
+    details = models.TextField(
+        verbose_name='توضیحات',
+        null=True,
+        blank=True
+    )
+
+    is_paid_money = models.BooleanField(
+        default=False
+    )
+
+    is_paid = models.BooleanField(
+        default=False,
+        verbose_name='پرداخت شده/ نشده'
+    )
+
+    transaction_reference = models.CharField(
+        max_length=20,
+        null=True,
+        blank=True
+    )
+
     payment_date = models.DateField(
         null=True,
         blank=True,
         verbose_name="تاریخ پرداخت"
     )
-    created_at = models.DateTimeField(auto_now_add=True, verbose_name='تاریخ ایجاد')
-    is_active = models.BooleanField(default=True, verbose_name='فعال/غیرفعال')
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ایجاد'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='فعال/غیرفعال'
+    )
 
     def __str__(self):
-        return str(self.receiver_name)
+
+        return str(
+            self.receiver_name or '-'
+        )
 
     def save(self, *args, **kwargs):
 
@@ -414,22 +1047,58 @@ class PayMoney(models.Model):
 
     @property
     def get_receiver_display(self):
-        if self.unit:
-            renter = self.unit.get_active_renter()
-            if renter and getattr(renter, 'renter_name', None):
-                return f"واحد {self.unit.unit} - {renter.renter_name}"  # نام مستاجر
-            elif self.unit.owner_name:
-                return f"واحد {self.unit.unit} - {self.unit.owner_name}"  # نام مالک
-            else:
-                return f"واحد {self.unit.unit}"  # fallback امن
-        else:
+
+        if self.receiver_type == 'renter':
+
+            if self.unit and self.receiver_name:
+
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مستاجر {self.receiver_name}"
+                )
+
+            if self.receiver_name:
+
+                return (
+                    f"مستاجر {self.receiver_name}"
+                )
+
+        elif self.receiver_type == 'owner':
+
+            if self.unit and self.receiver_name:
+
+                return (
+                    f"واحد {self.unit.unit} - "
+                    f"مالک {self.receiver_name}"
+                )
+
+            if self.receiver_name:
+
+                return (
+                    f"مالک {self.receiver_name}"
+                )
+
+        elif self.receiver_name:
+
             return self.receiver_name
 
+        if self.unit:
+
+            return f"واحد {self.unit.unit}"
+
+        return '-'
+
     def get_document_urls_json(self):
-        # Use the correct attribute to access the file URL in the related `ExpenseDocument` model
-        image_urls = [doc.document.url for doc in self.documents.all() if doc.document]
-        print(image_urls)
-        return mark_safe(json.dumps(image_urls))
+
+        image_urls = [
+            doc.document.url
+            for doc in self.documents.all()
+            if doc.document
+        ]
+
+        return mark_safe(
+            json.dumps(image_urls)
+        )
 
 
 class PayDocument(models.Model):
@@ -501,73 +1170,8 @@ class PropertyDocument(models.Model):
 
 # ======================== Maintenance =============================
 
-class ThirdParty(models.Model):
-
-    PERSON_TYPE_CHOICES = (
-        ('person', 'شخص حقیقی'),
-        ('company', 'شرکت یا کسب‌وکار'),
-    )
-
-    house = models.ForeignKey(
-        MyHouse,
-        on_delete=models.CASCADE,
-        related_name='third_parties',
-        verbose_name='ساختمان',
-    )
-
-    name = models.CharField(
-        max_length=200,
-        verbose_name='نام شخص یا مجموعه',
-    )
-
-    person_type = models.CharField(
-        max_length=20,
-        choices=PERSON_TYPE_CHOICES,
-        default='person',
-        verbose_name='نوع شخص',
-    )
-
-    mobile = models.CharField(
-        max_length=20,
-        null=True,
-        blank=True,
-        verbose_name='شماره تماس',
-    )
-
-    description = models.CharField(
-        max_length=500,
-        null=True,
-        blank=True,
-        verbose_name='توضیحات',
-    )
-
-    is_active = models.BooleanField(
-        default=True,
-        verbose_name='فعال',
-    )
-
-    created_at = models.DateTimeField(
-        auto_now_add=True,
-        verbose_name='تاریخ ثبت',
-    )
-
-    class Meta:
-        verbose_name = 'شخص ثالث'
-        verbose_name_plural = 'اشخاص ثالث'
-        ordering = ['name']
-        constraints = [
-            models.UniqueConstraint(
-                fields=['house', 'name'],
-                name='unique_third_party_name_per_house',
-            )
-        ]
-
-    def __str__(self):
-        return self.name
-
 
 class Maintenance(models.Model):
-
     RECEIVER_TYPE_CHOICES = (
         ('owner', 'مالک'),
         ('renter', 'مستاجر'),
@@ -766,7 +1370,6 @@ class Maintenance(models.Model):
             return self.receiver_name
 
         if self.unit:
-
             return f"واحد {self.unit.unit}"
 
         return '-'
@@ -1998,13 +2601,6 @@ class Fund(models.Model):
     # =====================================================
     # پرداخت کننده
     # =====================================================
-
-    PAYER_TYPE_CHOICES = (
-        ('owner', 'مالک'),
-        ('renter', 'مستاجر'),
-        ('other', 'سایر'),
-    )
-
     payer_type = models.CharField(
         max_length=20,
         choices=PAYER_TYPE_CHOICES,
@@ -2403,12 +2999,6 @@ class BankFund(models.Model):
     # =====================================================
     # پرداخت کننده
     # =====================================================
-
-    PAYER_TYPE_CHOICES = (
-        ('owner', 'مالک'),
-        ('renter', 'مستاجر'),
-        ('other', 'سایر'),
-    )
 
     payer_type = models.CharField(
         max_length=20,

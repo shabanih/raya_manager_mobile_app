@@ -44,7 +44,7 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
     SewageInstallment, MessageReadStatus, MessageToUser, AnnouncementDocument, SmsManagement, SmsCredit, BankFund, \
     FixCharge, AreaCharge, Subscription, PersonCharge, FixAreaCharge, FixPersonCharge, ChargeByPersonArea, \
     ChargeByFixPersonArea, ChargeFixVariable, ChargeCalculation, Expense, Maintenance, ChargeCalculationItem, \
-    ChargeAllocation, CivilDocument, ExpenseCategory, ExpenseDocument
+    ChargeAllocation, CivilDocument, ExpenseCategory, ExpenseDocument, ThirdParty
 from middleAdmin_panel.services.bank_balance_service import recalculate_bank_balance
 from middleAdmin_panel.services.bank_services import BankTransactionService, validate_bank_transaction_date
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
@@ -25831,7 +25831,7 @@ def civil_prepare_installments(civil, user):
         "share_per_unit": total // count,
         "prepayment_per_unit": prepayment_total // count,
         "installment_amount_per_unit": (
-                    (total - prepayment_total) // count // installment_count) if installment_count else 0,
+                (total - prepayment_total) // count // installment_count) if installment_count else 0,
     }
 
 
@@ -27653,28 +27653,28 @@ class ManagerCivilChargeUnitsListAPIView(APIView):
             )
 
             total_installments = (
-                len(installments)
-                + (1 if has_prepayment_installment else 0)
+                    len(installments)
+                    + (1 if has_prepayment_installment else 0)
             )
 
             paid_count = (
-                len(paid_installments)
-                + (
-                    1
-                    if has_prepayment_installment
-                    and prepayment_is_paid
-                    else 0
-                )
+                    len(paid_installments)
+                    + (
+                        1
+                        if has_prepayment_installment
+                           and prepayment_is_paid
+                        else 0
+                    )
             )
 
             unpaid_count = (
-                len(unpaid_installments)
-                + (
-                    1
-                    if has_prepayment_installment
-                    and not prepayment_is_paid
-                    else 0
-                )
+                    len(unpaid_installments)
+                    + (
+                        1
+                        if has_prepayment_installment
+                           and not prepayment_is_paid
+                        else 0
+                    )
             )
 
             # مجموع مبلغ اقساط ماهانه؛ بدون پیش‌پرداخت
@@ -27685,7 +27685,7 @@ class ManagerCivilChargeUnitsListAPIView(APIView):
 
             # مبلغ کل سهم واحد = پیش‌پرداخت + اقساط ماهانه
             total_charge_amount = (
-                prepayment + installments_total_amount
+                    prepayment + installments_total_amount
             )
 
             # مبلغ پرداخت‌شده شامل پیش‌پرداخت پرداخت‌شده
@@ -27704,8 +27704,8 @@ class ManagerCivilChargeUnitsListAPIView(APIView):
             )
 
             if (
-                has_prepayment_installment
-                and not prepayment_is_paid
+                    has_prepayment_installment
+                    and not prepayment_is_paid
             ):
                 unpaid_amount += prepayment
 
@@ -27716,10 +27716,10 @@ class ManagerCivilChargeUnitsListAPIView(APIView):
                 resident_type = "renter"
                 resident_type_display = "مستأجر"
                 resident_name = (
-                    active_renter.renter_name or "نامشخص"
+                        active_renter.renter_name or "نامشخص"
                 )
                 active_tenant_name = (
-                    active_renter.renter_name or ""
+                        active_renter.renter_name or ""
                 )
             else:
                 resident_type = "owner"
@@ -28224,9 +28224,13 @@ class ManagerExpenseBaseAPIView(APIView):
             user=user,
             house=house,
             is_active=True,
-        ).select_related("category", "unit", "bank").prefetch_related(
-            "documents"
-        )
+        ).select_related(
+            "category",
+            "unit",
+            "bank",
+            "receiver_renter",
+            "receiver_third_party",
+        ).prefetch_related("documents")
 
     @staticmethod
     def serialize_category(category):
@@ -28239,8 +28243,22 @@ class ManagerExpenseBaseAPIView(APIView):
 
     @staticmethod
     def serialize_expense(expense):
+        bank = getattr(expense, "bank", None)
+
         return {
             "id": expense.id,
+            "bank_id": expense.bank_id,
+            "bank_name": (
+                getattr(bank, "bank_name", None) if bank else None
+            ),
+            "account_no": (
+                getattr(bank, "account_no", None) if bank else None
+            ),
+            "receiver_type": expense.receiver_type or "",
+            "receiver_renter_id": expense.receiver_renter_id,
+            "receiver_third_party_id": expense.receiver_third_party_id,
+            "receiver_name": expense.receiver_name or "",
+            "unit_id": expense.unit_id,
             "category_id": expense.category_id,
             "category": expense.category.title if expense.category else None,
             "description": expense.description or "",
@@ -28248,9 +28266,7 @@ class ManagerExpenseBaseAPIView(APIView):
             "amount": str(expense.amount),
             "date": expense.date.isoformat() if expense.date else None,
             "doc_no": expense.doc_no or "",
-            "financial_document_number": (
-                expense.financial_document_number
-            ),
+            "financial_document_number": expense.financial_document_number,
             "is_paid": expense.is_paid,
             "payment_date": (
                 expense.payment_date.isoformat()
@@ -28382,6 +28398,7 @@ class ManagerExpenseCategoriesAPIView(ManagerExpenseBaseAPIView):
             status=status.HTTP_201_CREATED,
         )
 
+
 class ManagerExpenseCategoryDetailAPIView(ManagerExpenseBaseAPIView):
 
     def get_category(self, request, pk):
@@ -28478,6 +28495,7 @@ class ManagerExpenseCategoryDetailAPIView(ManagerExpenseBaseAPIView):
             "message": message,
         })
 
+
 class ManagerExpenseAPIView(ManagerExpenseBaseAPIView):
 
     def get(self, request):
@@ -28531,7 +28549,12 @@ class ManagerExpenseAPIView(ManagerExpenseBaseAPIView):
 
         description = (request.data.get("description") or "").strip()
         details = (request.data.get("details") or "").strip()
-        doc_no = (request.data.get("doc_no") or "").strip()
+        doc_no_value = request.data.get('doc_no')
+        if doc_no_value is not None:
+            doc_no_value = str(doc_no_value).strip()
+
+        if not doc_no_value:
+            doc_no_value = None
 
         if not description:
             return Response(
@@ -28551,13 +28574,10 @@ class ManagerExpenseAPIView(ManagerExpenseBaseAPIView):
                 date=expense_date,
                 description=description,
                 details=details,
-                doc_no=doc_no,
+                doc_no=doc_no_value,
                 is_paid=False,
                 is_active=True,
             )
-
-            # استفاده از شماره‌گذار مالی موجود در پروژه
-            from admin_panel.services import get_next_financial_document_number
 
             expense.financial_document_number = (
                 get_next_financial_document_number(house)
@@ -28584,6 +28604,7 @@ class ManagerExpenseAPIView(ManagerExpenseBaseAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
 
 class ManagerExpenseDetailAPIView(ManagerExpenseBaseAPIView):
 
@@ -28661,7 +28682,7 @@ class ManagerExpenseDetailAPIView(ManagerExpenseBaseAPIView):
 
             if "description" in request.data:
                 description = (
-                    request.data.get("description") or ""
+                        request.data.get("description") or ""
                 ).strip()
 
                 if not description:
@@ -28677,12 +28698,12 @@ class ManagerExpenseDetailAPIView(ManagerExpenseBaseAPIView):
 
             if "details" in request.data:
                 expense.details = (
-                    request.data.get("details") or ""
+                        request.data.get("details") or ""
                 ).strip()
 
             if "doc_no" in request.data:
                 expense.doc_no = (
-                    request.data.get("doc_no") or ""
+                        request.data.get("doc_no") or ""
                 ).strip()
 
             # شماره سند مالی عمداً تغییر داده نمی‌شود.
@@ -28732,3 +28753,645 @@ class ManagerExpenseDetailAPIView(ManagerExpenseBaseAPIView):
             "message": "هزینه با موفقیت غیرفعال شد.",
         })
 
+
+class ManagerExpensePayAPIView(ManagerExpenseBaseAPIView):
+
+    def post(self, request, pk):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        print("PAYMENT DEBUG USER:", request.user.id)
+        print("PAYMENT DEBUG HOUSE:", house.id)
+        print("PAYMENT DEBUG RENTER:", request.data.get("receiver_renter_id"))
+
+        renter_id = request.data.get("receiver_renter_id")
+
+        print(
+            "RENTER MATCH WITHOUT FILTERS:",
+            Renter.objects.filter(pk=renter_id).values(
+                "id",
+                "user_id",
+                "myhouse_id",
+                "unit_id",
+                "renter_is_active",
+                "unit__myhouse_id",
+                "unit__is_active",
+            ).first()
+        )
+
+        try:
+            payment_date = self.parse_expense_date(
+                request.data.get("payment_date")
+            )
+        except ValueError as exc:
+            return Response(
+                {"success": False, "message": str(exc)},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        bank_id = request.data.get("bank_id")
+        receiver_type = (
+                request.data.get("receiver_type") or ""
+        ).strip()
+
+        if not bank_id:
+            return Response({
+                "success": False,
+                "message": "انتخاب حساب بانکی الزامی است.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if receiver_type not in ("owner", "renter", "other"):
+            return Response({
+                "success": False,
+                "message": "نوع دریافت‌کننده معتبر نیست.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        bank = Bank.objects.filter(
+            pk=bank_id,
+            user=request.user,
+            house=house,
+            is_active=True,
+        ).first()
+
+        if not bank:
+            return Response({
+                "success": False,
+                "message": "حساب بانکی انتخاب‌شده معتبر نیست.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        receiver_name = ""
+        receiver_renter = None
+        receiver_third_party = None
+        unit = None
+
+        if receiver_type == "owner":
+            unit_id = request.data.get("unit_id")
+
+            unit = Unit.objects.filter(
+                pk=unit_id,
+                user=request.user,
+                myhouse=house,
+                is_active=True,
+            ).first()
+
+            if not unit:
+                return Response({
+                    "success": False,
+                    "message": "واحد انتخاب‌شده معتبر نیست.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            receiver_name = (unit.owner_name or "").strip()
+
+            if not receiver_name:
+                return Response({
+                    "success": False,
+                    "message": "نام مالک این واحد ثبت نشده است.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+
+
+        elif receiver_type == "renter":
+
+            renter_id = request.data.get("receiver_renter_id")
+
+            receiver_renter = Renter.objects.filter(
+
+                pk=renter_id,
+
+                myhouse=house,
+
+                unit__myhouse=house,
+
+                renter_is_active=True,
+
+                unit__is_active=True,
+
+            ).select_related("unit").first()
+
+            if not receiver_renter:
+                return Response({
+
+                    "success": False,
+
+                    "message": "مستأجر فعال معتبری در این ساختمان یافت نشد.",
+
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            unit = receiver_renter.unit
+
+            receiver_name = (
+
+                    receiver_renter.renter_name or ""
+
+            ).strip()
+
+            if not receiver_name:
+                return Response({
+
+                    "success": False,
+
+                    "message": "نام مستأجر مشخص نیست.",
+
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        else:
+            third_party_id = request.data.get(
+                "receiver_third_party_id"
+            )
+
+            receiver_third_party = ThirdParty.objects.filter(
+                pk=third_party_id,
+                house=house,
+                is_active=True,
+            ).first()
+
+            if not receiver_third_party:
+                return Response({
+                    "success": False,
+                    "message": "شخص ثالث معتبر یافت نشد.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            receiver_name = (
+                    receiver_third_party.name or ""
+            ).strip()
+
+            if not receiver_name:
+                return Response({
+                    "success": False,
+                    "message": "نام شخص ثالث مشخص نیست.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        transaction_reference = (
+                request.data.get("transaction_reference") or ""
+        ).strip()
+
+        if len(transaction_reference) > 15:
+            return Response({
+                "success": False,
+                "message": (
+                    "کد پیگیری حداکثر می‌تواند ۱۵ کاراکتر باشد."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+                expense = self.expense_queryset(
+                    request.user, house
+                ).select_for_update().filter(pk=pk).first()
+
+                if not expense:
+                    return Response({
+                        "success": False,
+                        "message": "هزینه یافت نشد.",
+                    }, status=status.HTTP_404_NOT_FOUND)
+
+                if expense.is_paid:
+                    return Response({
+                        "success": False,
+                        "message": "این هزینه قبلاً پرداخت شده است.",
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                expense_ct = ContentType.objects.get_for_model(
+                    expense
+                )
+
+                # وجود برداشت قبلی برای همین هزینه را بررسی می‌کنیم.
+                previous_withdrawal = BankFund.objects.filter(
+                    content_type=expense_ct,
+                    object_id=expense.pk,
+                    transaction_type="withdraw",
+                ).exists()
+
+                if previous_withdrawal:
+                    return Response({
+                        "success": False,
+                        "message": (
+                            "برای این هزینه قبلاً برداشت بانکی ثبت شده است. "
+                            "ابتدا سوابق مالی آن را بررسی کنید."
+                        ),
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                amount = Decimal(str(expense.amount or 0))
+
+                if amount <= 0:
+                    return Response({
+                        "success": False,
+                        "message": "مبلغ هزینه باید بیشتر از صفر باشد.",
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                fund = BankTransactionService.withdraw(
+                    user=request.user,
+                    bank=bank,
+                    unit=unit,
+                    amount=amount,
+                    description=(
+                                    f"پرداخت هزینه شماره {expense.doc_no}: "
+                                    f"{expense.description}"
+                                )[:500],
+                    content_object=expense,
+                    payment_date=payment_date,
+                    transaction_no=transaction_reference or None,
+                    receiver_type=receiver_type,
+                    receiver_renter=receiver_renter,
+                    receiver_name=receiver_name,
+                    receiver_third_party=receiver_third_party,
+                    house=house,
+                    gateway="پرداخت هزینه",
+                )
+
+                expense.bank = bank
+                expense.payment_date = payment_date
+                expense.transaction_reference = (
+                        transaction_reference or None
+                )
+                expense.receiver_type = receiver_type
+                expense.receiver_name = receiver_name
+                expense.receiver_renter = receiver_renter
+                expense.receiver_third_party = receiver_third_party
+
+                # واحد فقط در صورت مشخص بودن گیرنده به‌روزرسانی شود.
+                if unit is not None:
+                    expense.unit = unit
+
+                expense.is_paid = True
+
+                expense.save(update_fields=[
+                    "bank",
+                    "payment_date",
+                    "transaction_reference",
+                    "receiver_type",
+                    "receiver_name",
+                    "receiver_renter",
+                    "receiver_third_party",
+                    "unit",
+                    "is_paid",
+                ])
+
+        except ValidationError as exc:
+            return Response({
+                "success": False,
+                "message": (
+                    exc.messages[0]
+                    if getattr(exc, "messages", None)
+                    else str(exc)
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        expense = self.expense_queryset(
+            request.user, house
+        ).get(pk=pk)
+
+        return Response({
+            "success": True,
+            "message": "پرداخت هزینه با موفقیت ثبت شد.",
+            "expense": self.serialize_expense(expense),
+        })
+
+
+class ManagerExpenseBanksAPIView(ManagerExpenseBaseAPIView):
+
+    def get(self, request):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        banks = Bank.objects.filter(
+            user=request.user,
+            house=house,
+            is_active=True,
+        ).order_by("-is_default", "bank_name")
+
+        return Response({
+            "success": True,
+            "results": [
+                {
+                    "id": bank.id,
+                    "bank_name": bank.bank_name,
+                    "account_no": bank.account_no,
+                    "account_holder_name": bank.account_holder_name,
+                    "is_default": bank.is_default,
+                    "current_balance": str(
+                        bank.current_balance or 0
+                    ),
+                }
+                for bank in banks
+            ],
+        })
+
+
+class ManagerExpenseReceiversAPIView(ManagerExpenseBaseAPIView):
+
+    def get(self, request):
+        house, error = self.get_house(request)
+
+        if error:
+            return error
+
+        receiver_type = (
+            request.query_params.get("type") or ""
+        ).strip()
+
+        query = (
+            request.query_params.get("search") or ""
+        ).strip()
+
+        try:
+            limit = min(
+                max(int(request.query_params.get("limit", 30)), 1),
+                100,
+            )
+        except (TypeError, ValueError):
+            limit = 30
+
+        # کاربران تحت مدیریت، مطابق فرم وب
+        managed_users = User.objects.filter(
+            Q(manager=request.user) | Q(pk=request.user.pk)
+        )
+
+        results = []
+
+        # =====================================================
+        # مالک
+        # =====================================================
+        if receiver_type == "owner":
+
+            units = Unit.objects.filter(
+                user__in=managed_users,
+                myhouse=house,
+                is_active=True,
+            ).exclude(
+                Q(owner_name__isnull=True)
+                | Q(owner_name__exact="")
+            )
+
+            if query:
+                units = units.filter(
+                    Q(owner_name__icontains=query)
+                    | Q(unit__icontains=query)
+                    | Q(owner_mobile__icontains=query)
+                )
+
+            units = units.order_by("unit", "id")[:limit]
+
+            results = [
+                {
+                    "id": unit.id,
+                    "unit_id": unit.id,
+                    "name": (unit.owner_name or "").strip(),
+                    "unit": unit.unit,
+                    "mobile": unit.owner_mobile or "",
+                    "label": (
+                        f"واحد {unit.unit} - "
+                        f"مالک: {(unit.owner_name or '').strip()}"
+                    ),
+                }
+                for unit in units
+            ]
+
+        # =====================================================
+        # مستأجر
+        # =====================================================
+        elif receiver_type == "renter":
+
+            renters = Renter.objects.filter(
+                unit__user__in=managed_users,
+                unit__myhouse=house,
+                unit__is_active=True,
+                renter_is_active=True,
+            ).filter(
+                Q(renter_name__isnull=False)
+            ).exclude(
+                renter_name__exact=""
+            ).select_related(
+                "unit"
+            ).order_by(
+                "unit__unit", "id"
+            )
+
+            if query:
+                renters = renters.filter(
+                    Q(renter_name__icontains=query)
+                    | Q(renter_mobile__icontains=query)
+                    | Q(unit__unit__icontains=query)
+                )
+
+            renters = renters[:limit]
+
+            results = [
+                {
+                    "id": renter.id,
+                    "unit_id": renter.unit_id,
+                    "name": (renter.renter_name or "").strip(),
+                    "unit": renter.unit.unit,
+                    "mobile": renter.renter_mobile or "",
+                    "label": (
+                        f"واحد {renter.unit.unit} - "
+                        f"مستأجر: {(renter.renter_name or '').strip()}"
+                    ),
+                }
+                for renter in renters
+            ]
+
+        # =====================================================
+        # شخص ثالث
+        # =====================================================
+        elif receiver_type == "other":
+
+            third_parties = ThirdParty.objects.filter(
+                house=house,
+                is_active=True,
+            )
+
+            if query:
+                third_parties = third_parties.filter(
+                    Q(name__icontains=query)
+                    | Q(mobile__icontains=query)
+                )
+
+            third_parties = third_parties.order_by(
+                "name", "id"
+            )[:limit]
+
+            results = [
+                {
+                    "id": person.id,
+                    "name": person.name or "",
+                    "mobile": person.mobile or "",
+                    "label": person.name or "",
+                }
+                for person in third_parties
+            ]
+
+        else:
+            return Response(
+                {
+                    "success": False,
+                    "message": "نوع دریافت‌کننده معتبر نیست.",
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response({
+            "success": True,
+            "results": results,
+        })
+
+
+class ManagerExpenseCancelPayAPIView(ManagerExpenseBaseAPIView):
+    """
+    لغو پرداخت هزینه با حفظ سابقه تراکنش بانکی.
+    """
+
+    def post(self, request, pk):
+        house, error = self.get_house(request)
+        if error:
+            return error
+
+        try:
+            with transaction.atomic():
+                expense = self.expense_queryset(
+                    request.user, house
+                ).select_for_update().filter(pk=pk).first()
+
+                if not expense:
+                    return Response({
+                        "success": False,
+                        "message": "هزینه یافت نشد.",
+                    }, status=status.HTTP_404_NOT_FOUND)
+
+                if not expense.is_paid:
+                    return Response({
+                        "success": False,
+                        "message": "این هزینه پرداخت نشده است.",
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                expense_ct = ContentType.objects.get_for_model(
+                    expense
+                )
+
+                original_fund = BankFund.objects.filter(
+                    content_type=expense_ct,
+                    object_id=expense.pk,
+                    transaction_type="withdraw",
+                    is_paid=True,
+                ).select_for_update().order_by("-pk").first()
+
+                if not original_fund:
+                    return Response({
+                        "success": False,
+                        "message": (
+                            "تراکنش برداشت متناظر با این هزینه پیدا نشد؛ "
+                            "لغو خودکار برای جلوگیری از مغایرت مالی انجام نشد."
+                        ),
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # واریز جبرانی را با همان content_object پیدا می‌کنیم.
+                # شناسه تراکنش اصلی در توضیحات ثبت می‌شود.
+                reversal_marker = (
+                    f"برگشت پرداخت هزینه - BankFund #{original_fund.pk}"
+                )
+
+                reversal_exists = BankFund.objects.filter(
+                    bank_id=original_fund.bank_id,
+                    content_type=expense_ct,
+                    object_id=expense.pk,
+                    transaction_type="deposit",
+                    payment_description=reversal_marker,
+                ).exists()
+
+                if reversal_exists:
+                    return Response({
+                        "success": False,
+                        "message": (
+                            "برای این پرداخت قبلاً واریز جبرانی ثبت شده است."
+                        ),
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # در این مرحله برداشت اصلی باید متعلق به همین ساختمان
+                # و حساب بانکی ثبت‌شده در هزینه باشد.
+                if (
+                        not original_fund.bank_id
+                        or not expense.bank_id
+                        or original_fund.bank_id != expense.bank_id
+                ):
+                    return Response({
+                        "success": False,
+                        "message": (
+                            "حساب بانکی تراکنش با حساب ثبت‌شده در هزینه "
+                            "مطابقت ندارد؛ ابتدا سوابق را بررسی کنید."
+                        ),
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                bank = Bank.objects.filter(
+                    pk=original_fund.bank_id,
+                    user=request.user,
+                    house=house,
+                    is_active=True,
+                ).first()
+
+                if not bank:
+                    return Response({
+                        "success": False,
+                        "message": (
+                            "حساب بانکی تراکنش در این ساختمان معتبر نیست."
+                        ),
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # ثبت واریز جبرانی از طریق همان سرویس مالی.
+                # نوع واریز باعث بازگشت مبلغ به موجودی بانک می‌شود.
+                BankTransactionService.deposit(
+                    user=request.user,
+                    bank=bank,
+                    unit=original_fund.unit,
+                    amount=Decimal(str(original_fund.amount or 0)),
+                    description=reversal_marker,
+                    content_object=expense,
+                    payment_date=original_fund.payment_date,
+                    transaction_no=None,
+                    gateway="برگشت پرداخت هزینه",
+                    house=house,
+                )
+
+                # اطلاعات مستقل هزینه مانند unit را پاک نمی‌کنیم.
+                expense.is_paid = False
+                expense.bank = None
+                expense.payment_date = None
+                expense.transaction_reference = None
+                expense.receiver_type = None
+                expense.receiver_renter = None
+                expense.receiver_third_party = None
+                expense.receiver_name = None
+
+                expense.save(update_fields=[
+                    "is_paid",
+                    "bank",
+                    "payment_date",
+                    "transaction_reference",
+                    "receiver_type",
+                    "receiver_renter",
+                    "receiver_third_party",
+                    "receiver_name",
+                ])
+
+        except ValidationError as exc:
+            return Response({
+                "success": False,
+                "message": (
+                    exc.messages[0]
+                    if getattr(exc, "messages", None)
+                    else str(exc)
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        expense = self.expense_queryset(
+            request.user, house
+        ).get(pk=pk)
+
+        return Response({
+            "success": True,
+            "message": (
+                "پرداخت لغو شد و واریز جبرانی در گردش بانک ثبت شد."
+            ),
+            "expense": self.serialize_expense(expense),
+        })

@@ -45,7 +45,7 @@ from admin_panel.forms import announcementForm, BankForm, UnitForm, ExpenseCateg
     FixAreaChargeForm, AreaChargeForm, PersonChargeForm, FixPersonChargeForm, PersonAreaChargeForm, \
     PersonAreaFixChargeForm, VariableFixChargeForm, MyHouseForm, SmsForm, RenterAddForm, ExpensePayForm, IncomePayForm, \
     SmsCreditForm, SubscriptionPlanForm, CivilForm, SewageForm, ReceivePayForm, PayMoneyForm, PropertyPayForm, \
-    MaintenancePayForm, TransferMoneyForm, ChargeCalculationForm
+    MaintenancePayForm, TransferMoneyForm, ChargeCalculationForm, ThirdPartyForm
 from admin_panel.helper import send_notify_user_by_sms
 from admin_panel.models import Announcement, ExpenseCategory, Expense, Fund, ExpenseDocument, IncomeCategory, Income, \
     IncomeDocument, ReceiveMoney, ReceiveDocument, PayMoney, PayDocument, Property, PropertyDocument, Maintenance, \
@@ -54,7 +54,7 @@ from admin_panel.models import Announcement, ExpenseCategory, Expense, Fund, Exp
     ChargeByFixPersonArea, ChargeFixVariable, SmsManagement, \
     UnifiedCharge, SmsCredit, SubscriptionPlan, Subscription, CivilManage, CivilDocument, CivilInstallment, \
     SewageManage, SewageDocument, SewageInstallment, BankFund, Coupon, CouponUsage, ChargeCalculation, \
-    ChargeCalculationItem, ChargeAllocation, FinancialDocumentSequence
+    ChargeCalculationItem, ChargeAllocation, FinancialDocumentSequence, ThirdParty
 from admin_panel.services.calculators import CALCULATORS
 from admin_panel.services.utils import get_next_financial_document_number
 from middleAdmin_panel.services.bank_services import BankTransactionService
@@ -1983,195 +1983,599 @@ class MiddleExpenseView(CreateView):
 
 @login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
 def expense_pay_view(request, expense_id):
+
+    logger = logging.getLogger(__name__)
+
     expense = get_object_or_404(
         Expense,
         id=expense_id,
         is_paid=False,
-        is_active=True
+        is_active=True,
     )
 
     if request.method == 'POST':
-        form = ExpensePayForm(request.POST, user=request.user)
-        if form.is_valid():
-            try:
-                with transaction.atomic():
-                    bank = form.cleaned_data['bank']
-                    reference = form.cleaned_data.get('transaction_reference')
-                    payment_date = form.cleaned_data.get('payment_date')
-                    receiver_name = form.cleaned_data.get('receiver_name')
-                    unit = form.cleaned_data['unit']
+        form = ExpensePayForm(
+            request.POST,
+            user=request.user,
+            instance=expense,
+        )
+    else:
+        form = ExpensePayForm(
+            user=request.user,
+            instance=expense,
+        )
 
-                    # 🔹 موجودی فعلی صندوق بانک انتخاب شده
+    if request.method == 'POST' and form.is_valid():
 
-                    current_balance = bank.current_balance
+        try:
+            with transaction.atomic():
 
-                    if current_balance < expense.amount:
-                        messages.error(
-                            request,
-                            f'موجودی بانک کافی نیست. موجودی فعلی: {current_balance:,} تومان'
+                # ---------------------------------------------
+                # قفل هزینه برای جلوگیری از پرداخت هم‌زمان
+                # ---------------------------------------------
+                expense = get_object_or_404(
+                    Expense.objects.select_for_update(),
+                    id=expense_id,
+                    is_paid=False,
+                    is_active=True,
+                )
+
+                bank = form.cleaned_data['bank']
+
+                reference = (
+                    form.cleaned_data.get('transaction_reference') or None
+                )
+
+                payment_date = form.cleaned_data['payment_date']
+
+                unit = form.cleaned_data.get('unit')
+                third_party = form.cleaned_data.get('third_party')
+
+                receiver_type = form.cleaned_data.get('receiver_type')
+                receiver_renter = form.cleaned_data.get('receiver_renter')
+
+                receiver_name = (
+                    form.cleaned_data.get('receiver_name') or ''
+                ).strip()
+
+                expense_amount = Decimal(str(expense.amount or 0))
+
+                if expense_amount <= 0:
+                    raise ValidationError(
+                        'مبلغ هزینه باید بیشتر از صفر باشد.'
+                    )
+
+                # ---------------------------------------------
+                # تعیین نوع دریافت‌کننده
+                # ---------------------------------------------
+                if third_party:
+                    receiver_type = 'other'
+
+                if receiver_type not in ('owner', 'renter', 'other'):
+                    raise ValidationError(
+                        'نوع دریافت‌کننده نامعتبر است.'
+                    )
+
+                # ---------------------------------------------
+                # دریافت‌کننده: مالک
+                # ---------------------------------------------
+                if receiver_type == 'owner':
+
+                    if not unit:
+                        raise ValidationError(
+                            'برای دریافت‌کننده مالک، انتخاب واحد الزامی است.'
                         )
-                        return redirect(request.META.get('HTTP_REFERER'))
 
-                    # funds = Fund.objects.filter(user=request.user, bank=bank)
-                    # print(f"Funds count for bank {bank.id}: {funds.count()}")
-                    # for f in funds:
-                    #     print(f"Fund: {f.id}, bank: {f.bank}, final: {f.final_amount}")
-                    #
-                    # bank_funds = Fund.objects.filter(user=request.user, bank=bank)
-                    # total_debit = bank_funds.aggregate(Sum('debtor_amount'))['debtor_amount__sum'] or 0
-                    # total_credit = bank_funds.aggregate(Sum('creditor_amount'))['creditor_amount__sum'] or 0
-                    # current_final = Decimal(total_debit) - Decimal(total_credit)
-                    #
-                    # print(f'bank-fund:{current_final}')
+                    if not unit.is_active:
+                        raise ValidationError(
+                            'واحد انتخاب‌شده غیرفعال است.'
+                        )
 
-                    # 🔴 بررسی موجودی
-                    # if current_final < expense.amount:
-                    #     messages.error(
-                    #         request,
-                    #         'موجودی صندوق کافی نیست'
-                    #     )
-                    #     return redirect(request.META.get('HTTP_REFERER'))
+                    if (
+                        expense.house_id
+                        and unit.myhouse_id != expense.house_id
+                    ):
+                        raise ValidationError(
+                            'واحد انتخاب‌شده متعلق به ساختمان این هزینه نیست.'
+                        )
 
-                    # 🔹 ثبت Fund (هزینه → بستانکار)
-                    Fund.objects.create(
-                        unit=unit if unit else None,
-                        receiver_name=receiver_name if not unit else f' {unit.get_label()}',
-                        user=request.user,
-                        bank=bank,
-                        house=expense.house,
-                        content_object=expense,
-                        amount=expense.amount,
-                        debtor_amount=0,
-                        creditor_amount=expense.amount,
-                        payment_date=payment_date,
-                        transaction_no=reference,
-                        payment_gateway='کارت به کارت',
-                        payment_description=f' هزینه:  {expense.category.title}',
-                        is_paid=True,
+                    receiver_renter = None
+                    third_party = None
 
+                    owner_name = (unit.owner_name or '').strip()
+
+                    if not owner_name:
+                        raise ValidationError(
+                            'نام مالک مشخص نیست.'
+                        )
+
+                    receiver_name = f'واحد {unit.unit} - {owner_name}'
+
+                # ---------------------------------------------
+                # دریافت‌کننده: مستأجر
+                # ---------------------------------------------
+                elif receiver_type == 'renter':
+
+                    if not receiver_renter:
+                        raise ValidationError(
+                            'مستأجر دریافت‌کننده مشخص نشده است.'
+                        )
+
+                    renter_unit = receiver_renter.unit
+
+                    if not renter_unit or not renter_unit.is_active:
+                        raise ValidationError(
+                            'واحد مرتبط با مستأجر معتبر یا فعال نیست.'
+                        )
+
+                    if (
+                        expense.house_id
+                        and renter_unit.myhouse_id != expense.house_id
+                    ):
+                        raise ValidationError(
+                            'واحد مستأجر متعلق به ساختمان این هزینه نیست.'
+                        )
+
+                    # در صورت وجود فیلد فعال بودن مستأجر
+                    if not receiver_renter.renter_is_active:
+                        raise ValidationError(
+                            'مستأجر انتخاب‌شده غیرفعال است.'
+                        )
+
+                    unit = renter_unit
+                    third_party = None
+
+                    renter_name = (
+                        receiver_renter.renter_name or ''
+                    ).strip()
+
+                    if not renter_name:
+                        raise ValidationError(
+                            'نام مستأجر مشخص نیست.'
+                        )
+
+                    receiver_name = f'واحد {unit.unit} - {renter_name}'
+
+                # ---------------------------------------------
+                # دریافت‌کننده: شخص ثالث
+                # ---------------------------------------------
+                elif receiver_type == 'other':
+
+                    unit = None
+                    receiver_renter = None
+
+                    if not third_party:
+                        raise ValidationError(
+                            'لطفاً شخص ثالث دریافت‌کننده را انتخاب کنید.'
+                        )
+
+                    if not third_party.is_active:
+                        raise ValidationError(
+                            'شخص ثالث انتخاب‌شده غیرفعال است.'
+                        )
+
+                    if (
+                        expense.house_id
+                        and third_party.house_id != expense.house_id
+                    ):
+                        raise ValidationError(
+                            'شخص ثالث متعلق به ساختمان این هزینه نیست.'
+                        )
+
+                    receiver_name = (third_party.name or '').strip()
+
+                    if not receiver_name:
+                        raise ValidationError(
+                            'نام شخص ثالث ثبت نشده است.'
+                        )
+
+                # ---------------------------------------------
+                # کنترل نهایی واحد و مستأجر
+                # ---------------------------------------------
+                if receiver_type == 'renter':
+
+                    if not receiver_renter or not unit:
+                        raise ValidationError(
+                            'اطلاعات واحد یا مستأجر ناقص است.'
+                        )
+
+                    if receiver_renter.unit_id != unit.pk:
+                        raise ValidationError(
+                            'واحد و مستأجر با یکدیگر مطابقت ندارند.'
+                        )
+
+                # ---------------------------------------------
+                # قفل بانک و کنترل موجودی
+                # ---------------------------------------------
+                bank = Bank.objects.select_for_update().get(
+                    pk=bank.pk
+                )
+
+                current_balance = bank.get_current_balance()
+
+                if current_balance < expense_amount:
+                    raise ValidationError(
+                        'موجودی بانک کافی نیست. '
+                        f'موجودی فعلی: {current_balance:,.0f} تومان'
                     )
-                    BankTransactionService.withdraw(
-                        user=request.user,
-                        bank=bank,
-                        unit=unit if unit else None,
-                        amount=Decimal(expense.amount),
-                        description=f' هزینه: {expense.category.title}',
-                        content_object=expense,
-                        payment_date=payment_date,
-                        transaction_no=reference,
-                        gateway='کارت به کارت',
-                        receiver_name=receiver_name if not unit else f' {unit.get_label}',
-                        house=expense.house
+
+                # ---------------------------------------------
+                # پیدا کردن Fund قبلی مرتبط با همین هزینه
+                # ---------------------------------------------
+                content_type = ContentType.objects.get_for_model(
+                    expense,
+                    for_concrete_model=False,
+                )
+
+                fund = (
+                    Fund.objects.select_for_update()
+                    .filter(
+                        content_type=content_type,
+                        object_id=expense.pk,
+                    )
+                    .order_by('pk')
+                    .first()
+                )
+
+                fund_defaults = {
+                    'user': request.user,
+                    'bank': bank,
+                    'house': expense.house,
+                    'unit': unit,
+                    'amount': expense_amount,
+                    'debtor_amount': Decimal('0'),
+                    'creditor_amount': expense_amount,
+                    'payment_date': payment_date,
+                    'transaction_no': reference,
+                    'payment_gateway': 'پرداخت الکترونیک',
+                    'payment_description': (
+                        f'هزینه: {expense.category.title}'
+                    ),
+                    'receiver_type': receiver_type,
+                    'receiver_renter': (
+                        receiver_renter
+                        if receiver_type == 'renter'
+                        else None
+                    ),
+                    'receiver_third_party': (
+                        third_party
+                        if receiver_type == 'other'
+                        else None
+                    ),
+                    'receiver_name': receiver_name,
+                    'is_paid': True,
+                    'financial_document_number': (
+                        expense.financial_document_number
+                    ),
+                }
+
+                if fund:
+                    # به‌روزرسانی Fund قبلی
+                    for field, value in fund_defaults.items():
+                        setattr(fund, field, value)
+
+                    fund.save()
+                else:
+                    # ایجاد Fund فقط در صورت نبود رکورد قبلی
+                    fund = Fund.objects.create(
+                        content_type=content_type,
+                        object_id=expense.pk,
+                        **fund_defaults,
                     )
 
-                    # 🔹 بروزرسانی Expense
-                    expense.is_paid = True
-                    expense.bank = bank
-                    expense.transaction_reference = reference
-                    expense.payment_date = payment_date
-                    expense.unit = unit
-                    expense.receiver_name = unit.get_label if unit else receiver_name
+                # ---------------------------------------------
+                # ثبت یا به‌روزرسانی تراکنش بانکی
+                # ---------------------------------------------
+                # این سرویس در پروژه فعلی مسئول ثبت BankFund است.
+                # تا زمانی که ساختار BankFund و منطق داخلی سرویس
+                # بررسی نشده، آن را دوباره به صورت دستی ایجاد نکن.
+                BankTransactionService.withdraw(
+                    user=request.user,
+                    bank=bank,
+                    unit=unit,
+                    amount=expense_amount,
+                    description=f'هزینه: {expense.category.title}',
+                    content_object=expense,
+                    payment_date=payment_date,
+                    transaction_no=reference,
+                    gateway='پرداخت الکترونیک',
+                    receiver_type=receiver_type,
+                    receiver_renter=(
+                        receiver_renter
+                        if receiver_type == 'renter'
+                        else None
+                    ),
+                    receiver_third_party=(
+                        third_party
+                        if receiver_type == 'other'
+                        else None
+                    ),
+                    receiver_name=receiver_name,
+                    house=expense.house,
+                    financial_document_number=(
+                        expense.financial_document_number
+                    ),
+                )
 
-                    expense.save(update_fields=[
+                # ---------------------------------------------
+                # به‌روزرسانی هزینه
+                # ---------------------------------------------
+                expense.is_paid = True
+                expense.bank = bank
+                expense.transaction_reference = reference
+                expense.payment_date = payment_date
+                expense.unit = unit
+                expense.receiver_type = receiver_type
+                expense.receiver_renter = (
+                    receiver_renter
+                    if receiver_type == 'renter'
+                    else None
+                )
+                expense.receiver_third_party = (
+                    third_party
+                    if receiver_type == 'other'
+                    else None
+                )
+                expense.receiver_name = receiver_name
+
+                expense.save(
+                    update_fields=[
                         'is_paid',
                         'bank',
                         'transaction_reference',
                         'payment_date',
                         'unit',
-                        'receiver_name'
-                    ])
+                        'receiver_type',
+                        'receiver_renter',
+                        'receiver_third_party',
+                        'receiver_name',
+                    ]
+                )
 
-                messages.success(request, 'پرداخت با موفقیت انجام شد')
-                return redirect('middle_register_expense')
+            messages.success(
+                request,
+                'پرداخت با موفقیت انجام شد.'
+            )
 
-            except ValidationError as e:
-                messages.error(request, e.message)
-            except Exception as e:
-                messages.error(request, f'خطا در پرداخت: {e}')
+            return redirect('middle_register_expense')
 
-    else:
-        form = ExpensePayForm(user=request.user)
+        except ValidationError as e:
+
+            messages.error(
+                request,
+                ' '.join(e.messages)
+                if hasattr(e, 'messages')
+                else str(e),
+            )
+
+        except Exception as e:
+
+            logger.exception(
+                'خطا در پرداخت هزینه با شناسه %s',
+                expense_id,
+            )
+
+            messages.error(
+                request,
+                f'خطا در پرداخت هزینه: {e}',
+            )
 
     return render(
         request,
         'middle_expense_templates/expense_pay.html',
         {
             'expense': expense,
-            'form': form
+            'form': form,
         }
     )
 
 
+
 @login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
 def expense_cancel_pay_view(request, expense_id):
-    # Expense فقط اگر پرداخت شده باشد قابل لغو است
-    expense = get_object_or_404(
-        Expense,
-        id=expense_id,
-        is_paid=True,
-        is_active=True
-    )
 
-    if request.method == 'POST':
-        try:
-            with transaction.atomic():
-                # پیدا کردن Fund مربوطه
-                fund = Fund.objects.filter(
-                    content_type__model='expense',
+    referer = request.META.get('HTTP_REFERER', '/')
+
+    if request.method != 'POST':
+        return redirect(referer)
+
+    try:
+        recalc_error = None
+
+        with transaction.atomic():
+
+            # =====================================================
+            # دریافت Expense با قفل
+            # =====================================================
+
+            expense = (
+                Expense.objects
+                .select_for_update()
+                .get(
+                    id=expense_id,
+                    is_paid=True,
+                    is_active=True,
+                    user=request.user
+                )
+            )
+
+            # =====================================================
+            # ContentType
+            # =====================================================
+
+            content_type = ContentType.objects.get_for_model(
+                expense
+            )
+
+            # =====================================================
+            # پیدا کردن Fund
+            # =====================================================
+
+            fund = (
+                Fund.objects
+                .select_for_update()
+                .filter(
+                    content_type=content_type,
                     object_id=expense.id,
                     user=request.user,
                     is_paid=True
-                ).first()
+                )
+                .first()
+            )
 
-                if not fund:
-                    messages.error(request, 'Fund مرتبط با این پرداخت پیدا نشد!')
-                    return redirect(request.META.get('HTTP_REFERER'))
+            if not fund:
+                raise ValidationError(
+                    'Fund مرتبط با این پرداخت پیدا نشد!'
+                )
 
-                # حذف Fund
-                fund.delete()
-                bank_fund = BankFund.objects.filter(
-                    content_type__model='expense',
-                    object_id=expense.id
-                ).first()
-                print(f'bank_fund: {bank_fund}')
+            fund_doc_number = fund.doc_number
+            house_id = fund.house_id
 
-                if bank_fund:
-                    bank = bank_fund.bank
+            # =====================================================
+            # پیدا کردن سند بعدی همان ساختمان
+            # =====================================================
 
-                    # اصلاح موجودی بانک
-                    if bank_fund.transaction_type == 'withdraw':
-                        bank.current_balance -= bank_fund.amount
-                    else:
-                        bank.current_balance += bank_fund.amount
+            next_fund = (
+                Fund.objects
+                .filter(
+                    house_id=house_id,
+                    doc_number__gt=fund_doc_number
+                )
+                .order_by('doc_number', 'pk')
+                .first()
+            )
 
-                    bank.save(update_fields=['current_balance'])
+            # =====================================================
+            # پیدا کردن BankFund
+            # =====================================================
 
-                    bank_fund.delete()
+            bank_fund = (
+                BankFund.objects
+                .select_for_update()
+                .filter(
+                    content_type=content_type,
+                    object_id=expense.id,
+                    is_paid=True
+                )
+                .first()
+            )
 
-                # بازمحاسبه موجودی صندوق از این Fund به بعد
-                Fund.recalc_final_amounts_from(fund)
+            # =====================================================
+            # اصلاح موجودی بانک
+            # =====================================================
 
-                # بازگرداندن Expense به حالت پرداخت‌نشده
-                expense.is_paid = False
-                expense.bank = None
-                expense.transaction_reference = None
-                expense.payment_date = None
-                expense.save(update_fields=[
+            if bank_fund:
+
+                bank = (
+                    Bank.objects
+                    .select_for_update()
+                    .get(pk=bank_fund.bank_id)
+                )
+
+                amount = Decimal(
+                    str(bank_fund.amount or 0)
+                )
+
+                balance = Decimal(
+                    str(bank.current_balance or 0)
+                )
+
+                if bank_fund.transaction_type == 'withdraw':
+                    balance += amount
+
+                elif bank_fund.transaction_type == 'deposit':
+                    balance -= amount
+
+                else:
+                    raise ValidationError(
+                        'نوع تراکنش بانکی معتبر نیست؛ '
+                        'تراکنش انتقال باید جداگانه بررسی شود.'
+                    )
+
+                bank.current_balance = balance
+                bank.save(update_fields=['current_balance'])
+
+                bank_fund.delete()
+
+            # =====================================================
+            # حذف Fund
+            # =====================================================
+
+            fund.delete()
+
+            # =====================================================
+            # لغو پرداخت Expense
+            # =====================================================
+
+            expense.is_paid = False
+            expense.bank = None
+            expense.transaction_reference = None
+            expense.payment_date = None
+
+            expense.unit = None
+
+            expense.receiver_type = None
+            expense.receiver_renter = None
+            expense.receiver_name = None
+
+            expense.save(
+                update_fields=[
                     'is_paid',
                     'bank',
                     'transaction_reference',
-                    'payment_date'
-                ])
+                    'payment_date',
+                    'unit',
+                    'receiver_type',
+                    'receiver_renter',
+                    'receiver_name',
+                ]
+            )
 
-                messages.success(request, 'پرداخت با موفقیت لغو شد و صندوق و بانک اصلاح شد.')
-                return redirect(request.META.get('HTTP_REFERER'))
+            # =====================================================
+            # محاسبه مجدد صندوق
+            # =====================================================
 
-        except Exception as e:
-            messages.error(request, f'خطا در لغو پرداخت: {e}')
-            return redirect(request.META.get('HTTP_REFERER'))
+            if next_fund:
+                try:
+                    Fund.recalc_final_amounts_from(
+                        next_fund
+                    )
+                except ValidationError as exc:
+                    recalc_error = str(exc)
 
-    # اگر GET باشد، فقط برگرد به صفحه قبل
-    return redirect(request.META.get('HTTP_REFERER'))
+        # =====================================================
+        # پیام پس از اتمام تراکنش
+        # =====================================================
+
+        if recalc_error:
+            messages.warning(
+                request,
+                'پرداخت هزینه لغو شد و وضعیت آن اصلاح گردید؛ '
+                'اما محاسبه مجدد مانده صندوق خطا داشت. '
+                f'اسناد مالی را بررسی کنید: {recalc_error}'
+            )
+        else:
+            messages.success(
+                request,
+                'پرداخت با موفقیت لغو شد و موجودی بانک و صندوق اصلاح شدند.'
+            )
+
+    except Expense.DoesNotExist:
+        messages.error(
+            request,
+            'هزینه موردنظر پیدا نشد یا قبلاً پرداخت آن لغو شده است.'
+        )
+
+    except ValidationError as exc:
+        messages.error(request, str(exc))
+
+    except Exception as exc:
+        messages.error(
+            request,
+            f'خطا در لغو پرداخت: {exc}'
+        )
+
+    return redirect(referer)
 
 
 @login_required(login_url=settings.LOGIN_URL_MIDDLE_ADMIN)
@@ -5793,15 +6197,15 @@ def middle_show_civil_form(request, pk):
     unit_count_decimal = Decimal(eligible_units_count)
 
     share_per_unit = (
-        total_amount / unit_count_decimal
+            total_amount / unit_count_decimal
     )
 
     prepayment_per_unit = (
-        prepayment_total / unit_count_decimal
+            prepayment_total / unit_count_decimal
     )
 
     remaining_per_unit = (
-        share_per_unit - prepayment_per_unit
+            share_per_unit - prepayment_per_unit
     )
 
     if remaining_per_unit < 0:
@@ -5816,20 +6220,20 @@ def middle_show_civil_form(request, pk):
     # =====================================================
 
     is_one_time_payment = (
-        installment_count <= 0
-        and prepayment_total == 0
+            installment_count <= 0
+            and prepayment_total == 0
     )
 
     if installment_count > 0:
         monthly_installment = (
-            remaining_per_unit / Decimal(installment_count)
+                remaining_per_unit / Decimal(installment_count)
         )
     else:
         monthly_installment = remaining_per_unit
 
     base_date = (
-        civil.first_due_date
-        or timezone.localdate()
+            civil.first_due_date
+            or timezone.localdate()
     )
 
     # =====================================================
@@ -5889,7 +6293,6 @@ def middle_show_civil_form(request, pk):
                 # -------------------------------------------------
 
                 if prepayment_per_unit > 0:
-
                     document_number = (
                         get_next_financial_document_number(civil.house)
                     )
@@ -5914,9 +6317,8 @@ def middle_show_civil_form(request, pk):
                 # -------------------------------------------------
 
                 for i in range(1, installment_count + 1):
-
                     due_date = (
-                        base_date + relativedelta(months=i)
+                            base_date + relativedelta(months=i)
                     )
 
                     document_number = (
@@ -5950,7 +6352,6 @@ def middle_show_civil_form(request, pk):
     units_with_details = []
 
     for unit in units:
-
         unit_installments = CivilInstallment.objects.filter(
             civil_manage=civil,
             unit=unit
@@ -15119,3 +15520,172 @@ def middle_remove_send_notification_charge_calculation(request, pk):
                 f'خطایی هنگام غیرفعال کردن اطلاعیه‌ها رخ داد: {str(e)}'
 
         }, status=500)
+
+
+@middle_admin_required
+def third_party_list_create(request):
+    house = request.user.house
+
+    # =========================
+    # جستجو
+    # =========================
+    query = request.GET.get('q', '').strip()
+
+    third_parties = ThirdParty.objects.filter(
+        house=house
+    )
+
+    if query:
+        third_parties = third_parties.filter(
+            Q(name__icontains=query)
+            | Q(mobile__icontains=query)
+            | Q(description__icontains=query)
+        )
+
+    third_parties = third_parties.order_by('name')
+
+    # =========================
+    # تعداد نمایش در هر صفحه
+    # =========================
+    allowed_per_page = [20, 50, 100, 1000]
+
+    try:
+        paginate_by = int(request.GET.get('paginate', 20))
+    except (ValueError, TypeError):
+        paginate_by = 20
+
+    if paginate_by not in allowed_per_page:
+        paginate_by = 20
+
+    paginator = Paginator(
+        third_parties,
+        paginate_by
+    )
+
+    page_number = request.GET.get('page')
+
+    page_obj = paginator.get_page(page_number)
+
+    # =========================
+    # ثبت شخص ثالث
+    # =========================
+    if request.method == 'POST':
+        form = ThirdPartyForm(request.POST)
+
+        if form.is_valid():
+            try:
+                with transaction.atomic():
+                    third_party = form.save(commit=False)
+                    third_party.house = house
+                    third_party.save()
+
+                messages.success(
+                    request,
+                    'شخص ثالث با موفقیت ثبت شد.'
+                )
+
+                return redirect('third_party_list')
+
+            except IntegrityError:
+                form.add_error(
+                    'name',
+                    'شخصی با این نام قبلاً برای این ساختمان ثبت شده است.'
+                )
+    else:
+        form = ThirdPartyForm()
+
+    context = {
+        'form': form,
+        'third_parties': page_obj.object_list,
+        'page_obj': page_obj,
+        'paginator': paginator,
+        'query': query,
+        'paginate_by': paginate_by,
+    }
+
+    return render(
+        request,
+        'middle_admin/thirdParty_list.html',
+        context
+    )
+
+
+@middle_admin_required
+def third_party_edit(request, pk):
+    house = request.user.house
+
+    third_party = get_object_or_404(
+        ThirdParty,
+        pk=pk,
+        house=house,
+    )
+
+    if request.method == 'POST':
+        form = ThirdPartyForm(
+            request.POST,
+            instance=third_party,
+        )
+
+        if form.is_valid():
+            form.save()
+
+            messages.success(
+                request,
+                'اطلاعات شخص ثالث با موفقیت ویرایش شد.'
+            )
+
+            return redirect('third_party_list')
+
+    else:
+        form = ThirdPartyForm(
+            instance=third_party,
+        )
+
+    third_parties = ThirdParty.objects.filter(
+        house=house
+    ).order_by('name')
+
+    context = {
+        'form': form,
+        'third_parties': third_parties,
+        'editing_third_party': third_party,
+    }
+
+    return render(
+        request,
+        'middle_admin/thirdParty_list.html',
+        context,
+    )
+
+
+def third_party_delete(request, pk):
+    house = request.user.house
+
+    third_party = get_object_or_404(
+        ThirdParty,
+        pk=pk,
+        house=house,
+    )
+
+    # جلوگیری از حذف شخصی که در اسناد مالی استفاده شده است
+    if (
+            third_party.payer_funds.exists()
+            or third_party.receiver_funds.exists()
+            or third_party.bank_payer_funds.exists()
+            or third_party.bank_receiver_funds.exists()
+    ):
+        messages.error(
+            request,
+            'این شخص در اسناد مالی استفاده شده است؛ '
+            'به‌جای حذف، وضعیت آن را غیرفعال کنید.'
+        )
+        return redirect('third_party_list')
+
+    third_party.delete()
+
+    messages.success(
+        request,
+        'شخص ثالث با موفقیت حذف شد.'
+    )
+
+    return redirect('third_party_list')

@@ -16,7 +16,8 @@ from admin_panel.models import (Announcement, Expense, ExpenseCategory, Income, 
                                 PersonCharge,
                                 FixPersonCharge, FixAreaCharge, ChargeFixVariable, SmsManagement, UnifiedCharge,
                                 MessageToUser, SmsCredit, AdminMessageToMiddle, AdminSmsManagement, Subscription,
-                                SubscriptionPlan, CivilManage, SewageManage, BankFund, Coupon, ChargeCalculation)
+                                SubscriptionPlan, CivilManage, SewageManage, BankFund, Coupon, ChargeCalculation,
+                                ThirdParty)
 from home.models import SliderText
 from middleAdmin_panel.services.bank_services import validate_bank_transaction_date
 
@@ -3395,3 +3396,88 @@ class ChargeCalculationForm(forms.ModelForm):
     #         )
 
     #     return name
+
+
+class ThirdPartyForm(forms.ModelForm):
+    is_active = forms.ChoiceField(label='فعال /غیرفعال  ', required=True,
+                                  error_messages=error_message, choices=CHOICES,
+                                  widget=forms.Select(attrs={'class': 'form-control form-control-sm'}))
+
+    class Meta:
+        model = ThirdParty
+        fields = [
+            'name',
+            'person_type',
+            'mobile',
+            'description',
+            'is_active',
+        ]
+
+        widgets = {
+            'name': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'نام شخص یا مجموعه',
+            }),
+            'person_type': forms.Select(attrs={
+                'class': 'form-control form-control-sm',
+            }),
+            'mobile': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'شماره تماس',
+            }),
+            'description': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 1,
+            }),
+
+        }
+
+
+class ThirdPartySelectForm(forms.Form):
+    third_party = forms.ChoiceField(
+        choices=[],
+        required=True,
+        label='انتخاب شخص ثالث',
+        widget=forms.Select(
+            attrs={
+                'class': 'select2-third rtl',
+                'style': 'width:100%',
+                'data-placeholder': 'جستجوی نام شخص یا مجموعه...',
+            }
+        )
+    )
+
+    def __init__(self, *args, **kwargs):
+
+        house = kwargs.pop('house', None)
+
+        super().__init__(*args, **kwargs)
+
+        choices = [
+            ('', 'انتخاب شخص ثالث...')
+        ]
+
+        if not house:
+            self.fields['third_party'].choices = choices
+            return
+
+        third_parties = ThirdParty.objects.filter(
+            house=house,
+            is_active=True,
+        ).order_by('name')
+
+        for obj in third_parties:
+
+            label = obj.name
+
+            if obj.mobile:
+                label += f' - {obj.mobile}'
+
+            choices.append(
+                (
+                    str(obj.pk),
+                    label,
+                )
+            )
+
+        self.fields['third_party'].choices = choices
