@@ -43,7 +43,13 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerCivilUnitInstallmentsAPIView, ManagerCivilInstallmentPaymentAPIView, ManagerCivilChargeUnitsListAPIView, \
     ManagerCivilInstallmentCancelPaymentAPIView, ManagerExpenseAPIView, \
     ManagerExpenseDetailAPIView, ManagerExpenseCategoriesAPIView, ManagerExpenseCategoryDetailAPIView, \
-    ManagerExpensePayAPIView, ManagerExpenseBanksAPIView, ManagerExpenseReceiversAPIView, ManagerExpenseCancelPayAPIView
+    ManagerExpensePayAPIView, ManagerExpenseBanksAPIView, ManagerExpenseReceiversAPIView, \
+    ManagerExpenseCancelPayAPIView, ManagerIncomeAPIView, ManagerIncomeCategoryDetailAPIView, \
+    ManagerIncomeCategoriesAPIView, ManagerIncomeDetailAPIView, ManagerIncomePayAPIView, ManagerIncomeCancelPayAPIView, \
+    ManagerIncomePayersAPIView, ManagerIncomeBanksAPIView, ManagerReceivableDetailAPIView, \
+    ManagerReceivableReceiveAPIView, ManagerReceivableCancelReceiveAPIView, ManagerReceivableBanksAPIView, \
+    ManagerReceivablePayersAPIView, ManagerReceivableAPIView, ManagerPayableAPIView, ManagerPayableDetailAPIView, \
+    ManagerPayablePayAPIView, ManagerPayableCancelPayAPIView, ManagerPayableBanksAPIView, ManagerPayableReceiversAPIView
 
 urlpatterns = [
     path(
@@ -123,7 +129,7 @@ urlpatterns = [
         'polls/',
         MobilePollListView.as_view(),
         name='mobile_poll_list'
-        ),
+    ),
 
     path(
         'polls/<int:pk>/',
@@ -751,7 +757,6 @@ urlpatterns = [
         name="manager-fix-person-charge-cancel",
     ),
 
-
     path(
         "manager/person-area-charges/",
         ManagerPersonAreaChargeAPIView.as_view(),
@@ -961,6 +966,16 @@ urlpatterns = [
         name="manager-expense-pay",
     ),
     path(
+        "manager/expense-banks/",
+        ManagerExpenseBanksAPIView.as_view(),
+        name="manager-expense-banks",
+    ),
+    path(
+        "manager/expense-receivers/",
+        ManagerExpenseReceiversAPIView.as_view(),
+        name="manager-expense-receivers",
+    ),
+    path(
         "manager/expenses/<int:pk>/pay/",
         ManagerExpensePayAPIView.as_view(),
         name="manager-expense-pay",
@@ -981,6 +996,110 @@ urlpatterns = [
         name="manager-expense-cancel-payment",
     ),
 
+    # ================== Income Urls =====================
 
+    path(
+        "manager/incomes/",
+        ManagerIncomeAPIView.as_view(),
+        name="manager-incomes",
+    ),
+    path(
+        "manager/income-categories/",
+        ManagerIncomeCategoriesAPIView.as_view(),
+        name="manager-income-categories",
+    ),
+    path(
+        "manager/income-categories/<int:pk>/",
+        ManagerIncomeCategoryDetailAPIView.as_view(),
+        name="manager-income-category-detail",
+    ),
+    path(
+        "manager/income-banks/",
+        ManagerIncomeBanksAPIView.as_view(),
+        name="manager-income-banks",
+    ),
+    path(
+        "manager/income-payers/",
+        ManagerIncomePayersAPIView.as_view(),
+        name="manager-income-payers",
+    ),
+    path(
+        "manager/incomes/<int:pk>/",
+        ManagerIncomeDetailAPIView.as_view(),
+        name="manager-income-detail",
+    ),
+    path(
+        "manager/incomes/<int:pk>/pay/",
+        ManagerIncomePayAPIView.as_view(),
+        name="manager-income-pay",
+    ),
+    path(
+        "manager/incomes/<int:pk>/cancel-pay/",
+        ManagerIncomeCancelPayAPIView.as_view(),
+        name="manager-income-cancel-pay",
+    ),
+    # ================== ReceiveMoney Urls =====================
+
+    path(
+        "manager/receivables/",
+        ManagerReceivableAPIView.as_view(),
+        name="manager-receivables",
+    ),
+    path(
+        "manager/receivables/<int:pk>/",
+        ManagerReceivableDetailAPIView.as_view(),
+        name="manager-receivable-detail",
+    ),
+    path(
+        "manager/receivables/<int:pk>/receive/",
+        ManagerReceivableReceiveAPIView.as_view(),
+        name="manager-receivable-receive",
+    ),
+    path(
+        "manager/receivables/<int:pk>/cancel-receive/",
+        ManagerReceivableCancelReceiveAPIView.as_view(),
+        name="manager-receivable-cancel-receive",
+    ),
+    path(
+        "manager/receivables/banks/",
+        ManagerReceivableBanksAPIView.as_view(),
+        name="manager-receivable-banks",
+    ),
+    path(
+        "manager/receivables/payers/",
+        ManagerReceivablePayersAPIView.as_view(),
+        name="manager-receivable-payers",
+    ),
+    # ================== PayMoney Urls =====================
+    path(
+        "manager/payables/",
+        ManagerPayableAPIView.as_view(),
+        name="manager-payables",
+    ),
+    path(
+        "manager/payables/<int:pk>/",
+        ManagerPayableDetailAPIView.as_view(),
+        name="manager-payable-detail",
+    ),
+    path(
+        "manager/payables/<int:pk>/pay/",
+        ManagerPayablePayAPIView.as_view(),
+        name="manager-payable-pay",
+    ),
+    path(
+        "manager/payables/<int:pk>/cancel-pay/",
+        ManagerPayableCancelPayAPIView.as_view(),
+        name="manager-payable-cancel-pay",
+    ),
+    path(
+        "manager/payables/banks/",
+        ManagerPayableBanksAPIView.as_view(),
+        name="manager-payable-banks",
+    ),
+    path(
+        "manager/payables/receivers/",
+        ManagerPayableReceiversAPIView.as_view(),
+        name="manager-payable-receivers",
+    ),
 
 ]
