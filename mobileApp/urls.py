@@ -49,7 +49,11 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerIncomePayersAPIView, ManagerIncomeBanksAPIView, ManagerReceivableDetailAPIView, \
     ManagerReceivableReceiveAPIView, ManagerReceivableCancelReceiveAPIView, ManagerReceivableBanksAPIView, \
     ManagerReceivablePayersAPIView, ManagerReceivableAPIView, ManagerPayableAPIView, ManagerPayableDetailAPIView, \
-    ManagerPayablePayAPIView, ManagerPayableCancelPayAPIView, ManagerPayableBanksAPIView, ManagerPayableReceiversAPIView
+    ManagerPayablePayAPIView, ManagerPayableCancelPayAPIView, ManagerPayableBanksAPIView, \
+    ManagerPayableReceiversAPIView, ManagerMaintenanceAPIView, ManagerMaintenanceDetailAPIView, \
+    ManagerMaintenancePayAPIView, ManagerMaintenanceCancelPayAPIView, ManagerMaintenanceReceiversAPIView, \
+    ManagerMaintenanceBanksAPIView, ManagerPropertyDetailAPIView, ManagerPropertyAPIView, ManagerPropertyPayAPIView, \
+    ManagerPropertyCancelPayAPIView, ManagerPropertyBanksAPIView
 
 urlpatterns = [
     path(
@@ -1100,6 +1104,75 @@ urlpatterns = [
         "manager/payables/receivers/",
         ManagerPayableReceiversAPIView.as_view(),
         name="manager-payable-receivers",
+    ),
+    # ================== Maintenance URLs ==================
+
+    path(
+        "manager/maintenances/",
+        ManagerMaintenanceAPIView.as_view(),
+        name="manager-maintenances",
+    ),
+
+    path(
+        "manager/maintenances/<int:pk>/",
+        ManagerMaintenanceDetailAPIView.as_view(),
+        name="manager-maintenance-detail",
+    ),
+
+    path(
+        "manager/maintenances/<int:pk>/pay/",
+        ManagerMaintenancePayAPIView.as_view(),
+        name="manager-maintenance-pay",
+    ),
+
+    path(
+        "manager/maintenances/<int:pk>/cancel-pay/",
+        ManagerMaintenanceCancelPayAPIView.as_view(),
+        name="manager-maintenance-cancel-pay",
+    ),
+
+    path(
+        "manager/maintenances/banks/",
+        ManagerMaintenanceBanksAPIView.as_view(),
+        name="manager-maintenance-banks",
+    ),
+
+    path(
+        "manager/maintenances/receivers/",
+        ManagerMaintenanceReceiversAPIView.as_view(),
+        name="manager-maintenance-receivers",
+    ),
+
+    # ================== Property URLs ==================
+
+    path(
+        "manager/properties/",
+        ManagerPropertyAPIView.as_view(),
+        name="manager-properties",
+    ),
+
+    path(
+        "manager/properties/<int:pk>/",
+        ManagerPropertyDetailAPIView.as_view(),
+        name="manager-property-detail",
+    ),
+
+    path(
+        "manager/properties/<int:pk>/pay/",
+        ManagerPropertyPayAPIView.as_view(),
+        name="manager-property-pay",
+    ),
+
+    path(
+        "manager/properties/<int:pk>/cancel-pay/",
+        ManagerPropertyCancelPayAPIView.as_view(),
+        name="manager-property-cancel-pay",
+    ),
+
+    path(
+        "manager/properties/banks/",
+        ManagerPropertyBanksAPIView.as_view(),
+        name="manager-property-banks",
     ),
 
 ]
