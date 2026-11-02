@@ -53,7 +53,9 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerPayableReceiversAPIView, ManagerMaintenanceAPIView, ManagerMaintenanceDetailAPIView, \
     ManagerMaintenancePayAPIView, ManagerMaintenanceCancelPayAPIView, ManagerMaintenanceReceiversAPIView, \
     ManagerMaintenanceBanksAPIView, ManagerPropertyDetailAPIView, ManagerPropertyAPIView, ManagerPropertyPayAPIView, \
-    ManagerPropertyCancelPayAPIView, ManagerPropertyBanksAPIView
+    ManagerPropertyCancelPayAPIView, ManagerPropertyBanksAPIView, ManagerSewageChargesAPIView, \
+    ManagerSewageChargeDetailAPIView, ManagerSewageChargeUnitsAPIView, ManagerSendSewageChargeAPIView, \
+    ManagerCancelSewageChargeAPIView, ManagerThirdPartyListCreateAPIView, ManagerThirdPartyDetailAPIView
 
 urlpatterns = [
     path(
@@ -1173,6 +1175,48 @@ urlpatterns = [
         "manager/properties/banks/",
         ManagerPropertyBanksAPIView.as_view(),
         name="manager-property-banks",
+    ),
+    # ================== Sewage URLs ==================
+    path(
+        "manager/sewage/",
+        ManagerSewageChargesAPIView.as_view(),
+        name="manager-sewage-list-create",
+    ),
+
+    path(
+        "manager/sewage/<int:sewage_id>/",
+        ManagerSewageChargeDetailAPIView.as_view(),
+        name="manager-sewage-detail",
+    ),
+
+    path(
+        "manager/sewage/<int:sewage_id>/units/",
+        ManagerSewageChargeUnitsAPIView.as_view(),
+        name="manager-sewage-units",
+    ),
+
+    path(
+        "manager/sewage/<int:sewage_id>/send/",
+        ManagerSendSewageChargeAPIView.as_view(),
+        name="manager-sewage-send",
+    ),
+
+    path(
+        "manager/sewage/<int:sewage_id>/cancel/",
+        ManagerCancelSewageChargeAPIView.as_view(),
+        name="manager-sewage-cancel",
+    ),
+    # ================== ThirdParty URLs ==================
+    path(
+        'manager/third-parties/',
+        ManagerThirdPartyListCreateAPIView.as_view(),
+        name='manager-third-party-list-create'
+    ),
+
+    path(
+        'manager/third-parties/<int:pk>/',
+        ManagerThirdPartyDetailAPIView.as_view(),
+        name='manager-third-party-detail'
     ),
 
 ]

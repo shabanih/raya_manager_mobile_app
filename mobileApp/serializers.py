@@ -2,7 +2,7 @@ from django.db.models import Q
 from rest_framework import serializers
 from datetime import date, datetime
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageInstallment, \
-    SewageManage, MessageToUser, AnnouncementDocument, BankFund
+    SewageManage, MessageToUser, AnnouncementDocument, BankFund, ThirdParty
 from notifications.models import SupportFile, SupportMessage, SupportUser, Notification, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
 from polls_app.models import Choice, Question, Poll, Vote
@@ -4325,3 +4325,30 @@ class ManagerChargeHomeCardSerializer(serializers.Serializer):
     title = serializers.CharField()
     description = serializers.CharField()
     icon = serializers.CharField()
+
+
+class ManagerThirdPartySerializer(serializers.ModelSerializer):
+
+    person_type_display = serializers.CharField(
+        source='get_person_type_display',
+        read_only=True
+    )
+
+    class Meta:
+        model = ThirdParty
+        fields = [
+            'id',
+            'name',
+            'person_type',
+            'person_type_display',
+            'mobile',
+            'description',
+            'is_active',
+            'created_at',
+        ]
+
+        read_only_fields = [
+            'id',
+            'person_type_display',
+            'created_at',
+        ]

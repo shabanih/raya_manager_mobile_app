@@ -76,7 +76,10 @@ def recalculate_bank_balance(bank):
     funds = list(
         BankFund.objects
         .select_for_update()
-        .filter(bank=bank)
+        .filter(
+            bank=bank,
+            is_paid=True,
+        )
         .order_by(
             F("payment_date").asc(nulls_last=True),
             "created_at",

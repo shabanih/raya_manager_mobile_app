@@ -6,6 +6,7 @@ from collections import OrderedDict
 from datetime import date
 import jdatetime
 from dateutil.relativedelta import relativedelta
+from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q, Sum, ProtectedError, Prefetch
 from django.utils import timezone
@@ -17,14 +18,14 @@ from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 import requests
 
 from django.contrib.contenttypes.models import ContentType
-from django.db import transaction
+from django.db import transaction, IntegrityError
 from django.shortcuts import get_object_or_404
 
 from django.contrib.auth import get_user_model
 from django.contrib.auth.hashers import check_password
 
 from admin_panel.forms import FixChargeForm, AreaChargeForm, PersonChargeForm, FixAreaChargeForm, FixPersonChargeForm, \
-    PersonAreaChargeForm, PersonAreaFixChargeForm, VariableFixChargeForm, CivilForm
+    PersonAreaChargeForm, PersonAreaFixChargeForm, VariableFixChargeForm, CivilForm, SewageForm
 from admin_panel.services.calculators import CALCULATORS, BaseCalculator
 from admin_panel.services.utils import (
     get_next_financial_document_number
@@ -45,7 +46,7 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
     ChargeByFixPersonArea, ChargeFixVariable, ChargeCalculation, Expense, Maintenance, ChargeCalculationItem, \
     ChargeAllocation, CivilDocument, ExpenseCategory, ExpenseDocument, ThirdParty, Income, IncomeCategory, \
     IncomeDocument, ReceiveMoney, ReceiveDocument, PayDocument, PayMoney, MaintenanceDocument, Property, \
-    PropertyDocument
+    PropertyDocument, SewageDocument
 from middleAdmin_panel.services.bank_balance_service import recalculate_bank_balance
 from middleAdmin_panel.services.bank_services import BankTransactionService, validate_bank_transaction_date
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
@@ -68,6 +69,7 @@ from .serializers import (
     UserSupportTicketListSerializer, UserSupportTicketCreateSerializer, UserSupportTicketDetailSerializer,
     AdminTicketDetailSerializer, AdminTicketCreateSerializer, AdminTicketListSerializer,
     AdminTicketMessageCreateSerializer, ManagerUnitSerializer, ManagerRenterSerializer, ManagerChargeHomeCardSerializer,
+    ManagerThirdPartySerializer,
 
 )
 
@@ -26129,64 +26131,17 @@ class ManagerCivilChargeUnitsAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def _get_unit_resident_info(self, unit):
-        status_residence = str(
-            getattr(unit, "status_residence", "") or ""
-        ).strip().lower()
-
-        active_renters = list(
-            getattr(unit, "active_renters_for_charge", [])
-        )
-
-        # واحد خالی
-        if status_residence == "empty":
-            return {
-                "resident_type": "empty",
-                "resident_name": "",
-                "people_count": 0,
-            }
-
-        # مستأجر فعال
-        if active_renters:
-            renter_names = [
-                str(renter.renter_name).strip()
-                for renter in active_renters
-                if getattr(renter, "renter_name", None)
-                   and str(renter.renter_name).strip()
-            ]
-
-            people_count = sum(
-                max(
-                    int(
-                        getattr(renter, "renter_people_count", 0) or 0
-                    ),
-                    0,
-                )
-                for renter in active_renters
-            )
-
-            return {
-                "resident_type": "renter",
-                "resident_name": "، ".join(renter_names),
-                "people_count": people_count,
-            }
-
-        # مالک
-        if status_residence == "occupied":
-            return {
-                "resident_type": "owner",
-                "resident_name": str(
-                    getattr(unit, "owner_name", "") or ""
-                ).strip(),
-                "people_count": max(
-                    int(getattr(unit, "owner_people_count", 0) or 0),
-                    0,
-                ),
-            }
+        owner_name = str(
+            getattr(unit, "owner_name", "") or ""
+        ).strip()
 
         return {
-            "resident_type": "empty",
-            "resident_name": "",
-            "people_count": 0,
+            "resident_type": "owner" if owner_name else "empty",
+            "resident_name": owner_name,
+            "people_count": max(
+                int(getattr(unit, "owner_people_count", 0) or 0),
+                0,
+            ),
         }
 
     def get(self, request, civil_id):
@@ -30491,7 +30446,6 @@ class ManagerIncomeCancelPayAPIView(ManagerIncomeBaseAPIView):
 # ====================== receiveMoney Views =======================
 
 class ManagerReceivableBaseAPIView(ManagerFinancialCommonMixin, APIView, ):
-
     permission_classes = [IsAuthenticated]
 
     def get_house(self, request):
@@ -30766,7 +30720,6 @@ class ManagerReceivableBaseAPIView(ManagerFinancialCommonMixin, APIView, ):
             "payer_third_party": payer_third_party,
             "payer_name": payer_name,
         }
-
 
 
 class ManagerReceivableAPIView(ManagerReceivableBaseAPIView):
@@ -31490,7 +31443,7 @@ class ManagerPayableBaseAPIView(ManagerFinancialCommonMixin, APIView):
                 if obj.payment_date else None
             ),
             "transaction_reference": (
-                obj.transaction_reference or ""
+                    obj.transaction_reference or ""
             ),
             "documents": [
                 {
@@ -31506,7 +31459,7 @@ class ManagerPayableBaseAPIView(ManagerFinancialCommonMixin, APIView):
 
     def validate_receiver(self, request, house, data):
         receiver_type = (
-            data.get("receiver_type") or ""
+                data.get("receiver_type") or ""
         ).strip()
 
         if not receiver_type:
@@ -31570,7 +31523,7 @@ class ManagerPayableBaseAPIView(ManagerFinancialCommonMixin, APIView):
 
             unit = receiver_renter.unit
             receiver_name = (
-                receiver_renter.renter_name or ""
+                    receiver_renter.renter_name or ""
             ).strip()
 
             if not receiver_name:
@@ -31596,7 +31549,7 @@ class ManagerPayableBaseAPIView(ManagerFinancialCommonMixin, APIView):
                 )
 
             receiver_name = (
-                receiver_third_party.name or ""
+                    receiver_third_party.name or ""
             ).strip()
 
             if not receiver_name:
@@ -32006,9 +31959,9 @@ class ManagerPayablePayAPIView(ManagerPayableBaseAPIView):
                     unit=receiver["unit"],
                     amount=amount,
                     description=(
-                        f"پرداخت سند شماره {obj.document_number}: "
-                        f"{obj.description}"
-                    )[:500],
+                                    f"پرداخت سند شماره {obj.document_number}: "
+                                    f"{obj.description}"
+                                )[:500],
                     content_object=obj,
                     payment_date=payment_date,
                     transaction_no=transaction_reference or None,
@@ -32028,7 +31981,7 @@ class ManagerPayablePayAPIView(ManagerPayableBaseAPIView):
                 obj.bank = bank
                 obj.payment_date = payment_date
                 obj.transaction_reference = (
-                    transaction_reference or None
+                        transaction_reference or None
                 )
                 obj.receiver_type = receiver["receiver_type"]
                 obj.receiver_renter = receiver["receiver_renter"]
@@ -32071,7 +32024,6 @@ class ManagerPayablePayAPIView(ManagerPayableBaseAPIView):
             "bank_fund_id": fund.pk,
             "result": self.serialize_payable(obj),
         })
-
 
 
 class ManagerPayableCancelPayAPIView(ManagerPayableBaseAPIView):
@@ -32313,7 +32265,7 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
 
             "expert_name": obj.expert_name or "",
             "maintenance_description": (
-                obj.maintenance_description or ""
+                    obj.maintenance_description or ""
             ),
 
             "maintenance_start_date": (
@@ -32331,13 +32283,13 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
             ),
 
             "maintenance_status": (
-                obj.maintenance_status or ""
+                    obj.maintenance_status or ""
             ),
 
             "service_company": obj.service_company or "",
 
             "maintenance_document_no": (
-                obj.maintenance_document_no or ""
+                    obj.maintenance_document_no or ""
             ),
 
             "financial_document_number": (
@@ -32354,7 +32306,7 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
             ),
 
             "transaction_reference": (
-                obj.transaction_reference or ""
+                    obj.transaction_reference or ""
             ),
 
             "documents": [
@@ -32371,7 +32323,7 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
 
     def validate_receiver(self, request, house, data):
         receiver_type = (
-            data.get("receiver_type") or ""
+                data.get("receiver_type") or ""
         ).strip()
 
         if not receiver_type:
@@ -32408,7 +32360,7 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
                 raise ValueError("واحد مالک یافت نشد.")
 
             receiver_name = (
-                unit.owner_name or ""
+                    unit.owner_name or ""
             ).strip()
 
             if not receiver_name:
@@ -32440,7 +32392,7 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
             unit = receiver_renter.unit
 
             receiver_name = (
-                receiver_renter.renter_name or ""
+                    receiver_renter.renter_name or ""
             ).strip()
 
             if not receiver_name:
@@ -32466,7 +32418,7 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
                 )
 
             receiver_name = (
-                receiver_third_party.name or ""
+                    receiver_third_party.name or ""
             ).strip()
 
             if not receiver_name:
@@ -32666,7 +32618,6 @@ class ManagerMaintenanceAPIView(ManagerMaintenanceBaseAPIView):
         }, status=status.HTTP_201_CREATED)
 
 
-
 class ManagerMaintenanceDetailAPIView(ManagerMaintenanceBaseAPIView):
 
     def patch(self, request, pk):
@@ -32706,7 +32657,7 @@ class ManagerMaintenanceDetailAPIView(ManagerMaintenanceBaseAPIView):
                         "maintenance_status": obj.maintenance_status,
                         "service_company": obj.service_company,
                         "maintenance_document_no": (
-                            obj.maintenance_document_no or ""
+                                obj.maintenance_document_no or ""
                         ),
                         "details": obj.details or "",
                     },
@@ -32724,8 +32675,8 @@ class ManagerMaintenanceDetailAPIView(ManagerMaintenanceBaseAPIView):
                     receiver = self.validate_receiver(
                         request, house, {
                             "receiver_type": (
-                                request.data.get("receiver_type")
-                                or ""
+                                    request.data.get("receiver_type")
+                                    or ""
                             ),
                             "unit_id": request.data.get("unit_id"),
                             "receiver_renter_id": (
@@ -32906,22 +32857,22 @@ class ManagerMaintenancePayAPIView(ManagerMaintenanceBaseAPIView):
                     house,
                     {
                         "receiver_type": (
-                            request.data.get("receiver_type")
-                            or obj.receiver_type
+                                request.data.get("receiver_type")
+                                or obj.receiver_type
                         ),
                         "unit_id": (
-                            request.data.get("unit_id")
-                            or obj.unit_id
+                                request.data.get("unit_id")
+                                or obj.unit_id
                         ),
                         "receiver_renter_id": (
-                            request.data.get("receiver_renter_id")
-                            or obj.receiver_renter_id
+                                request.data.get("receiver_renter_id")
+                                or obj.receiver_renter_id
                         ),
                         "receiver_third_party_id": (
-                            request.data.get(
-                                "receiver_third_party_id"
-                            )
-                            or obj.receiver_third_party_id
+                                request.data.get(
+                                    "receiver_third_party_id"
+                                )
+                                or obj.receiver_third_party_id
                         ),
                     },
                 )
@@ -32932,9 +32883,9 @@ class ManagerMaintenancePayAPIView(ManagerMaintenanceBaseAPIView):
                     unit=receiver["unit"],
                     amount=amount,
                     description=(
-                        f"پرداخت تعمیر و نگهداری: "
-                        f"{obj.maintenance_description}"
-                    )[:500],
+                                    f"پرداخت تعمیر و نگهداری: "
+                                    f"{obj.maintenance_description}"
+                                )[:500],
                     content_object=obj,
                     payment_date=payment_date,
                     transaction_no=transaction_reference or None,
@@ -32954,7 +32905,7 @@ class ManagerMaintenancePayAPIView(ManagerMaintenanceBaseAPIView):
                 obj.bank = bank
                 obj.payment_date = payment_date
                 obj.transaction_reference = (
-                    transaction_reference or None
+                        transaction_reference or None
                 )
 
                 obj.receiver_type = receiver["receiver_type"]
@@ -33081,7 +33032,6 @@ class ManagerMaintenanceCancelPayAPIView(ManagerMaintenanceBaseAPIView):
         })
 
 
-
 class ManagerMaintenanceBanksAPIView(ManagerMaintenanceBaseAPIView):
     def get(self, request):
         return self.get_manager_banks_response(request)
@@ -33090,6 +33040,7 @@ class ManagerMaintenanceBanksAPIView(ManagerMaintenanceBaseAPIView):
 class ManagerMaintenanceReceiversAPIView(ManagerMaintenanceBaseAPIView):
     def get(self, request):
         return self.get_manager_payers_response(request)
+
 
 # ====================== Property Views =======================
 
@@ -33157,13 +33108,13 @@ class ManagerPropertyBaseAPIView(ManagerFinancialCommonMixin, APIView):
         try:
             amount = Decimal(self.normalize_digits(value))
         except (InvalidOperation, TypeError, ValueError):
-            raise ValueError("ارزش مال معتبر نیست.")
+            raise ValueError("ارزش اموال معتبر نیست.")
 
         if not amount.is_finite() or amount <= 0:
-            raise ValueError("ارزش مال باید بیشتر از صفر باشد.")
+            raise ValueError("ارزش اموال باید بیشتر از صفر باشد.")
 
         if amount != amount.to_integral_value():
-            raise ValueError("ارزش مال باید عدد صحیح باشد.")
+            raise ValueError("ارزش اموال باید عدد صحیح باشد.")
 
         return int(amount)
 
@@ -33279,7 +33230,7 @@ class ManagerPropertyBaseAPIView(ManagerFinancialCommonMixin, APIView):
             ),
 
             "transaction_reference": (
-                obj.transaction_reference or ""
+                    obj.transaction_reference or ""
             ),
 
             "is_active": obj.is_active,
@@ -33495,10 +33446,9 @@ class ManagerPropertyAPIView(ManagerPropertyBaseAPIView):
 
         return Response({
             "success": True,
-            "message": "مال با موفقیت ثبت شد.",
+            "message": "اموال با موفقیت ثبت شد.",
             "result": self.serialize_property(obj),
         }, status=status.HTTP_201_CREATED)
-
 
 
 class ManagerPropertyDetailAPIView(ManagerPropertyBaseAPIView):
@@ -33612,7 +33562,6 @@ class ManagerPropertyDetailAPIView(ManagerPropertyBaseAPIView):
         })
 
 
-
 class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
 
     def post(self, request, pk):
@@ -33638,15 +33587,17 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
             if not bank_id:
                 raise ValueError("انتخاب حساب بانکی الزامی است.")
 
-            bank = Bank.objects.filter(
-                pk=bank_id,
-                user=request.user,
-                house=house,
-                is_active=True,
-            ).first()
+            receiver_name = str(
+                request.data.get("receiver_name") or ""
+            ).strip()
 
-            if not bank:
-                raise ValueError("حساب بانکی فعال یافت نشد.")
+            if not receiver_name:
+                raise ValueError("نام دریافت‌کننده الزامی است.")
+
+            if len(receiver_name) > 200:
+                raise ValueError(
+                    "نام دریافت‌کننده نباید بیشتر از ۲۰۰ کاراکتر باشد."
+                )
 
             transaction_reference = str(
                 self.normalize_digits(
@@ -33659,16 +33610,8 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
                     "شماره پیگیری نباید بیشتر از ۲۰ کاراکتر باشد."
                 )
 
-        except (ValueError, TypeError, ValidationError) as exc:
-            messages = getattr(exc, "messages", None)
-
-            return Response({
-                "success": False,
-                "message": messages[0] if messages else str(exc),
-            }, status=status.HTTP_400_BAD_REQUEST)
-
-        try:
             with transaction.atomic():
+
                 obj, error = self.get_property(
                     request, house, pk, lock=True
                 )
@@ -33679,7 +33622,7 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
                 if obj.is_paid:
                     return Response({
                         "success": False,
-                        "message": "این مال قبلاً پرداخت شده است.",
+                        "message": "این اموال قبلاً پرداخت شده است.",
                     }, status=status.HTTP_400_BAD_REQUEST)
 
                 if (
@@ -33687,7 +33630,7 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
                     and payment_date < obj.property_purchase_date
                 ):
                     raise ValueError(
-                        "تاریخ پرداخت نمی‌تواند قبل از تاریخ خرید مال باشد."
+                        "تاریخ پرداخت نمی‌تواند قبل از تاریخ خرید اموال باشد."
                     )
 
                 amount = Decimal(
@@ -33696,8 +33639,18 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
 
                 if amount <= 0:
                     raise ValueError(
-                        "ارزش مال باید بیشتر از صفر باشد."
+                        "ارزش اموال باید بیشتر از صفر باشد."
                     )
+
+                bank = Bank.objects.select_for_update().filter(
+                    pk=bank_id,
+                    user=request.user,
+                    house=house,
+                    is_active=True,
+                ).first()
+
+                if not bank:
+                    raise ValueError("حساب بانکی فعال یافت نشد.")
 
                 content_type = ContentType.objects.get_for_model(
                     Property
@@ -33712,7 +33665,7 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
 
                 if previous_withdrawal:
                     raise ValueError(
-                        "برای این مال قبلاً برداشت بانکی ثبت شده است؛ "
+                        "برای این اموال قبلاً برداشت بانکی ثبت شده است؛ "
                         "سوابق مالی را بررسی کنید."
                     )
 
@@ -33722,12 +33675,12 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
                     unit=None,
                     amount=amount,
                     description=(
-                        f"پرداخت بابت خرید مال: {obj.property_name}"
+                        f"پرداخت بابت خرید اموال: {obj.property_name}"
                     )[:500],
                     content_object=obj,
                     payment_date=payment_date,
                     transaction_no=transaction_reference or None,
-                    receiver_name=obj.receiver_name,
+                    receiver_name=receiver_name,
                     house=house,
                     gateway="پرداخت خرید اموال",
                     financial_document_number=(
@@ -33737,6 +33690,7 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
 
                 obj.bank = bank
                 obj.payment_date = payment_date
+                obj.receiver_name = receiver_name
                 obj.transaction_reference = (
                     transaction_reference or None
                 )
@@ -33745,6 +33699,7 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
                 obj.save(update_fields=[
                     "bank",
                     "payment_date",
+                    "receiver_name",
                     "transaction_reference",
                     "is_paid",
                 ])
@@ -33763,11 +33718,10 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
 
         return Response({
             "success": True,
-            "message": "پرداخت مال ثبت شد و موجودی بانک به‌روزرسانی شد.",
+            "message": "پرداخت اموال ثبت شد و موجودی بانک به‌روزرسانی شد.",
             "bank_fund_id": fund.pk,
             "result": self.serialize_property(obj),
         })
-
 
 
 class ManagerPropertyCancelPayAPIView(ManagerPropertyBaseAPIView):
@@ -33789,7 +33743,7 @@ class ManagerPropertyCancelPayAPIView(ManagerPropertyBaseAPIView):
             if not obj.is_paid:
                 return Response({
                     "success": False,
-                    "message": "این مال هنوز پرداخت نشده است.",
+                    "message": "این اموال هنوز پرداخت نشده است.",
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             content_type = ContentType.objects.get_for_model(
@@ -33807,7 +33761,7 @@ class ManagerPropertyCancelPayAPIView(ManagerPropertyBaseAPIView):
                 return Response({
                     "success": False,
                     "message": (
-                        "تراکنش برداشت مربوط به این مال پیدا نشد."
+                        "تراکنش برداشت مربوط به این اموال پیدا نشد."
                     ),
                 }, status=status.HTTP_404_NOT_FOUND)
 
@@ -33830,11 +33784,13 @@ class ManagerPropertyCancelPayAPIView(ManagerPropertyBaseAPIView):
             obj.bank = None
             obj.payment_date = None
             obj.transaction_reference = ""
+            obj.receiver_name = ""
             obj.is_paid = False
 
             obj.save(update_fields=[
                 "bank",
                 "payment_date",
+                "receiver_name",
                 "transaction_reference",
                 "is_paid",
             ])
@@ -33846,12 +33802,10 @@ class ManagerPropertyCancelPayAPIView(ManagerPropertyBaseAPIView):
         return Response({
             "success": True,
             "message": (
-                "پرداخت مال لغو شد و موجودی بانک مجدداً محاسبه شد."
+                "پرداخت اموال لغو شد و موجودی بانک مجدداً محاسبه شد."
             ),
             "result": self.serialize_property(obj),
         })
-
-
 
 
 class ManagerPropertyBanksAPIView(ManagerPropertyBaseAPIView):
@@ -33859,3 +33813,1629 @@ class ManagerPropertyBanksAPIView(ManagerPropertyBaseAPIView):
     def get(self, request):
         return self.get_manager_banks_response(request)
 
+
+# ---------------------------------------
+# Sewage expense
+# ---------------------------------------
+def sewage_normalize_digits(value):
+    if value is None:
+        return value
+
+    value = str(value)
+
+    persian_digits = "۰۱۲۳۴۵۶۷۸۹"
+    arabic_digits = "٠١٢٣٤٥٦٧٨٩"
+
+    for index, digit in enumerate(persian_digits):
+        value = value.replace(digit, str(index))
+
+    for index, digit in enumerate(arabic_digits):
+        value = value.replace(digit, str(index))
+
+    return value.strip()
+
+
+def sewage_parse_date(value):
+    if not value:
+        return None
+
+    value = sewage_normalize_digits(value)
+
+    try:
+        year, month, day = map(int, value.split("-"))
+
+        if 1200 <= year <= 1600:
+            return jdatetime.date(
+                year, month, day
+            ).togregorian()
+
+        if 1900 <= year <= 2200:
+            return date(year, month, day)
+
+    except (ValueError, TypeError):
+        return None
+
+    return None
+
+
+def sewage_get_eligible_units(sewage, user):
+    """
+    تمام واحدهای فعال ساختمان مرتبط با هزینه فاضلاب.
+    """
+    units = Unit.objects.filter(
+        is_active=True,
+        user__manager=user,
+        myhouse=sewage.house,
+    )
+
+    return units.order_by("unit")
+
+
+def sewage_get_unit_count(sewage):
+    return sewage_get_eligible_units(
+        sewage, sewage.user
+    ).count()
+
+
+def sewage_count_fully_paid_units(sewage):
+    unit_ids = (
+        SewageInstallment.objects.filter(
+            sewage_manage=sewage,
+            unit__isnull=False,
+        )
+        .values_list("unit_id", flat=True)
+        .distinct()
+    )
+
+    count = 0
+
+    for unit_id in unit_ids:
+        installments = SewageInstallment.objects.filter(
+            sewage_manage=sewage,
+            unit_id=unit_id,
+        )
+
+        if installments.exists() and not installments.filter(
+            is_paid=False
+        ).exists():
+            count += 1
+
+    return count
+
+
+def sewage_prepare_installments(sewage, user):
+    """
+    ایجاد پیش‌پرداخت و اقساط برای تمام واحدهای فعال ساختمان.
+    در این مرحله هیچ اعلانی ارسال نمی‌شود.
+    """
+
+    units = list(
+        sewage_get_eligible_units(sewage, user)
+    )
+
+    count = len(units)
+
+    if count == 0:
+        raise ValueError(
+            "هیچ واحد فعالی برای ثبت هزینه فاضلاب پیدا نشد."
+        )
+
+    total = int(sewage.amount or 0)
+    prepayment_total = int(sewage.prepayment or 0)
+    installment_count = int(sewage.installment_count or 0)
+
+    if total <= 0:
+        raise ValueError(
+            "مبلغ هزینه فاضلاب باید بیشتر از صفر باشد."
+        )
+
+    if prepayment_total < 0 or prepayment_total > total:
+        raise ValueError(
+            "مبلغ پیش‌پرداخت معتبر نیست."
+        )
+
+    if installment_count < 0:
+        raise ValueError(
+            "تعداد اقساط نمی‌تواند منفی باشد."
+        )
+
+    if (
+        installment_count == 0
+        and prepayment_total not in (0, total)
+    ):
+        raise ValueError(
+            "برای مبلغ باقی‌مانده، تعداد اقساط باید بیشتر از صفر باشد؛ "
+            "برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید."
+        )
+
+    total_base, total_extra = divmod(total, count)
+    pre_base, pre_extra = divmod(prepayment_total, count)
+
+    base_date = sewage.first_due_date or timezone.localdate()
+
+    created_units = 0
+    created_rows = 0
+
+    with transaction.atomic():
+
+        for index, unit in enumerate(units):
+
+            existing = SewageInstallment.objects.filter(
+                sewage_manage=sewage,
+                unit=unit,
+            )
+
+            if existing.exists():
+                continue
+
+            unit_total = total_base + (
+                1 if index < total_extra else 0
+            )
+
+            unit_prepayment = pre_base + (
+                1 if index < pre_extra else 0
+            )
+
+            remaining = unit_total - unit_prepayment
+
+            if remaining < 0:
+                raise ValueError(
+                    "پیش‌پرداخت هر واحد نمی‌تواند از سهم هزینه آن بیشتر باشد."
+                )
+
+            rows = []
+
+            # پرداخت یکجا بدون پیش‌پرداخت
+            if installment_count == 0 and unit_prepayment == 0:
+
+                rows.append(
+                    SewageInstallment(
+                        sewage_manage=sewage,
+                        house=sewage.house,
+                        unit=unit,
+                        installment_number=1,
+                        amount=unit_total,
+                        prepayment_per_unit=0,
+                        due_date=base_date,
+                        financial_document_number=(
+                            get_next_financial_document_number(
+                                sewage.house
+                            )
+                        ),
+                        send_notification=False,
+                        send_notification_date=None,
+                    )
+                )
+
+            else:
+
+                # پیش‌پرداخت
+                if unit_prepayment > 0:
+
+                    rows.append(
+                        SewageInstallment(
+                            sewage_manage=sewage,
+                            house=sewage.house,
+                            unit=unit,
+                            installment_number=0,
+                            amount=unit_prepayment,
+                            prepayment_per_unit=unit_prepayment,
+                            due_date=base_date,
+                            financial_document_number=(
+                                get_next_financial_document_number(
+                                    sewage.house
+                                )
+                            ),
+                            send_notification=False,
+                            send_notification_date=None,
+                        )
+                    )
+
+                # اقساط باقی‌مانده
+                if remaining > 0:
+
+                    if installment_count <= 0:
+                        raise ValueError(
+                            "تعداد اقساط برای مبلغ باقی‌مانده معتبر نیست."
+                        )
+
+                    regular, extra = divmod(
+                        remaining,
+                        installment_count,
+                    )
+
+                    for number in range(
+                        1,
+                        installment_count + 1,
+                    ):
+
+                        installment_amount = regular + (
+                            1 if number <= extra else 0
+                        )
+
+                        rows.append(
+                            SewageInstallment(
+                                sewage_manage=sewage,
+                                house=sewage.house,
+                                unit=unit,
+                                installment_number=number,
+                                amount=installment_amount,
+                                prepayment_per_unit=0,
+                                due_date=(
+                                    base_date
+                                    + relativedelta(months=number)
+                                ),
+                                financial_document_number=(
+                                    get_next_financial_document_number(
+                                        sewage.house
+                                    )
+                                ),
+                                send_notification=False,
+                                send_notification_date=None,
+                            )
+                        )
+
+            if rows:
+                SewageInstallment.objects.bulk_create(rows)
+                created_units += 1
+                created_rows += len(rows)
+
+    return {
+        "eligible_unit_count": count,
+        "created_units_count": created_units,
+        "created_installments_count": created_rows,
+        "share_per_unit": total // count,
+        "prepayment_per_unit": prepayment_total // count,
+        "installment_amount_per_unit": (
+            (total - prepayment_total) // count // installment_count
+            if installment_count else 0
+        ),
+    }
+
+
+def sewage_serialize(sewage, request):
+    documents = []
+
+    for doc in sewage.sewage_documents.all():
+        if doc.document:
+            documents.append({
+                "id": doc.id,
+                "url": request.build_absolute_uri(
+                    doc.document.url
+                ),
+                "uploaded_at": doc.uploaded_at.isoformat(),
+            })
+
+    eligible_count = sewage_get_eligible_units(
+        sewage, sewage.user
+    ).count()
+
+    sent_count = sewage.count_sent_units()
+
+    return {
+        "id": sewage.id,
+        "name": sewage.name,
+        "amount": sewage.amount,
+        "prepayment": sewage.prepayment,
+        "installment_count": sewage.installment_count,
+        "first_due_date": (
+            sewage.first_due_date.isoformat()
+            if sewage.first_due_date else None
+        ),
+        "details": sewage.details or "",
+        "is_active": sewage.is_active,
+        "created_at": sewage.created_at.isoformat(),
+        "documents": documents,
+        "sent_units_count": sent_count,
+        "fully_paid_units_count": (
+            sewage_count_fully_paid_units(sewage)
+        ),
+        "eligible_unit_count": eligible_count,
+        "total_unit_count": eligible_count,
+        "is_sent": sent_count > 0,
+    }
+
+
+class ManagerSewageChargesAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_house(self, request):
+        return MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+
+    def get(self, request):
+        house = self.get_house(request)
+
+        if not house:
+            return Response({
+                "success": False,
+                "message": "ساختمان فعالی برای مدیر پیدا نشد.",
+                "results": [],
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        sewages = (
+            SewageManage.objects.filter(
+                user=request.user,
+                house=house,
+            )
+            .prefetch_related("sewage_documents")
+            .order_by("-created_at")
+        )
+
+        return Response({
+            "success": True,
+            "count": sewages.count(),
+            "results": [
+                sewage_serialize(item, request)
+                for item in sewages
+            ],
+        }, status=status.HTTP_200_OK)
+
+    def post(self, request):
+        house = self.get_house(request)
+
+        if not house:
+            return Response({
+                "success": False,
+                "message": "ساختمان فعالی برای مدیر پیدا نشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        files = request.FILES.getlist("document")
+
+        if len(files) > 2:
+            return Response({
+                "success": False,
+                "message": "حداکثر دو فایل مجاز است.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        data = request.data.copy()
+
+        parsed_date = sewage_parse_date(
+            data.get("first_due_date")
+        )
+
+        if not parsed_date:
+            return Response({
+                "success": False,
+                "message": "تاریخ اولین سررسید معتبر نیست.",
+                "errors": {
+                    "first_due_date": [
+                        "تاریخ را به صورت YYYY-MM-DD وارد کنید."
+                    ]
+                },
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        data["first_due_date"] = (
+            jdatetime.date.fromgregorian(
+                date=parsed_date
+            ).strftime("%Y-%m-%d")
+        )
+
+        if data.get("prepayment") in (None, ""):
+            data["prepayment"] = 0
+
+        if data.get("installment_count") in (None, ""):
+            data["installment_count"] = 0
+
+        form = SewageForm(
+            data=data,
+            files=request.FILES,
+        )
+
+        if not form.is_valid():
+            return Response({
+                "success": False,
+                "message": "اطلاعات هزینه فاضلاب معتبر نیست.",
+                "errors": form.errors.get_json_data(),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = form.cleaned_data["amount"]
+        prepayment = form.cleaned_data.get("prepayment") or 0
+        installment_count = (
+            form.cleaned_data.get("installment_count") or 0
+        )
+
+        if amount <= 0:
+            return Response({
+                "success": False,
+                "message": "مبلغ هزینه فاضلاب باید بیشتر از صفر باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if prepayment < 0 or prepayment > amount:
+            return Response({
+                "success": False,
+                "message": "پیش‌پرداخت باید بین صفر و مبلغ کل باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if installment_count < 0:
+            return Response({
+                "success": False,
+                "message": "تعداد اقساط نمی‌تواند منفی باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if (
+            installment_count == 0
+            and prepayment not in (0, amount)
+        ):
+            return Response({
+                "success": False,
+                "message": (
+                    "برای مبلغ باقی‌مانده، تعداد اقساط را بیشتر از صفر وارد کنید؛ "
+                    "برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+
+                sewage = form.save(commit=False)
+                sewage.user = request.user
+                sewage.house = house
+                sewage.prepayment = prepayment
+                sewage.installment_count = installment_count
+                sewage.save()
+
+                for uploaded_file in files:
+                    SewageDocument.objects.create(
+                        sewage=sewage,
+                        document=uploaded_file,
+                    )
+
+                calculation = sewage_prepare_installments(
+                    sewage,
+                    request.user,
+                )
+
+        except ValueError as exc:
+            return Response({
+                "success": False,
+                "message": str(exc),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Creating sewage/installments failed"
+            )
+
+            return Response({
+                "success": False,
+                "message": "ثبت هزینه فاضلاب و محاسبه اقساط انجام نشد.",
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        result = sewage_serialize(sewage, request)
+        result["calculation"] = calculation
+
+        return Response({
+            "success": True,
+            "message": "هزینه فاضلاب ثبت و اقساط آن محاسبه شد.",
+            "result": result,
+        }, status=status.HTTP_201_CREATED)
+
+class ManagerSewageChargeDetailAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get_sewage(self, request, sewage_id):
+        house = MyHouse.objects.filter(
+            user=request.user,
+            is_active=True,
+        ).first()
+
+        if not house:
+            return None
+
+        return SewageManage.objects.filter(
+            id=sewage_id,
+            user=request.user,
+            house=house,
+        ).prefetch_related("sewage_documents").first()
+
+    def put(self, request, sewage_id):
+        sewage = self.get_sewage(request, sewage_id)
+
+        if not sewage:
+            return Response({
+                "success": False,
+                "message": "هزینه فاضلاب پیدا نشد.",
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        existing = SewageInstallment.objects.filter(
+            sewage_manage=sewage
+        )
+
+        if existing.filter(send_notification=True).exists():
+            return Response({
+                "success": False,
+                "message": (
+                    "این هزینه قبلاً اعلان شده است و برای جلوگیری "
+                    "از تغییر سوابق، قابل ویرایش نیست."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if existing.filter(is_paid=True).exists():
+            return Response({
+                "success": False,
+                "message": (
+                    "این هزینه دارای قسط پرداخت‌شده است و امکان "
+                    "بازسازی اقساط آن وجود ندارد."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        files = request.FILES.getlist("document")
+
+        if len(files) > 2:
+            return Response({
+                "success": False,
+                "message": "حداکثر دو فایل جدید مجاز است.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        data = request.data.copy()
+        raw_date = data.get("first_due_date")
+
+        if raw_date:
+            parsed_date = sewage_parse_date(raw_date)
+
+            if not parsed_date:
+                return Response({
+                    "success": False,
+                    "message": "تاریخ اولین سررسید معتبر نیست.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            data["first_due_date"] = (
+                jdatetime.date.fromgregorian(
+                    date=parsed_date
+                ).strftime("%Y-%m-%d")
+            )
+
+        if data.get("prepayment") in (None, ""):
+            data["prepayment"] = 0
+
+        if data.get("installment_count") in (None, ""):
+            data["installment_count"] = 0
+
+        form = SewageForm(
+            data=data,
+            files=request.FILES,
+            instance=sewage,
+        )
+
+        if not form.is_valid():
+            return Response({
+                "success": False,
+                "message": "اطلاعات هزینه فاضلاب معتبر نیست.",
+                "errors": form.errors.get_json_data(),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        amount = form.cleaned_data["amount"]
+        prepayment = form.cleaned_data.get("prepayment") or 0
+        installment_count = (
+            form.cleaned_data.get("installment_count") or 0
+        )
+
+        if amount <= 0:
+            return Response({
+                "success": False,
+                "message": "مبلغ هزینه فاضلاب باید بیشتر از صفر باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if prepayment < 0 or prepayment > amount:
+            return Response({
+                "success": False,
+                "message": "پیش‌پرداخت باید بین صفر و مبلغ کل باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if installment_count < 0:
+            return Response({
+                "success": False,
+                "message": "تعداد اقساط نمی‌تواند منفی باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if (
+            installment_count == 0
+            and prepayment not in (0, amount)
+        ):
+            return Response({
+                "success": False,
+                "message": (
+                    "برای مبلغ باقی‌مانده، تعداد اقساط را بیشتر از صفر وارد کنید؛ "
+                    "برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            with transaction.atomic():
+
+                SewageInstallment.objects.filter(
+                    sewage_manage=sewage,
+                    send_notification=False,
+                    is_paid=False,
+                ).delete()
+
+                sewage = form.save(commit=False)
+                sewage.prepayment = prepayment
+                sewage.installment_count = installment_count
+                sewage.save()
+
+                for uploaded_file in files:
+                    SewageDocument.objects.create(
+                        sewage=sewage,
+                        document=uploaded_file,
+                    )
+
+                calculation = sewage_prepare_installments(
+                    sewage,
+                    request.user,
+                )
+
+        except ValueError as exc:
+            return Response({
+                "success": False,
+                "message": str(exc),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Updating sewage/installments failed"
+            )
+
+            return Response({
+                "success": False,
+                "message": "ویرایش هزینه فاضلاب و محاسبه مجدد اقساط انجام نشد.",
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        result = sewage_serialize(sewage, request)
+        result["calculation"] = calculation
+
+        return Response({
+            "success": True,
+            "message": "هزینه فاضلاب و اقساط آن ویرایش شدند.",
+            "result": result,
+        }, status=status.HTTP_200_OK)
+
+    def delete(self, request, sewage_id):
+        sewage = self.get_sewage(request, sewage_id)
+
+        if not sewage:
+            return Response({
+                "success": False,
+                "message": "هزینه فاضلاب پیدا نشد.",
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        installments = SewageInstallment.objects.filter(
+            sewage_manage=sewage
+        )
+
+        if installments.filter(is_paid=True).exists():
+            return Response({
+                "success": False,
+                "message": (
+                    "این هزینه دارای قسط پرداخت‌شده است "
+                    "و امکان حذف آن وجود ندارد."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if installments.filter(send_notification=True).exists():
+            return Response({
+                "success": False,
+                "message": (
+                    "این هزینه برای واحدها ارسال شده است؛ "
+                    "ابتدا وضعیت ارسال آن را بررسی کنید."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            sewage.delete()
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Deleting sewage failed"
+            )
+
+            return Response({
+                "success": False,
+                "message": "حذف هزینه فاضلاب انجام نشد.",
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            "success": True,
+            "message": "هزینه فاضلاب حذف شد.",
+        }, status=status.HTTP_200_OK)
+
+class ManagerSewageChargeUnitsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def _get_unit_resident_info(self, unit):
+        owner_name = str(
+            getattr(unit, "owner_name", "") or ""
+        ).strip()
+
+        return {
+            "resident_type": "owner" if owner_name else "empty",
+            "resident_name": owner_name,
+            "people_count": max(
+                int(getattr(unit, "owner_people_count", 0) or 0),
+                0,
+            ),
+        }
+
+    def get(self, request, sewage_id):
+        sewage = SewageManage.objects.filter(
+            id=sewage_id,
+            user=request.user,
+            house__is_active=True,
+        ).first()
+
+        if not sewage:
+            return Response({
+                "success": False,
+                "message": "هزینه فاضلاب پیدا نشد.",
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        units = sewage_get_eligible_units(
+            sewage,
+            request.user,
+        ).prefetch_related(
+            Prefetch(
+                "renters",
+                queryset=Renter.objects.filter(
+                    renter_is_active=True
+                ),
+                to_attr="active_renters_for_charge",
+            )
+        )
+
+        results = []
+
+        for unit in units:
+            installment_rows = list(
+                SewageInstallment.objects.filter(
+                    sewage_manage=sewage,
+                    unit=unit,
+                ).order_by("installment_number")
+            )
+
+            resident_info = self._get_unit_resident_info(unit)
+
+            results.append({
+                "id": unit.id,
+                "unit": str(unit.unit),
+                "resident_type": resident_info["resident_type"],
+                "resident_name": resident_info["resident_name"],
+                "people_count": resident_info["people_count"],
+                "sent": any(
+                    item.send_notification
+                    for item in installment_rows
+                ),
+                "has_paid_installment": any(
+                    item.is_paid
+                    for item in installment_rows
+                ),
+                "installments": [
+                    {
+                        "id": item.id,
+                        "installment_number": item.installment_number,
+                        "amount": item.amount,
+                        "due_date": (
+                            item.due_date.isoformat()
+                            if item.due_date else None
+                        ),
+                        "send_notification": item.send_notification,
+                        "is_paid": item.is_paid,
+                    }
+                    for item in installment_rows
+                ],
+            })
+
+        return Response({
+            "success": True,
+            "sewage_id": sewage.id,
+            "count": len(results),
+            "results": results,
+        }, status=status.HTTP_200_OK)
+
+
+class ManagerSendSewageChargeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, sewage_id):
+        sewage = SewageManage.objects.filter(
+            id=sewage_id,
+            user=request.user,
+            house__is_active=True,
+        ).first()
+
+        if not sewage:
+            return Response({
+                "success": False,
+                "message": "هزینه فاضلاب پیدا نشد.",
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        raw_ids = request.data.get("unit_ids", [])
+
+        if isinstance(raw_ids, str):
+            try:
+                raw_ids = json.loads(raw_ids)
+            except (ValueError, TypeError):
+                raw_ids = [
+                    item.strip()
+                    for item in raw_ids.split(",")
+                    if item.strip()
+                ]
+
+        if not isinstance(raw_ids, list):
+            raw_ids = []
+
+        all_requested = str(
+            request.data.get("all_units", "")
+        ).lower() in ("true", "1", "yes")
+
+        units_qs = sewage_get_eligible_units(
+            sewage,
+            request.user,
+        )
+
+        if all_requested:
+            units = list(units_qs)
+        else:
+            ids = []
+
+            for value in raw_ids:
+                try:
+                    ids.append(int(value))
+                except (TypeError, ValueError):
+                    continue
+
+            units = list(units_qs.filter(id__in=ids))
+
+        if not units:
+            return Response({
+                "success": False,
+                "message": "هیچ واحد معتبری انتخاب نشده است.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        sent_count = 0
+        already_sent_count = 0
+        paid_count = 0
+        missing_count = 0
+
+        try:
+            with transaction.atomic():
+
+                for unit in units:
+                    installments = SewageInstallment.objects.filter(
+                        sewage_manage=sewage,
+                        unit=unit,
+                    )
+
+                    if not installments.exists():
+                        missing_count += 1
+                        continue
+
+                    if installments.filter(
+                        send_notification=True
+                    ).exists():
+                        already_sent_count += 1
+                        continue
+
+                    if installments.filter(is_paid=True).exists():
+                        paid_count += 1
+                        continue
+
+                    updated = installments.filter(
+                        send_notification=False
+                    ).update(
+                        send_notification=True,
+                        send_notification_date=date.today(),
+                    )
+
+                    if updated:
+                        sent_count += 1
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Updating sewage notification status failed"
+            )
+
+            return Response({
+                "success": False,
+                "message": "ثبت وضعیت ارسال هزینه فاضلاب انجام نشد.",
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            "success": True,
+            "message": "وضعیت اعلان هزینه فاضلاب ثبت شد.",
+            "sewage_id": sewage.id,
+            "sent_units_count": sent_count,
+            "already_sent_units_count": already_sent_count,
+            "missing_installments_count": missing_count,
+            "skipped_paid_units_count": paid_count,
+        }, status=status.HTTP_200_OK)
+
+
+class ManagerCancelSewageChargeAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, sewage_id):
+        sewage = SewageManage.objects.filter(
+            id=sewage_id,
+            user=request.user,
+            house__is_active=True,
+        ).first()
+
+        if not sewage:
+            return Response({
+                "success": False,
+                "message": "هزینه فاضلاب پیدا نشد.",
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        raw_ids = request.data.get("unit_ids", [])
+
+        if isinstance(raw_ids, str):
+            try:
+                raw_ids = json.loads(raw_ids)
+            except (ValueError, TypeError):
+                raw_ids = [
+                    item.strip()
+                    for item in raw_ids.split(",")
+                    if item.strip()
+                ]
+
+        if not isinstance(raw_ids, list):
+            raw_ids = []
+
+        all_units_requested = str(
+            request.data.get("all_units", "")
+        ).lower() in ("true", "1", "yes")
+
+        units_qs = sewage_get_eligible_units(
+            sewage,
+            request.user,
+        )
+
+        if all_units_requested:
+            units = list(units_qs)
+        else:
+            valid_ids = []
+
+            for unit_id in raw_ids:
+                try:
+                    valid_ids.append(int(unit_id))
+                except (TypeError, ValueError):
+                    continue
+
+            units = list(
+                units_qs.filter(
+                    id__in=valid_ids
+                )
+            )
+
+        if not units:
+            return Response({
+                "success": False,
+                "message": "هیچ واحد معتبری انتخاب نشده است.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        cancelled_units_count = 0
+        cancelled_installments_count = 0
+        skipped_paid_units_count = 0
+        skipped_unsent_units_count = 0
+
+        try:
+            with transaction.atomic():
+
+                for unit in units:
+                    installments = SewageInstallment.objects.filter(
+                        sewage_manage=sewage,
+                        unit=unit,
+                        send_notification=True,
+                    )
+
+                    if not installments.exists():
+                        skipped_unsent_units_count += 1
+                        continue
+
+                    # اگر هر قسطی پرداخت شده باشد، اعلان این واحد لغو نمی‌شود.
+                    if SewageInstallment.objects.filter(
+                        sewage_manage=sewage,
+                        unit=unit,
+                        is_paid=True,
+                    ).exists():
+                        skipped_paid_units_count += 1
+                        continue
+
+                    updated_count = installments.update(
+                        send_notification=False,
+                        send_notification_date=None,
+                    )
+
+                    if updated_count:
+                        cancelled_units_count += 1
+                        cancelled_installments_count += updated_count
+
+        except Exception:
+            import logging
+            logging.getLogger(__name__).exception(
+                "Cancelling sewage notifications failed"
+            )
+
+            return Response({
+                "success": False,
+                "message": "هنگام لغو اعلان هزینه فاضلاب خطایی رخ داد.",
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            "success": True,
+            "message": "عملیات لغو اعلان هزینه فاضلاب انجام شد.",
+            "sewage_id": sewage.id,
+            "cancelled_units_count": cancelled_units_count,
+            "cancelled_installments_count": cancelled_installments_count,
+            "skipped_paid_units_count": skipped_paid_units_count,
+            "skipped_unsent_units_count": skipped_unsent_units_count,
+        }, status=status.HTTP_200_OK)
+
+
+# ============================================================
+# ThirdParty
+# ============================================================
+
+class ManagerThirdPartyListCreateAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    # =====================================================
+    # دریافت ساختمان فعال مدیر
+    # =====================================================
+
+    def get_house(self, user):
+        return MyHouse.objects.filter(
+            user=user,
+            is_active=True
+        ).first()
+
+    # =====================================================
+    # بررسی دسترسی مدیر و ساختمان
+    # =====================================================
+
+    def check_manager(self, request):
+
+        if not request.user.is_middle_admin:
+            return None, Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        house = self.get_house(request.user)
+
+        if not house:
+            return None, Response(
+                {
+                    'success': False,
+                    'message': 'برای این مدیر ساختمان فعالی ثبت نشده است.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        return house, None
+
+    # =====================================================
+    # تبدیل مقدار فعال / غیرفعال
+    # =====================================================
+
+    def parse_boolean(self, value):
+
+        if isinstance(value, bool):
+            return value
+
+        value = str(value).strip().lower()
+
+        if value in ['true', '1', 'yes', 'on']:
+            return True
+
+        if value in ['false', '0', 'no', 'off']:
+            return False
+
+        return None
+
+    # =====================================================
+    # دریافت فهرست اشخاص ثالث
+    # =====================================================
+
+    def get(self, request):
+
+        house, error = self.check_manager(request)
+
+        if error:
+            return error
+
+        third_parties = ThirdParty.objects.filter(
+            house=house
+        ).order_by('name')
+
+        serializer = ManagerThirdPartySerializer(
+            third_parties,
+            many=True
+        )
+
+        return Response(
+            {
+                'success': True,
+                'count': len(serializer.data),
+                'results': serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+    # =====================================================
+    # ایجاد شخص ثالث
+    # =====================================================
+
+    @transaction.atomic
+    def post(self, request):
+
+        house, error = self.check_manager(request)
+
+        if error:
+            return error
+
+        name = str(
+            request.data.get('name', '') or ''
+        ).strip()
+
+        person_type = str(
+            request.data.get('person_type', 'person') or 'person'
+        ).strip()
+
+        mobile = str(
+            request.data.get('mobile', '') or ''
+        ).strip()
+
+        description = str(
+            request.data.get('description', '') or ''
+        ).strip()
+
+        is_active_value = request.data.get(
+            'is_active',
+            True
+        )
+
+        is_active = self.parse_boolean(is_active_value)
+
+        # اعتبارسنجی نام
+        if not name:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'نام شخص یا مجموعه الزامی است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(name) > 200:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'نام نمی‌تواند بیشتر از ۲۰۰ کاراکتر باشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # اعتبارسنجی نوع شخص
+        if person_type not in ['person', 'company']:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'نوع شخص نامعتبر است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # اعتبارسنجی شماره تماس
+        if len(mobile) > 20:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شماره تماس نمی‌تواند بیشتر از ۲۰ کاراکتر باشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # اعتبارسنجی توضیحات
+        if len(description) > 500:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'توضیحات نمی‌تواند بیشتر از ۵۰۰ کاراکتر باشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # اعتبارسنجی وضعیت
+        if is_active is None:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'وضعیت فعال یا غیرفعال نامعتبر است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # بررسی نام تکراری در همین ساختمان
+        if ThirdParty.objects.filter(
+            house=house,
+            name=name
+        ).exists():
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شخص یا مجموعه‌ای با این نام قبلاً در این ساختمان ثبت شده است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            # استفاده از atomic داخلی برای مدیریت IntegrityError
+            with transaction.atomic():
+
+                third_party = ThirdParty.objects.create(
+                    house=house,
+                    name=name,
+                    person_type=person_type,
+                    mobile=mobile or None,
+                    description=description or None,
+                    is_active=is_active
+                )
+
+        except IntegrityError:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شخص یا مجموعه‌ای با این نام قبلاً در این ساختمان ثبت شده است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = ManagerThirdPartySerializer(
+            third_party
+        )
+
+        return Response(
+            {
+                'success': True,
+                'message': 'شخص ثالث با موفقیت ثبت شد.',
+                'third_party': serializer.data
+            },
+            status=status.HTTP_201_CREATED
+        )
+
+
+class ManagerThirdPartyDetailAPIView(APIView):
+
+    permission_classes = [IsAuthenticated]
+
+    # =====================================================
+    # دریافت ساختمان فعال مدیر
+    # =====================================================
+
+    def get_house(self, user):
+        return MyHouse.objects.filter(
+            user=user,
+            is_active=True
+        ).first()
+
+    # =====================================================
+    # بررسی دسترسی
+    # =====================================================
+
+    def check_manager(self, request):
+
+        if not request.user.is_middle_admin:
+            return None, Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        house = self.get_house(request.user)
+
+        if not house:
+            return None, Response(
+                {
+                    'success': False,
+                    'message': 'برای این مدیر ساختمان فعالی ثبت نشده است.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        return house, None
+
+    # =====================================================
+    # دریافت شخص ثالث متعلق به ساختمان مدیر
+    # =====================================================
+
+    def get_third_party(self, house, pk):
+
+        return ThirdParty.objects.filter(
+            id=pk,
+            house=house
+        ).first()
+
+    # =====================================================
+    # تبدیل مقدار فعال / غیرفعال
+    # =====================================================
+
+    def parse_boolean(self, value):
+
+        if isinstance(value, bool):
+            return value
+
+        value = str(value).strip().lower()
+
+        if value in ['true', '1', 'yes', 'on']:
+            return True
+
+        if value in ['false', '0', 'no', 'off']:
+            return False
+
+        return None
+
+    # =====================================================
+    # ویرایش شخص ثالث
+    # =====================================================
+
+    @transaction.atomic
+    def put(self, request, pk):
+
+        house, error = self.check_manager(request)
+
+        if error:
+            return error
+
+        third_party = self.get_third_party(
+            house,
+            pk
+        )
+
+        if not third_party:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شخص ثالث مورد نظر پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        name = str(
+            request.data.get(
+                'name',
+                third_party.name
+            ) or ''
+        ).strip()
+
+        person_type = str(
+            request.data.get(
+                'person_type',
+                third_party.person_type
+            ) or ''
+        ).strip()
+
+        mobile = str(
+            request.data.get(
+                'mobile',
+                third_party.mobile or ''
+            ) or ''
+        ).strip()
+
+        description = str(
+            request.data.get(
+                'description',
+                third_party.description or ''
+            ) or ''
+        ).strip()
+
+        # اعتبارسنجی نام
+        if not name:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'نام شخص یا مجموعه الزامی است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if len(name) > 200:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'نام نمی‌تواند بیشتر از ۲۰۰ کاراکتر باشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # اعتبارسنجی نوع شخص
+        if person_type not in ['person', 'company']:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'نوع شخص نامعتبر است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # اعتبارسنجی شماره تماس
+        if len(mobile) > 20:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شماره تماس نمی‌تواند بیشتر از ۲۰ کاراکتر باشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # اعتبارسنجی توضیحات
+        if len(description) > 500:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'توضیحات نمی‌تواند بیشتر از ۵۰۰ کاراکتر باشد.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # بررسی نام تکراری در همان ساختمان
+        duplicate = ThirdParty.objects.filter(
+            house=house,
+            name=name
+        ).exclude(
+            id=third_party.id
+        ).exists()
+
+        if duplicate:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شخص یا مجموعه دیگری با این نام در این ساختمان ثبت شده است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # بررسی وضعیت فعال / غیرفعال
+        if 'is_active' in request.data:
+
+            is_active = self.parse_boolean(
+                request.data.get('is_active')
+            )
+
+            if is_active is None:
+                return Response(
+                    {
+                        'success': False,
+                        'message': 'وضعیت فعال یا غیرفعال نامعتبر است.'
+                    },
+                    status=status.HTTP_400_BAD_REQUEST
+                )
+
+            third_party.is_active = is_active
+
+        try:
+            with transaction.atomic():
+
+                third_party.name = name
+                third_party.person_type = person_type
+                third_party.mobile = mobile or None
+                third_party.description = description or None
+
+                third_party.save()
+
+        except IntegrityError:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شخص یا مجموعه‌ای با این نام در این ساختمان ثبت شده است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        serializer = ManagerThirdPartySerializer(
+            third_party
+        )
+
+        return Response(
+            {
+                'success': True,
+                'message': 'اطلاعات شخص ثالث با موفقیت ویرایش شد.',
+                'third_party': serializer.data
+            },
+            status=status.HTTP_200_OK
+        )
+
+    # =====================================================
+    # حذف شخص ثالث
+    # =====================================================
+
+    @transaction.atomic
+    def delete(self, request, pk):
+
+        house, error = self.check_manager(request)
+
+        if error:
+            return error
+
+        third_party = self.get_third_party(
+            house,
+            pk
+        )
+
+        if not third_party:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شخص ثالث مورد نظر پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        used_in_documents = []
+
+        # بررسی تمام مدل‌های پروژه
+        for model in apps.get_models():
+
+            if model == ThirdParty:
+                continue
+
+            for field in model._meta.get_fields():
+
+                # فقط ForeignKeyهای واقعی به ThirdParty
+                if not getattr(field, 'many_to_one', False):
+                    continue
+
+                if getattr(field, 'related_model', None) != ThirdParty:
+                    continue
+
+                # بررسی وجود رکورد مرتبط
+                exists = model.objects.filter(
+                    **{
+                        field.attname: third_party.id
+                    }
+                ).exists()
+
+                if exists:
+                    used_in_documents.append(
+                        str(model._meta.verbose_name)
+                    )
+                    break
+
+        # جلوگیری از حذف شخص ثالث استفاده‌شده
+        if used_in_documents:
+            return Response(
+                {
+                    'success': False,
+                    'message': (
+                        'این شخص ثالث در اسناد مالی استفاده شده است '
+                        'و امکان حذف آن وجود ندارد.'
+                    ),
+                    'used_in_documents': list(
+                        set(used_in_documents)
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        third_party.delete()
+
+        return Response(
+            {
+                'success': True,
+                'message': 'شخص ثالث با موفقیت حذف شد.'
+            },
+            status=status.HTTP_200_OK
+        )

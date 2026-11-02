@@ -1,7 +1,9 @@
 import json
+from decimal import Decimal
 
 from django.contrib.auth.models import AbstractUser, UserManager
 from django.db import models
+from django.db.models import F
 from django.utils import timezone
 from django.utils.safestring import mark_safe
 
@@ -94,12 +96,6 @@ class Bank(models.Model):
         related_name='banks',
         verbose_name='ساختمان مرتبط'
     )
-    financial_document_number = models.PositiveIntegerField(
-        null=True,
-        blank=True,
-        editable=False,
-        verbose_name='شماره سند مالی'
-    )
     bank_name = models.CharField(max_length=100, verbose_name='نام بانک')
     account_no = models.CharField(max_length=100, verbose_name='شماره حساب')
     account_holder_name = models.CharField(max_length=100, verbose_name='نام صاحب حساب')
@@ -109,6 +105,12 @@ class Bank(models.Model):
         verbose_name='موجودی اولیه صندوق',
         null=True,
         blank=True
+    )
+    financial_document_number = models.PositiveIntegerField(
+        null=True,
+        blank=True,
+        editable=False,
+        verbose_name='شماره سند مالی'
     )
     current_balance = models.DecimalField(
         max_digits=18,
@@ -137,6 +139,60 @@ class Bank(models.Model):
 
     def __str__(self):
         return f"{self.bank_name} - {self.account_no}"
+
+    def get_current_balance(self):
+        from admin_panel.models import BankFund
+        funds = list(
+            BankFund.objects.filter(
+                bank=self,
+                is_paid=True,
+            ).order_by(
+                F("payment_date").asc(nulls_last=True),
+                "created_at",
+                "id",
+            )
+        )
+
+        opening_funds = [
+            fund for fund in funds
+            if (
+                    fund.payment_gateway == "افتتاحیه"
+                    or (
+                            fund.payment_description
+                            and "افتتاحیه" in fund.payment_description
+                    )
+            )
+        ]
+
+        if len(opening_funds) > 1:
+            raise ValueError(
+                f"بانک {self.id} دارای "
+                f"{len(opening_funds)} رکورد افتتاحیه است."
+            )
+
+        # اگر افتتاحیه به شکل تراکنش ثبت شده، موجودی اولیه دوباره اضافه نشود.
+        balance = (
+            Decimal("0")
+            if opening_funds
+            else Decimal(str(self.initial_fund or 0))
+        )
+
+        for fund in funds:
+            amount = Decimal(str(fund.amount or 0))
+
+            if fund.transaction_type == "deposit":
+                balance += amount
+
+            elif fund.transaction_type == "withdraw":
+                balance -= amount
+
+            elif fund.transaction_type == "transfer":
+                if fund.to_bank_id:
+                    balance -= amount
+                else:
+                    balance += amount
+
+        return balance
 
 
 class MyHouse(models.Model):
