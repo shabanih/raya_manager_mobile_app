@@ -1,0 +1,229 @@
+
+{% load poll_extras %}
+{% load static %}
+<!DOCTYPE html>
+<html lang="fa" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <title>گزارش اشخاص دارای مانده حساب</title>
+ <link rel="stylesheet"
+          href="{% static 'admin_panel/css/custom_style.css' %}">
+    <style>
+        @page {
+            size: A4 portrait;
+            margin: 15mm 12mm;
+
+            @bottom-center {
+                content: "صفحه " counter(page) " از " counter(pages);
+                font-family: Vazir;
+                font-size: 9px;
+            }
+        }
+
+        @font-face {
+            font-family: Vazir;
+            src: url("file:///static/fonts/Vazir.ttf");
+        }
+
+        * {
+            box-sizing: border-box;
+        }
+
+        body {
+            direction: rtl;
+            text-align: right;
+            font-family: Vazir, sans-serif;
+            font-size: 11px;
+            color: #222;
+        }
+
+        .header {
+            text-align: center;
+            padding-bottom: 12px;
+            margin-bottom: 18px;
+            border-bottom: 2px solid #555;
+        }
+
+        .header h2 {
+            font-size: 16px;
+            margin: 0 0 8px;
+        }
+
+        .header p {
+            font-size: 10px;
+            margin: 4px 0;
+        }
+
+        .summary {
+            width: 100%;
+            border-collapse: collapse;
+            margin-bottom: 18px;
+        }
+
+        .summary td {
+            width: 25%;
+            border: 1px solid #aaa;
+            padding: 9px 4px;
+            text-align: center;
+        }
+
+        .summary-title {
+            display: block;
+            font-size: 9px;
+            margin-bottom: 5px;
+            color: #555;
+        }
+
+        .summary-value {
+            font-size: 12px;
+            font-weight: bold;
+        }
+
+        .debit {
+            color: #b42318;
+        }
+
+        .credit {
+            color: #087443;
+        }
+
+        .report {
+            width: 100%;
+            border-collapse: collapse;
+            table-layout: fixed;
+        }
+
+        .report thead {
+            display: table-header-group;
+        }
+
+        .report tr {
+            page-break-inside: avoid;
+        }
+
+        .report th {
+            background: #e9ecef;
+            border: 1px solid #777;
+            padding: 9px 4px;
+            text-align: center;
+            font-size: 10px;
+        }
+
+        .report td {
+            border: 1px solid #aaa;
+            padding: 8px 4px;
+            text-align: center;
+            font-size: 10px;
+            word-wrap: break-word;
+        }
+
+        .owner {
+            color: #174ea6;
+            font-weight: bold;
+        }
+
+        .renter {
+            color: #087e8b;
+            font-weight: bold;
+        }
+
+        .balance {
+            font-weight: bold;
+        }
+
+        .empty {
+            border: 1px solid #aaa;
+            text-align: center;
+            padding: 20px;
+            margin-top: 15px;
+        }
+
+        .footer {
+            margin-top: 20px;
+            padding-top: 8px;
+            border-top: 1px solid #ccc;
+            text-align: center;
+            font-size: 9px;
+            color: #666;
+        }
+    </style>
+</head>
+
+<body>
+<div class="watermark">
+    مدیریت مجتمع مسکونی رایا شارژ
+</div>
+
+
+ <div class="header">
+         {% if house %}
+        <h2 class="fw-bold mb-1" style="color: #202548F9;">
+            مجتمع مسکونی
+            {{ house.name }}</h2>
+    {% endif %}
+        <p>گزارش بستانکاران</p>
+  
+        <p>تاریخ تهیه گزارش: {{ today }}</p>
+    </div>
+
+    {% if balances %}
+
+        <table class="report">
+            <thead>
+                <tr>
+                    <th style="width: 8%;">ردیف</th>
+                    <th style="width: 15%;">شماره واحد</th>
+                    <th style="width: 17%;">نوع شخص</th>
+                    <th style="width: 35%;">نام مالک / مستأجر</th>
+                    <th style="width: 25%;">مبلغ مانده</th>
+                </tr>
+            </thead>
+
+            <tbody>
+                {% for item in balances %}
+                    <tr>
+                        <td>
+                            {{ forloop.counter|to_persian_number }}
+                        </td>
+
+                        <td>
+                            {{ item.unit.unit|to_persian_number }}
+                        </td>
+
+                        <td>
+                            {% if item.resident_type == 'owner' %}
+                                <span class="owner">مالک</span>
+                            {% else %}
+                                <span class="renter">مستأجر</span>
+                            {% endif %}
+                        </td>
+
+                        <td>
+                            {{ item.resident_name|to_persian_number }}
+                        </td>
+
+                        <td class="balance">
+                      
+                                <span class="debit">
+                                    {{ item.balance_amount|three_digit_currency }}
+                                  
+                                </span>
+                       
+                        </td>
+                    </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+
+    {% else %}
+
+        <div class="empty">
+            هیچ مالک یا مستأجری مانده حساب ندارد.
+        </div>
+
+    {% endif %}
+
+
+
+</body>
+</html>

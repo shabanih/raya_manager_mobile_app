@@ -1,0 +1,270 @@
+
+{% extends 'middleShared/base_template.html' %}
+{% load poll_extras %}
+
+{% block page_title %}
+گردش بستانکاران
+{% endblock page_title %}
+
+{% block main_content %}
+
+<div class="container">
+
+    <hr class="p-0">
+
+    <!-- عنوان و جستجو -->
+    <div class="row g-2">
+
+        <div class="col-12 col-md-4 align-self-center">
+            <form method="get" action="" class="d-flex gap-2 align-items-center">
+                <input
+                    type="text"
+                    class="form-control p-2"
+                    name="q"
+                    id="searchInput"
+                    autocomplete="off"
+                    value="{{ request.GET.q }}"
+                    placeholder="جستجو نام یا شماره واحد ..."
+                    dir="rtl"
+                >
+
+                <button type="submit" class="btn btn-info px-3 py-2">
+                    جستجو
+                </button>
+            </form>
+        </div>
+
+        <div class="col-12 col-md-4 text-center align-self-center">
+               <select id="residentFilter" class="form-select form-select-sm">
+                <option value="all">همه اشخاص</option>
+                <option value="owner">فقط مالکان</option>
+                <option value="renter">فقط مستأجران</option>
+            </select>
+       
+        </div>
+
+        <div class="col-12 col-md-4 text-end align-self-center">
+
+          <a href="{% url 'unit-reports-balances-pdf' %}?{{ request.GET.urlencode }}"
+                   class="btn btn-gradient-danger px-4 py-2">
+                    خروجی PDF 
+                </a>
+
+        </div>
+
+    </div>
+
+
+    <!-- خلاصه گزارش -->
+    <!--<div class="row mt-4 g-2">-->
+
+    <!--    <div class="col-6 col-md">-->
+    <!--        <div class="card shadow-sm text-center p-3">-->
+    <!--            <small>تعداد اشخاص دارای مانده</small>-->
+    <!--            <h5 class="mt-2">-->
+    <!--                {{ total_people|to_persian_number }}-->
+    <!--            </h5>-->
+    <!--        </div>-->
+    <!--    </div>-->
+
+    <!--    <div class="col-6 col-md">-->
+    <!--        <div class="card shadow-sm text-center p-3">-->
+    <!--            <small>تعداد بدهکاران</small>-->
+    <!--            <h5 class="text-danger mt-2">-->
+    <!--                {{ total_debtors|to_persian_number }}-->
+    <!--            </h5>-->
+    <!--        </div>-->
+    <!--    </div>-->
+
+    <!--    <div class="col-6 col-md">-->
+    <!--        <div class="card shadow-sm text-center p-3">-->
+    <!--            <small>تعداد بستانکاران</small>-->
+    <!--            <h5 class="text-success mt-2">-->
+    <!--                {{ total_creditors|to_persian_number }}-->
+    <!--            </h5>-->
+    <!--        </div>-->
+    <!--    </div>-->
+
+    <!--    <div class="col-6 col-md">-->
+    <!--        <div class="card shadow-sm text-center p-3">-->
+    <!--            <small>جمع مانده بدهکار</small>-->
+    <!--            <h5 class="text-danger mt-2">-->
+    <!--                {{ total_debtor_amount|three_digit_currency }}-->
+    <!--            </h5>-->
+    <!--        </div>-->
+    <!--    </div>-->
+
+    <!--    <div class="col-12 col-md">-->
+    <!--        <div class="card shadow-sm text-center p-3">-->
+    <!--            <small>جمع مانده بستانکار</small>-->
+    <!--            <h5 class="text-success mt-2">-->
+    <!--                {{ total_creditor_amount|three_digit_currency }}-->
+    <!--            </h5>-->
+    <!--        </div>-->
+    <!--    </div>-->
+
+    <!--</div>-->
+
+
+    <!-- فیلتر نوع شخص -->
+    <!--<div class="row mt-4 mb-2">-->
+
+    <!--    <div class="col-12 col-md-3">-->
+        
+
+    <!--</div>-->
+
+
+    <!-- جدول -->
+    <div class="row mt-3">
+
+        <div class="table-responsive p-0">
+
+            <table class="table table-bordered table-hover text-center"
+                   id="balancesTable">
+
+                <thead>
+                    <tr>
+                        <th>#</th>
+                        <th>شماره واحد</th>
+                        <th>نوع شخص</th>
+                        <th>نام مالک / مستأجر</th>
+                        <th>مبلغ مانده</th>
+                     
+                    </tr>
+                </thead>
+
+                <tbody>
+
+                    {% for item in balances %}
+
+                    <tr
+                        data-type="{{ item.resident_type }}"
+                        data-search="{{ item.unit.unit }} {{ item.resident_name }} {{ item.resident_label }}"
+                    >
+
+                        <td>
+                            {{ forloop.counter|to_persian_number }}
+                        </td>
+
+                        <td class="fw-bold">
+                            {{ item.unit.unit|to_persian_number }}
+                        </td>
+
+                        <td>
+
+                            {% if item.resident_type == 'owner' %}
+
+                                <span class="badge bg-primary">
+                                    مالک
+                                </span>
+
+                            {% else %}
+
+                                <span class="badge bg-info text-dark">
+                                    مستأجر
+                                </span>
+
+                            {% endif %}
+
+                        </td>
+
+                        <td>
+                            {{ item.resident_name|to_persian_number }}
+                        </td>
+
+                 
+
+              
+
+                        <td class="fw-bold">
+                            {{ item.balance_amount|three_digit_currency }}
+                        </td>
+
+                      
+
+                    </tr>
+
+                    {% empty %}
+
+                    <tr>
+                        <td colspan="9" class="text-center p-4">
+                            هیچ مالک یا مستأجری مانده حساب ندارد.
+                        </td>
+                    </tr>
+
+                    {% endfor %}
+
+                </tbody>
+
+            </table>
+
+        </div>
+
+    </div>
+
+
+</div>
+
+
+
+<script>
+
+document.addEventListener('DOMContentLoaded', function () {
+
+    const searchInput = document.getElementById('searchInput');
+    const residentFilter = document.getElementById('residentFilter');
+    const tableRows = document.querySelectorAll('#balancesTable tbody tr[data-type]');
+    const resultCount = document.getElementById('resultCount');
+
+    function filterTable() {
+
+        const searchValue = searchInput.value.trim().toLowerCase();
+        const residentType = residentFilter.value;
+
+        let visibleCount = 0;
+
+        tableRows.forEach(function (row) {
+
+            const searchText = (row.dataset.search || '').toLowerCase();
+            const rowType = row.dataset.type;
+
+            const matchesSearch = searchText.includes(searchValue);
+
+            const matchesType =
+                residentType === 'all' ||
+                rowType === residentType;
+
+            if (matchesSearch && matchesType) {
+
+                row.style.display = '';
+                visibleCount++;
+
+            } else {
+
+                row.style.display = 'none';
+
+            }
+
+        });
+
+        resultCount.textContent =
+            'تعداد ردیف‌های نمایش داده شده: ' + visibleCount;
+
+    }
+
+    if (searchInput) {
+        searchInput.addEventListener('input', filterTable);
+    }
+
+    if (residentFilter) {
+        residentFilter.addEventListener('change', filterTable);
+    }
+
+    filterTable();
+
+});
+
+</script>
+
+{% endblock main_content %}

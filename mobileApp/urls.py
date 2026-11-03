@@ -55,7 +55,11 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerMaintenanceBanksAPIView, ManagerPropertyDetailAPIView, ManagerPropertyAPIView, ManagerPropertyPayAPIView, \
     ManagerPropertyCancelPayAPIView, ManagerPropertyBanksAPIView, ManagerSewageChargesAPIView, \
     ManagerSewageChargeDetailAPIView, ManagerSewageChargeUnitsAPIView, ManagerSendSewageChargeAPIView, \
-    ManagerCancelSewageChargeAPIView, ManagerThirdPartyListCreateAPIView, ManagerThirdPartyDetailAPIView
+    ManagerCancelSewageChargeAPIView, ManagerThirdPartyListCreateAPIView, ManagerThirdPartyDetailAPIView, \
+    ManagerFundTurnoverAPIView, ManagerDebtorUnitsAPIView, ManagerDebtorHistoryAPIView, ManagerCreditorUnitsAPIView, \
+    ManagerSewageChargesListAPIView, ManagerSewageChargeUnitsListAPIView, ManagerSewageUnitInstallmentsAPIView, \
+    ManagerSewageInstallmentCancelPaymentAPIView, ManagerSewageInstallmentPaymentAPIView, \
+    ManagerUserPayMoneyListAPIView, ManagerAdminFundListAPIView
 
 urlpatterns = [
     path(
@@ -1217,6 +1221,70 @@ urlpatterns = [
         'manager/third-parties/<int:pk>/',
         ManagerThirdPartyDetailAPIView.as_view(),
         name='manager-third-party-detail'
+    ),
+    # ================== REPORTS URLs ==================
+    path(
+        'manager/reports/fund-turnover/',
+        ManagerFundTurnoverAPIView.as_view(),
+        name='manager-fund-turnover',
+    ),
+
+    path(
+        'manager/reports/debtor-units/',
+        ManagerDebtorUnitsAPIView.as_view(),
+        name='manager-debtor-units',
+    ),
+
+    path(
+        'manager/reports/debtor-units/<int:unit_id>/<str:debtor_type>/<int:debtor_id>/history/',
+        ManagerDebtorHistoryAPIView.as_view(),
+        name='manager-debtor-history',
+    ),
+    path(
+        'manager/reports/creditor-units/',
+        ManagerCreditorUnitsAPIView.as_view(),
+        name='manager-creditor-units',
+    ),
+
+    path(
+        "manager/sewage-charges/",
+        ManagerSewageChargesListAPIView.as_view(),
+        name="manager-sewage-charges",
+    ),
+
+    path(
+        "manager/sewage-charges/<int:sewage_id>/units/",
+        ManagerSewageChargeUnitsListAPIView.as_view(),
+        name="manager-sewage-charge-units",
+    ),
+
+    path(
+        "manager/sewage-charges/<int:sewage_id>/units/<int:unit_id>/installments/",
+        ManagerSewageUnitInstallmentsAPIView.as_view(),
+        name="manager-sewage-unit-installments",
+    ),
+
+    path(
+        "manager/sewage-installments/<int:installment_id>/payment/",
+        ManagerSewageInstallmentPaymentAPIView.as_view(),
+        name="manager-sewage-installment-payment",
+    ),
+
+    path(
+        "manager/sewage-installments/<int:installment_id>/cancel-payment/",
+        ManagerSewageInstallmentCancelPaymentAPIView.as_view(),
+        name="manager-sewage-installment-cancel-payment",
+    ),
+    path(
+        'manager/user-help-money/',
+        ManagerUserPayMoneyListAPIView.as_view(),
+        name='manager-user-help-money',
+    ),
+
+    path(
+        'manager/admin-funds/',
+        ManagerAdminFundListAPIView.as_view(),
+        name='manager-admin-funds',
     ),
 
 ]

@@ -2,7 +2,7 @@ from django.db.models import Q
 from rest_framework import serializers
 from datetime import date, datetime
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageInstallment, \
-    SewageManage, MessageToUser, AnnouncementDocument, BankFund, ThirdParty
+    SewageManage, MessageToUser, AnnouncementDocument, BankFund, ThirdParty, AdminFund, SmsCredit, Subscription
 from notifications.models import SupportFile, SupportMessage, SupportUser, Notification, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
 from polls_app.models import Choice, Question, Poll, Vote
@@ -1079,17 +1079,19 @@ class UserPayMoneySerializer(serializers.ModelSerializer):
     house_name = serializers.SerializerMethodField()
     bank_name = serializers.SerializerMethodField()
     documents = serializers.SerializerMethodField()
+    resident_name = serializers.SerializerMethodField()
 
     class Meta:
         model = UserPayMoney
 
         fields = [
             'id',
-
             'amount',
             'description',
             'details',
             'payer_name',
+
+            'resident_name',
 
             'register_date',
             'payment_date',
@@ -1126,6 +1128,37 @@ class UserPayMoneySerializer(serializers.ModelSerializer):
             'created_at',
             'is_active',
         ]
+
+    def get_resident_name(self, obj):
+        """
+        نام شخصی که کمک را ثبت کرده است:
+        مالک یا مستأجر فعال واحد
+        """
+
+        if not obj.unit:
+            return obj.payer_name or '-'
+
+        # اگر ثبت‌کننده مالک واحد باشد
+        if obj.unit.user_id == obj.user_id:
+            owner = obj.unit.user
+
+            full_name = owner.get_full_name().strip()
+
+            return full_name or owner.username
+
+        # اگر ثبت‌کننده مستأجر فعال باشد
+        renter = Renter.objects.filter(
+            unit=obj.unit,
+            user=obj.user,
+            renter_is_active=True,
+        ).select_related('user').first()
+
+        if renter:
+            full_name = renter.user.get_full_name().strip()
+
+            return full_name or renter.user.username
+
+        return obj.payer_name or '-'
 
     def get_unit_number(self, obj):
         if not obj.unit:
@@ -4352,3 +4385,82 @@ class ManagerThirdPartySerializer(serializers.ModelSerializer):
             'person_type_display',
             'created_at',
         ]
+
+
+# ================ middleAdmin financial ============================
+class ManagerAdminFundSerializer(serializers.ModelSerializer):
+    transaction_type = serializers.SerializerMethodField()
+    details = serializers.SerializerMethodField()
+    payment_date = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminFund
+        fields = [
+            'id',
+            'transaction_type',
+            'amount',
+            'payment_gateway',
+            'payment_date',
+            'transaction_no',
+            'payment_description',
+            'is_paid',
+            'created_at',
+            'details',
+        ]
+
+    def get_transaction_type(self, obj):
+        content_object = obj.content_object
+
+        if isinstance(content_object, SmsCredit):
+            return 'sms_credit'
+
+        if isinstance(content_object, Subscription):
+            return 'subscription'
+
+        return 'other'
+
+    def get_payment_date(self, obj):
+        if obj.payment_date:
+            return obj.payment_date
+
+        content_object = obj.content_object
+
+        if isinstance(content_object, SmsCredit):
+            return content_object.payment_date
+
+        if isinstance(content_object, Subscription):
+            return content_object.payment_date
+
+        return None
+
+    def get_details(self, obj):
+        content_object = obj.content_object
+
+        if isinstance(content_object, SmsCredit):
+            return {
+                'title': 'شارژ حساب پیامک',
+                'credit_amount': str(content_object.amount),
+                'amount_with_tax': str(content_object.amount_with_tax),
+                'res_num': content_object.res_num,
+            }
+
+        if isinstance(content_object, Subscription):
+            plan_name = (
+                str(content_object.plan)
+                if content_object.plan
+                else '-'
+            )
+
+            return {
+                'title': 'خرید اشتراک',
+                'plan_name': plan_name,
+                'units_count': content_object.units_count,
+                'total_amount': content_object.total_amount or 0,
+                'discount_amount': content_object.discount_amount,
+                'final_amount': content_object.final_amount,
+                'start_date': content_object.start_date,
+                'end_date': content_object.end_date,
+                'is_trial': content_object.is_trial,
+            }
+
+        return {}

@@ -229,6 +229,7 @@ REPORT_PREFIXES = [
     "admin_unit_fund",
     "admin_debtor",
     "admin_unit_history",
+    "creditor_units_report",
     "admin_expense",
     "admin_income",
     "admin_receive",

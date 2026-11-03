@@ -12,7 +12,7 @@ from django.contrib.auth.decorators import login_required
 from django.contrib.contenttypes.models import ContentType
 from django.core.paginator import Paginator
 from django.db import models
-from django.db.models import Q, Sum, F, Count, OuterRef, Subquery
+from django.db.models import Q, Sum, F, Count, OuterRef, Subquery, Value, Case, When, DecimalField
 from django.db.models.functions import Coalesce
 from django.http import HttpResponse, Http404
 from django.shortcuts import render, get_object_or_404, redirect
@@ -33,7 +33,7 @@ from middleAdmin_panel.views import middle_admin_required
 from polls.templatetags.poll_extras import show_jalali, jalali_to_gregorian, show_jalali_date_time, show_jalali_date, \
     show_jalali_date_excel
 from user_app.forms import UnitReportForm, MiddlePayCivilForm
-from user_app.models import Unit, MyHouse, UnitResidenceHistory, Bank, User, UserPayMoney
+from user_app.models import Unit, MyHouse, UnitResidenceHistory, Bank, User, UserPayMoney, Renter
 from openpyxl.styles import PatternFill, Font, Alignment
 from pypdf import PdfWriter
 from weasyprint import HTML, CSS
@@ -470,105 +470,848 @@ class UnitReportsTurnOver(FormMixin, ListView):
         kwargs['user'] = self.request.user
         return kwargs
 
+    # =========================================================
+    # مدیران مجاز
+    # =========================================================
+    def get_managed_users(self):
+        return User.objects.filter(
+            Q(manager=self.request.user) |
+            Q(pk=self.request.user.pk)
+        )
+
+    # =========================================================
+    # واحدهای مجاز مدیر
+    # =========================================================
+    def get_managed_units(self):
+        return Unit.objects.filter(
+            is_active=True,
+            user__in=self.get_managed_users()
+        )
+
+    # =========================================================
+    # QuerySet خالی اولیه
+    # =========================================================
     def get_queryset(self):
         return Fund.objects.none()
 
-    def form_valid(self, form):
-        unit = form.cleaned_data['unit']
+    # =========================================================
+    # GET
+    # =========================================================
+    def get(self, request, *args, **kwargs):
+        self.object_list = self.get_queryset()
+        form = self.get_form()
 
-        # همیشه مالک
-        # unit_user = unit.user
-
-        transactions = Fund.objects.filter(
-            unit=unit
-        ).order_by('-id')
-
-        # ⚡ حتما object_list ست شود
-        self.object_list = transactions
-
-        totals = Fund.objects.filter(unit=unit).aggregate(
-            total_income=Sum('debtor_amount'),
-            total_expense=Sum('creditor_amount'),
+        return self.render_to_response(
+            self.get_context_data(
+                form=form,
+                object_list=self.object_list,
+            )
         )
 
-        balance = (totals['total_income'] or 0) - (totals['total_expense'] or 0)
+    # =========================================================
+    # POST
+    # =========================================================
+    def post(self, request, *args, **kwargs):
+        form = self.get_form()
+
+        if form.is_valid():
+            return self.form_valid(form)
+
+        self.object_list = self.get_queryset()
+        return self.form_invalid(form)
+
+    # =========================================================
+    # تبدیل مبالغ صندوق به مبالغ گردش حساب شخص
+    # =========================================================
+
+    def annotate_person_amounts(self, transactions):
+
+        money_field = DecimalField(
+            max_digits=12,
+            decimal_places=0
+        )
+
+        neutral_models = [
+            'unifiedcharge',
+            'civilinstallment',
+            'sewageinstallment',
+            'expense',
+            'income',
+            'maintenance',
+        ]
+
+        zero = Value(
+            0,
+            output_field=money_field
+        )
+
+        # مبلغ اسناد خنثی
+        neutral_amount = Case(
+            When(
+                debtor_amount__gt=0,
+                then=F('debtor_amount')
+            ),
+            When(
+                creditor_amount__gt=0,
+                then=F('creditor_amount')
+            ),
+            default=zero,
+            output_field=money_field
+        )
+
+        # بدهکار شخص
+        person_debtor = Case(
+
+            # اسناد خنثی
+            When(
+                content_type__model__in=neutral_models,
+                then=neutral_amount
+            ),
+
+            # دریافت وجه اضافه از شخص
+            When(
+                content_type__model='receivemoney',
+                then=zero
+            ),
+
+            # پرداخت وجه به مالک یا مستأجر
+            When(
+                content_type__model='paymoney',
+                then=F('creditor_amount')
+            ),
+
+            default=zero,
+            output_field=money_field
+        )
+
+        # بستانکار شخص
+        person_creditor = Case(
+
+            # اسناد خنثی
+            When(
+                content_type__model__in=neutral_models,
+                then=neutral_amount
+            ),
+
+            # دریافت وجه اضافه از شخص
+            When(
+                content_type__model='receivemoney',
+                then=F('debtor_amount')
+            ),
+
+            # پرداخت وجه به شخص
+            When(
+                content_type__model='paymoney',
+                then=zero
+            ),
+
+            default=zero,
+            output_field=money_field
+        )
+
+        return transactions.annotate(
+            person_debtor_amount=person_debtor,
+            person_creditor_amount=person_creditor,
+        )
+
+    # =========================================================
+    # دریافت تراکنش‌های مالک یا مستأجر
+    # =========================================================
+    def get_resident_transactions(self, resident_type, resident_id):
+
+        unified_charge_ct = ContentType.objects.get_for_model(
+            UnifiedCharge
+        )
+
+        civil_installment_ct = ContentType.objects.get_for_model(
+            CivilInstallment
+        )
+
+        sewage_installment_ct = ContentType.objects.get_for_model(
+            SewageInstallment
+        )
+
+        receivemoney_ct = ContentType.objects.get_for_model(
+            ReceiveMoney
+        )
+
+        # =====================================================
+        # مالک
+        # =====================================================
+        if resident_type == 'owner':
+
+            unit = get_object_or_404(
+                self.get_managed_units(),
+                pk=resident_id
+            )
+
+            renter = None
+
+            owner_transactions = (
+                    Q(unit=unit) &
+                    (
+                            Q(payer_type='owner') |
+                            Q(receiver_type='owner')
+                    )
+            )
+
+            # شارژ ماهانه مالک
+            monthly_transactions = (
+                    Q(
+                        unit=unit,
+                        content_type=unified_charge_ct
+                    ) &
+                    (
+                            Q(payer_type='owner') |
+                            Q(receiver_type='owner')
+                    )
+            )
+
+            # شارژ عمرانی مالک
+            civil_transactions = Q(
+                unit=unit,
+                content_type=civil_installment_ct
+            )
+
+            # فاضلاب مالک
+            sewage_transactions = Q(
+                unit=unit,
+                content_type=sewage_installment_ct
+            )
+
+            # دریافتنی‌های مالک
+            owner_receivemoney = (
+                    Q(
+                        unit=unit,
+                        content_type=receivemoney_ct,
+                        payer_type='owner'
+                    ) |
+                    Q(
+                        unit=unit,
+                        content_type=receivemoney_ct,
+                        receiver_type='owner'
+                    )
+            )
+
+            transactions = (
+                Fund.objects
+                .filter(
+                    owner_transactions |
+                    monthly_transactions |
+                    civil_transactions |
+                    sewage_transactions |
+                    owner_receivemoney
+                )
+                .select_related(
+                    'bank',
+                    'unit',
+                    'payer_renter',
+                    'receiver_renter',
+                    'payer_third_party',
+                    'receiver_third_party',
+                    'content_type',
+                )
+                .distinct()
+            )
+
+            resident_name = (
+                    unit.owner_name or 'بدون نام مالک'
+            ).strip()
+
+            resident_label = (
+                f'واحد {unit.unit} - مالک : {resident_name}'
+            )
+
+        # =====================================================
+        # مستأجر
+        # =====================================================
+        elif resident_type == 'renter':
+
+            renter = get_object_or_404(
+                Renter.objects.filter(
+                    unit__is_active=True,
+                    unit__user__in=self.get_managed_users(),
+                    renter_is_active=True
+                ).select_related('unit'),
+                pk=resident_id
+            )
+
+            unit = renter.unit
+
+            # تراکنش‌های مستقیم مستأجر
+            renter_transactions = (
+                    Q(payer_renter=renter) |
+                    Q(receiver_renter=renter)
+            )
+
+            # شارژ ماهانه مستأجر
+            monthly_renter_transactions = (
+                    Q(
+                        unit=unit,
+                        content_type=unified_charge_ct,
+                        payer_type='renter',
+                        payer_name__icontains=renter.renter_name
+                    ) |
+                    Q(
+                        unit=unit,
+                        content_type=unified_charge_ct,
+                        receiver_type='renter',
+                        receiver_name__icontains=renter.renter_name
+                    )
+            )
+
+            # دریافتنی‌های مستأجر
+            renter_receivemoney = (
+                    Q(
+                        unit=unit,
+                        content_type=receivemoney_ct,
+                        payer_type='renter',
+                        payer_name__icontains=renter.renter_name
+                    ) |
+                    Q(
+                        unit=unit,
+                        content_type=receivemoney_ct,
+                        receiver_type='renter',
+                        receiver_name__icontains=renter.renter_name
+                    ) |
+                    Q(
+                        unit=unit,
+                        content_type=receivemoney_ct,
+                        payer_renter=renter
+                    ) |
+                    Q(
+                        unit=unit,
+                        content_type=receivemoney_ct,
+                        receiver_renter=renter
+                    )
+            )
+
+            # عمران و فاضلاب فقط متعلق به مالک هستند
+            excluded_owner_charges = Q(
+                content_type__in=[
+                    civil_installment_ct,
+                    sewage_installment_ct,
+                ]
+            )
+
+            transactions = (
+                Fund.objects
+                .filter(
+                    renter_transactions |
+                    monthly_renter_transactions |
+                    renter_receivemoney
+                )
+                .exclude(excluded_owner_charges)
+                .select_related(
+                    'bank',
+                    'unit',
+                    'payer_renter',
+                    'receiver_renter',
+                    'payer_third_party',
+                    'receiver_third_party',
+                    'content_type',
+                )
+                .distinct()
+            )
+
+            renter_name = (
+                    renter.renter_name or 'بدون نام مستأجر'
+            ).strip()
+
+            resident_label = (
+                f'واحد {unit.unit} - مستأجر : {renter_name}'
+            )
+
+        else:
+            raise ValueError('نوع شخص نامعتبر است.')
+
+        # =====================================================
+        # محاسبه مبالغ از دید شخص
+        # =====================================================
+        transactions = self.annotate_person_amounts(
+            transactions
+        )
+
+        return (
+            unit,
+            renter,
+            transactions,
+            resident_label
+        )
+
+    # =========================================================
+    # محاسبه مانده تجمعی
+    # =========================================================
+    # def calculate_running_balance(self, transactions):
+
+    #     transactions = list(transactions)
+
+    #     charge_payment_models = {
+    #         'unifiedcharge',
+    #         'civilinstallment',
+    #         'sewageinstallment',
+    #     }
+
+    #     def transaction_sort_key(item):
+
+    #         transaction_date = (
+    #             item.payment_date or
+    #             (
+    #                 item.created_at.date()
+    #                 if item.created_at else None
+    #             )
+    #         )
+
+    #         return (
+    #             transaction_date is None,
+    #             transaction_date,
+    #             item.created_at,
+    #             item.pk
+    #         )
+
+    #     transactions.sort(key=transaction_sort_key)
+
+    #     running_balance = Decimal('0')
+    #     total_debtor = Decimal('0')
+    #     total_creditor = Decimal('0')
+
+    #     for transaction in transactions:
+
+    #         debtor = (
+    #             transaction.person_debtor_amount or
+    #             Decimal('0')
+    #         )
+
+    #         creditor = (
+    #             transaction.person_creditor_amount or
+    #             Decimal('0')
+    #         )
+
+    #         model_name = (
+    #             transaction.content_type.model
+    #             if transaction.content_type
+    #             else ''
+    #         )
+
+    #         total_debtor += debtor
+    #         total_creditor += creditor
+
+    #         balance_change = debtor - creditor
+
+    #         if model_name in charge_payment_models:
+
+    #             gateway = (
+    #                 getattr(transaction, 'payment_gateway', '') or ''
+    #             ).strip()
+
+    #             # ==========================================
+    #             # پرداخت عادی؛ مصرف اعتبار ممنوع
+    #             # ==========================================
+
+    #             if gateway == 'پرداخت الکترونیک':
+
+    #                 balance_change = Decimal('0')
+
+    #             # ==========================================
+    #             # پرداخت با اعتبار حساب
+    #             # ==========================================
+
+    #             elif gateway == 'استفاده از اعتبار حساب':
+
+    #                 related_charge = transaction.content_object
+
+    #                 if related_charge is None:
+    #                     raise ValueError(
+    #                         f'شارژ مرتبط با سند {transaction.pk} پیدا نشد.'
+    #                     )
+
+    #                 credit_used = Decimal(
+    #                     str(
+    #                         related_charge.total_charge_month or 0
+    #                     )
+    #                 )
+
+    #                 balance_change = credit_used
+
+    #             # ==========================================
+    #             # اسناد قدیمی بدون روش پرداخت مشخص
+    #             # ==========================================
+
+    #             else:
+
+    #                 charge_amount = (
+    #                     transaction.debtor_amount
+    #                     if (
+    #                         transaction.debtor_amount
+    #                         and transaction.debtor_amount > 0
+    #                     )
+    #                     else transaction.creditor_amount or Decimal('0')
+    #                 )
+
+    #                 available_credit = (
+    #                     abs(running_balance)
+    #                     if running_balance < 0
+    #                     else Decimal('0')
+    #                 )
+
+    #                 applied_amount = min(
+    #                     Decimal(str(charge_amount or 0)),
+    #                     available_credit
+    #                 )
+
+    #                 balance_change = applied_amount
+
+    #         running_balance += balance_change
+
+    #         transaction.running_balance = running_balance
+
+    #         transaction.transaction_date = (
+    #             transaction.payment_date or
+    #             (
+    #                 transaction.created_at.date()
+    #                 if transaction.created_at else None
+    #             )
+    #         )
+
+    #     transactions.reverse()
+
+    #     return (
+    #         transactions,
+    #         total_debtor,
+    #         total_creditor,
+    #         running_balance
+    #     )
+
+    def calculate_running_balance(self, transactions):
+
+        transactions = list(transactions)
+
+        charge_payment_models = {
+            'unifiedcharge',
+            'civilinstallment',
+            'sewageinstallment',
+        }
+
+        def to_decimal(value):
+            return Decimal(str(value or 0))
+
+        def transaction_sort_key(item):
+
+            transaction_date = (
+                    item.payment_date or
+                    (
+                        item.created_at.date()
+                        if item.created_at else None
+                    )
+            )
+
+            return (
+                transaction_date is None,
+                transaction_date,
+                item.created_at,
+                item.pk
+            )
+
+        transactions.sort(key=transaction_sort_key)
+
+        running_balance = Decimal('0')
+        total_debtor = Decimal('0')
+        total_creditor = Decimal('0')
+
+        for transaction in transactions:
+
+            debtor = to_decimal(transaction.person_debtor_amount)
+            creditor = to_decimal(transaction.person_creditor_amount)
+
+            model_name = (
+                transaction.content_type.model
+                if transaction.content_type
+                else ''
+            )
+
+            balance_change = debtor - creditor
+
+            # =================================================
+            # شارژ ماهانه، عمرانی و فاضلاب
+            # =================================================
+            if model_name in charge_payment_models:
+
+                gateway = (
+                        getattr(transaction, 'payment_gateway', '') or ''
+                ).strip()
+
+                # ---------------------------------------------
+                # پرداخت عادی بانکی
+                # ---------------------------------------------
+                if gateway == 'پرداخت الکترونیک':
+
+                    balance_change = Decimal('0')
+
+                # ---------------------------------------------
+                # پرداخت با اعتبار حساب
+                # ---------------------------------------------
+                elif gateway == 'استفاده از اعتبار حساب':
+
+                    related_charge = transaction.content_object
+
+                    if related_charge is None:
+                        raise ValueError(
+                            f'شارژ مرتبط با سند {transaction.pk} پیدا نشد.'
+                        )
+
+                    if model_name == 'unifiedcharge':
+                        credit_used = to_decimal(
+                            related_charge.total_charge_month
+                        )
+
+                    elif model_name in {
+                        'civilinstallment',
+                        'sewageinstallment',
+                    }:
+                        credit_used = to_decimal(
+                            related_charge.amount
+                        )
+
+                    else:
+                        credit_used = Decimal('0')
+
+                    # مصرف اعتبار، گردش بدهکار شخص است
+                    debtor = credit_used
+                    creditor = Decimal('0')
+
+                    transaction.person_debtor_amount = debtor
+                    transaction.person_creditor_amount = creditor
+
+                    balance_change = credit_used
+
+                # ---------------------------------------------
+                # اسناد قدیمی بدون روش پرداخت مشخص
+                # ---------------------------------------------
+                else:
+
+                    charge_amount = (
+                        transaction.debtor_amount
+                        if to_decimal(transaction.debtor_amount) > 0
+                        else transaction.creditor_amount
+                    )
+
+                    charge_amount = to_decimal(charge_amount)
+
+                    available_credit = (
+                        abs(running_balance)
+                        if running_balance < 0
+                        else Decimal('0')
+                    )
+
+                    applied_amount = min(
+                        charge_amount,
+                        available_credit
+                    )
+
+                    balance_change = applied_amount
+
+            # =================================================
+            # محاسبه گردش بدهکار و بستانکار
+            # =================================================
+            total_debtor += debtor
+            total_creditor += creditor
+
+            # =================================================
+            # محاسبه مانده تجمعی
+            # =================================================
+            running_balance += balance_change
+
+            transaction.running_balance = running_balance
+
+            transaction.transaction_date = (
+                    transaction.payment_date or
+                    (
+                        transaction.created_at.date()
+                        if transaction.created_at else None
+                    )
+            )
+
+        transactions.reverse()
+
+        return (
+            transactions,
+            total_debtor,
+            total_creditor,
+            running_balance
+        )
+
+    # =========================================================
+    # فرم معتبر
+    # =========================================================
+    def form_valid(self, form):
+
+        resident_value = form.cleaned_data['unit']
+
+        try:
+            resident_type, resident_id = resident_value.split(':', 1)
+            resident_id = int(resident_id)
+
+        except (ValueError, AttributeError):
+
+            form.add_error(
+                'unit',
+                'انتخاب مالک یا مستأجر نامعتبر است.'
+            )
+
+            self.object_list = self.get_queryset()
+            return self.form_invalid(form)
+
+        try:
+
+            (
+                unit,
+                renter,
+                transactions,
+                resident_label
+            ) = self.get_resident_transactions(
+                resident_type,
+                resident_id
+            )
+
+        except ValueError as exc:
+
+            form.add_error('unit', str(exc))
+
+            self.object_list = self.get_queryset()
+            return self.form_invalid(form)
+
+        # =====================================================
+        # محاسبه گردش و مانده
+        # =====================================================
+        (
+            transactions,
+            total_debtor,
+            total_creditor,
+            balance
+        ) = self.calculate_running_balance(transactions)
+
+        # =====================================================
+        # صفحه‌بندی دستی
+        # =====================================================
+        from django.core.paginator import Paginator
+
+        paginator = Paginator(
+            transactions,
+            self.paginate_by
+        )
+
+        page_number = self.request.GET.get('page', 1)
+
+        page_obj = paginator.get_page(page_number)
+
+        self.object_list = page_obj.object_list
+
+        totals = {
+            'total_income': total_debtor,
+            'total_expense': total_creditor,
+            'total_debtor': total_debtor,
+            'total_creditor': total_creditor,
+        }
 
         context = self.get_context_data(
             form=form,
-            transactions=transactions,
+            object_list=self.object_list,
+
+            transactions=self.object_list,
+
+            paginator=paginator,
+            page_obj=page_obj,
+            is_paginated=page_obj.has_other_pages(),
+
             selected_unit=unit,
+            selected_resident_type=resident_type,
+            selected_resident_id=resident_id,
+            selected_resident_label=resident_label,
+            selected_renter=renter,
+
             balance=balance,
             totals=totals,
         )
+
         return self.render_to_response(context)
 
-    def post(self, request, *args, **kwargs):
-        form = self.get_form()
-        if form.is_valid():
-            return self.form_valid(form)
-        return self.form_invalid(form)
+    # =========================================================
+    # فرم نامعتبر
+    # =========================================================
+    def form_invalid(self, form):
 
+        if not hasattr(self, 'object_list'):
+            self.object_list = self.get_queryset()
 
-@login_required(login_url=settings.LOGIN_URL_ADMIN)
-def export_units_report_excel(request):
-    unit_id = request.GET.get('unit')
-    unit = get_object_or_404(Unit, pk=unit_id)
-    unit_user = unit.user
+        context = self.get_context_data(
+            form=form,
+            object_list=self.object_list,
+        )
 
-    report = Fund.objects.filter(user=unit_user).order_by('doc_number')
-
-    # Create Excel
-    wb = openpyxl.Workbook()
-    ws = wb.active
-    ws.title = "units"
-    ws.sheet_view.rightToLeft = True
-
-    # Title
-    title_cell = ws.cell(row=1, column=1, value=f"گردش مالی واحد {unit.unit}")
-    title_cell.font = Font(bold=True, size=18)
-    title_cell.alignment = Alignment(horizontal="center", vertical="center")
-    ws.merge_cells(start_row=1, start_column=1, end_row=1, end_column=6)
-
-    # Headers
-    headers = [' بانک', 'تاریخ پرداخت', 'شرح', 'روش پرداخت', 'بدهکار', 'بستانکار']
-    header_fill = PatternFill(start_color="FFD700", end_color="FFD700", fill_type="solid")
-    header_font = Font(bold=True, color="000000")
-    for col_num, column_title in enumerate(headers, 1):
-        cell = ws.cell(row=2, column=col_num, value=column_title)
-        cell.fill = header_fill
-        cell.font = header_font
-
-    # Write data
-    for row_num, fund in enumerate(report, start=3):
-        ws.cell(row=row_num, column=1, value=f"{fund.bank.bank_name} - {fund.bank.account_no}")
-        ws.cell(row=row_num, column=2, value=show_jalali(fund.payment_date))
-        ws.cell(row=row_num, column=3, value=fund.payment_description)
-        ws.cell(row=row_num, column=4, value=fund.payment_gateway)
-        ws.cell(row=row_num, column=5, value=fund.debtor_amount)
-        ws.cell(row=row_num, column=6, value=fund.creditor_amount)
-
-    # Return response
-    response = HttpResponse(
-        content_type='application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'
-    )
-    response['Content-Disposition'] = f'attachment; filename=fund_unit_{unit.unit}_report.xlsx'
-    wb.save(response)
-    return response
+        return self.render_to_response(context)
 
 
 @login_required(login_url=settings.LOGIN_URL_ADMIN)
 def export_units_report_pdf(request):
-    unit_id = request.GET.get('unit')
-    unit = get_object_or_404(Unit, pk=unit_id)
+    resident_value = request.GET.get(
+        'resident',
+        ''
+    ).strip()
 
-    house = None
-    if request.user.is_authenticated:
-        house = MyHouse.objects.filter(residents=request.user).order_by('-created_at').first()
+    if not resident_value:
+        return HttpResponse(
+            'مالک یا مستأجر انتخاب نشده است.',
+            status=400
+        )
 
-    # Queryset اصلی بر اساس واحد (کاربر مالک)
-    funds = Fund.objects.filter(unit=unit).order_by('payment_date')
+    # =========================================================
+    # تفکیک نوع شخص و شناسه
+    # =========================================================
 
-    # فیلترها از GET
+    try:
+        resident_type, resident_id = resident_value.split(':', 1)
+        resident_id = int(resident_id)
+
+    except (ValueError, AttributeError):
+        return HttpResponse(
+            'انتخاب مالک یا مستأجر نامعتبر است.',
+            status=400
+        )
+
+    if resident_type not in ('owner', 'renter'):
+        return HttpResponse(
+            'نوع شخص نامعتبر است.',
+            status=400
+        )
+
+    # =========================================================
+    # استفاده از منطق ویوی اصلی گردش حساب
+    # =========================================================
+
+    report_view = UnitReportsTurnOver()
+    report_view.setup(request)
+
+    try:
+        (
+            unit,
+            renter,
+            transactions,
+            resident_label
+        ) = report_view.get_resident_transactions(
+            resident_type,
+            resident_id
+        )
+
+    except Http404:
+        return HttpResponse(
+            'مالک یا مستأجر موردنظر پیدا نشد یا دسترسی ندارید.',
+            status=404
+        )
+
+    # =========================================================
+    # فیلترهای GET
+    # =========================================================
+
     filter_fields = {
         'payment_date': 'payment_date__icontains',
         'payment_description': 'payment_description__icontains',
@@ -578,54 +1321,897 @@ def export_units_report_pdf(request):
     }
 
     for field, lookup in filter_fields.items():
-        value = request.GET.get(field)
-        if value:
-            funds = funds.filter(**{lookup: value})
 
-    # PDF settings
-    font_url = request.build_absolute_uri('/static/fonts/BYekan.ttf')
-    css = CSS(string=f"""
-        @page {{ size: A4 landscape; margin: 1cm; }}
-        body {{
-            font-family: 'BYekan', sans-serif;
+        value = request.GET.get(field, '').strip()
+
+        if value:
+            transactions = transactions.filter(
+                **{lookup: value}
+            )
+
+    # =========================================================
+    # محاسبه گردش و مانده با منطق ویوی اصلی
+    # =========================================================
+
+    (
+        transactions,
+        total_debtor,
+        total_creditor,
+        balance
+    ) = report_view.calculate_running_balance(
+        transactions
+    )
+
+    # =========================================================
+    # اطلاعات ساختمان
+    # =========================================================
+
+    house = getattr(unit, 'myhouse', None)
+
+    # =========================================================
+    # تنظیمات PDF و فونت
+    # =========================================================
+
+    font_url = request.build_absolute_uri(
+        '/static/fonts/BYekan.ttf'
+    )
+
+    css = CSS(
+        string=f"""
+        @page {{
+            size: A4 landscape;
+            margin: 1cm;
         }}
+
         @font-face {{
             font-family: 'BYekan';
             src: url('{font_url}');
         }}
+
+        body {{
+            font-family: 'BYekan', sans-serif;
+            direction: rtl;
+            text-align: right;
+            font-size: 11px;
+            color: #222;
+        }}
+
         table {{
             border-collapse: collapse;
             width: 100%;
         }}
-        th, td {{
+
+        th,
+        td {{
             border: 1px solid #000;
             padding: 5px;
             text-align: center;
         }}
+
         th {{
             background-color: #FFD700;
         }}
-    """)
 
+        .summary {{
+            margin-bottom: 15px;
+        }}
+
+        .summary td {{
+            font-weight: bold;
+        }}
+
+        tr {{
+            page-break-inside: avoid;
+        }}
+
+        .watermark {{
+            position: fixed;
+            top: 40%;
+            left: 10%;
+            width: 80%;
+            text-align: center;
+            transform: rotate(-30deg);
+            font-family: 'BYekan', sans-serif;
+            font-size: 38px;
+            font-weight: bold;
+            color: rgba(90, 90, 90, 0.13);
+            z-index: -1;
+            direction: rtl;
+            white-space: nowrap;
+        }}
+
+        .debt {{
+            color: #c62828;
+            font-weight: bold;
+        }}
+
+        .credit {{
+            color: #1565c0;
+            font-weight: bold;
+        }}
+        """
+    )
+
+    # =========================================================
     # Render template
-    template = get_template("unit_report_pdf.html")
+    # =========================================================
+
+    template = get_template(
+        'unit_report_pdf.html'
+    )
+
     context = {
-        'funds': funds,
+        'funds': transactions,
+        'transactions': transactions,
+
         'unit': unit,
+        'renter': renter,
+
+        'resident_type': resident_type,
+        'resident_id': resident_id,
+        'resident_label': resident_label,
+
+        'total_income': total_debtor,
+        'total_expense': total_creditor,
+
+        'total_debtor': total_debtor,
+        'total_creditor': total_creditor,
+
+        'balance': balance,
+
         'font_path': font_url,
-        'today': datetime.now(),
+        'today': timezone.now(),
+
         'house': house,
     }
 
-    html = template.render(context)
+    html = template.render(
+        context,
+        request=request
+    )
+
     pdf_file = io.BytesIO()
-    HTML(string=html, base_url=request.build_absolute_uri()).write_pdf(pdf_file, stylesheets=[css])
+
+    HTML(
+        string=html,
+        base_url=request.build_absolute_uri('/')
+    ).write_pdf(
+        pdf_file,
+        stylesheets=[css]
+    )
+
     pdf_file.seek(0)
 
+    # =========================================================
     # Response
-    response = HttpResponse(pdf_file, content_type='application/pdf')
-    response['Content-Disposition'] = f'attachment; filename="fund_unit_{unit.unit}_report.pdf"'
+    # =========================================================
+
+    response = HttpResponse(
+        pdf_file.getvalue(),
+        content_type='application/pdf'
+    )
+
+    response['Content-Disposition'] = (
+        f'attachment; filename="fund_'
+        f'{resident_type}_'
+        f'{resident_id}_report.pdf"'
+    )
+
     return response
+
+
+@login_required(login_url=settings.LOGIN_URL_ADMIN)
+def export_units_report_excel(request):
+    resident_value = request.GET.get('unit', '').strip()
+
+    if not resident_value:
+        return HttpResponse(
+            'مالک یا مستاجر انتخاب نشده است.',
+            status=400
+        )
+
+    # =========================================================
+    # تفکیک نوع شخص و ID
+    # =========================================================
+
+    try:
+
+        resident_type, resident_id = resident_value.split(':', 1)
+
+        resident_id = int(resident_id)
+
+    except (ValueError, AttributeError):
+
+        return HttpResponse(
+            'انتخاب مالک یا مستاجر نامعتبر است.',
+            status=400
+        )
+
+    # =========================================================
+    # گزارش مالک
+    # =========================================================
+
+    if resident_type == 'owner':
+
+        unit = get_object_or_404(
+            Unit,
+            pk=resident_id,
+            is_active=True
+        )
+
+        # -----------------------------------------------------
+        # فقط Fundهای مربوط به همین واحد و مالک
+        # -----------------------------------------------------
+
+        report = (
+            Fund.objects
+            .filter(
+                unit=unit
+            )
+            .filter(
+                Q(payer_type='owner') |
+                Q(receiver_type='owner')
+            )
+            .select_related(
+                'bank',
+                'unit'
+            )
+            .order_by('payment_date', 'id')
+        )
+
+        resident_name = (
+                unit.owner_name
+                or 'بدون نام مالک'
+        ).strip()
+
+        resident_label = (
+            f'واحد {unit.unit} - مالک : {resident_name}'
+        )
+
+    # =========================================================
+    # گزارش مستاجر
+    # =========================================================
+
+    elif resident_type == 'renter':
+
+        renter = get_object_or_404(
+            Renter,
+            pk=resident_id
+        )
+
+        unit = renter.unit
+
+        # -----------------------------------------------------
+        # فقط Fundهای همین مستاجر
+        # -----------------------------------------------------
+
+        report = (
+            Fund.objects
+            .filter(
+                Q(payer_renter=renter) |
+                Q(receiver_renter=renter)
+            )
+            .select_related(
+                'bank',
+                'unit',
+                'payer_renter',
+                'receiver_renter'
+            )
+            .order_by('payment_date', 'id')
+        )
+
+        renter_name = (
+                renter.renter_name
+                or 'بدون نام مستاجر'
+        ).strip()
+
+        resident_label = (
+            f'واحد {unit.unit} - مستاجر : {renter_name}'
+        )
+
+    # =========================================================
+    # نوع نامعتبر
+    # =========================================================
+
+    else:
+
+        return HttpResponse(
+            'نوع شخص نامعتبر است.',
+            status=400
+        )
+
+    # =========================================================
+    # محاسبه جمع
+    # =========================================================
+
+    totals = report.aggregate(
+        total_income=Sum('debtor_amount'),
+        total_expense=Sum('creditor_amount'),
+    )
+
+    total_income = totals['total_income'] or 0
+    total_expense = totals['total_expense'] or 0
+    balance = total_income - total_expense
+
+    # =========================================================
+    # Create Excel
+    # =========================================================
+
+    wb = openpyxl.Workbook()
+
+    ws = wb.active
+    ws.title = "گردش مالی"
+
+    ws.sheet_view.rightToLeft = True
+
+    # =========================================================
+    # عنوان
+    # =========================================================
+
+    title_cell = ws.cell(
+        row=1,
+        column=1,
+        value=f"گردش مالی {resident_label}"
+    )
+
+    title_cell.font = Font(
+        bold=True,
+        size=18
+    )
+
+    title_cell.alignment = Alignment(
+        horizontal="center",
+        vertical="center"
+    )
+
+    ws.merge_cells(
+        start_row=1,
+        start_column=1,
+        end_row=1,
+        end_column=8
+    )
+
+    # =========================================================
+    # خلاصه مالی
+    # =========================================================
+
+    ws.cell(
+        row=2,
+        column=1,
+        value="جمع بدهکار"
+    )
+
+    ws.cell(
+        row=2,
+        column=2,
+        value=total_income
+    )
+
+    ws.cell(
+        row=2,
+        column=3,
+        value="جمع بستانکار"
+    )
+
+    ws.cell(
+        row=2,
+        column=4,
+        value=total_expense
+    )
+
+    ws.cell(
+        row=2,
+        column=5,
+        value="مانده"
+    )
+
+    ws.cell(
+        row=2,
+        column=6,
+        value=balance
+    )
+
+    for col in range(1, 7):
+        cell = ws.cell(
+            row=2,
+            column=col
+        )
+
+        cell.font = Font(
+            bold=True
+        )
+
+        cell.alignment = Alignment(
+            horizontal="center"
+        )
+
+    # =========================================================
+    # Headers
+    # =========================================================
+
+    headers = [
+        'شماره سند',
+        'بانک',
+        'تاریخ پرداخت',
+        'شرح',
+        'روش پرداخت',
+        'در وجه',
+        'بدهکار',
+        'بستانکار',
+    ]
+
+    header_fill = PatternFill(
+        start_color="FFD700",
+        end_color="FFD700",
+        fill_type="solid"
+    )
+
+    header_font = Font(
+        bold=True,
+        color="000000"
+    )
+
+    for col_num, column_title in enumerate(
+            headers,
+            1
+    ):
+        cell = ws.cell(
+            row=4,
+            column=col_num,
+            value=column_title
+        )
+
+        cell.fill = header_fill
+        cell.font = header_font
+
+        cell.alignment = Alignment(
+            horizontal="center",
+            vertical="center"
+        )
+
+    # =========================================================
+    # Data
+    # =========================================================
+
+    for row_num, fund in enumerate(
+            report,
+            start=5
+    ):
+
+        bank_name = ''
+
+        if fund.bank:
+
+            bank_name = (
+                f'{fund.bank.bank_name}'
+            )
+
+            if getattr(
+                    fund.bank,
+                    'account_no',
+                    None
+            ):
+                bank_name += (
+                    f' - {fund.bank.account_no}'
+                )
+
+        # در وجه
+        if getattr(
+                fund,
+                'payer_name',
+                None
+        ):
+
+            payee = fund.payer_name
+
+        else:
+
+            payee = getattr(
+                fund,
+                'receiver_name',
+                ''
+            )
+
+        ws.cell(
+            row=row_num,
+            column=1,
+            value=fund.financial_document_number
+                  or fund.doc_number
+        )
+
+        ws.cell(
+            row=row_num,
+            column=2,
+            value=bank_name
+        )
+
+        ws.cell(
+            row=row_num,
+            column=3,
+            value=show_jalali(
+                fund.payment_date
+            )
+        )
+
+        ws.cell(
+            row=row_num,
+            column=4,
+            value=fund.payment_description
+        )
+
+        ws.cell(
+            row=row_num,
+            column=5,
+            value=fund.payment_gateway
+        )
+
+        ws.cell(
+            row=row_num,
+            column=6,
+            value=payee
+        )
+
+        ws.cell(
+            row=row_num,
+            column=7,
+            value=fund.debtor_amount or 0
+        )
+
+        ws.cell(
+            row=row_num,
+            column=8,
+            value=fund.creditor_amount or 0
+        )
+
+    # =========================================================
+    # عرض ستون‌ها
+    # =========================================================
+
+    widths = {
+        'A': 16,
+        'B': 28,
+        'C': 18,
+        'D': 40,
+        'E': 20,
+        'F': 25,
+        'G': 18,
+        'H': 18,
+    }
+
+    for column, width in widths.items():
+        ws.column_dimensions[
+            column
+        ].width = width
+
+    # =========================================================
+    # Response
+    # =========================================================
+
+    response = HttpResponse(
+        content_type=(
+            'application/vnd.openxmlformats-officedocument.'
+            'spreadsheetml.sheet'
+        )
+    )
+
+    safe_filename = (
+        f'fund_{resident_type}_'
+        f'{resident_id}_report.xlsx'
+    )
+
+    response[
+        'Content-Disposition'
+    ] = (
+        f'attachment; filename="{safe_filename}"'
+    )
+
+    wb.save(response)
+
+    return response
+
+
+@method_decorator(middle_admin_required, name='dispatch')
+class UnitReportsBalancesView(UnitReportsTurnOver):
+    template_name = 'creditor_units_report.html'
+    context_object_name = 'balances'
+    paginate_by = None
+
+    def get_balances_context(self):
+
+        self.object_list = []
+
+        units = self.get_managed_units()
+
+        renters = Renter.objects.filter(
+            unit__in=units,
+            renter_is_active=True
+        ).select_related('unit')
+
+        balances = []
+
+        for unit in units:
+
+            # =============================================
+            # مالک واحد
+            # =============================================
+            (
+                owner_unit,
+                _,
+                owner_transactions,
+                owner_label
+            ) = self.get_resident_transactions(
+                'owner',
+                unit.pk
+            )
+
+            (
+                owner_transactions,
+                owner_debtor,
+                owner_creditor,
+                owner_balance
+            ) = self.calculate_running_balance(
+                owner_transactions
+            )
+
+            if owner_balance != Decimal('0'):
+                balances.append({
+                    'unit': unit,
+                    'resident_type': 'owner',
+                    'resident_id': unit.pk,
+                    'resident_name': (
+                            unit.owner_name or 'بدون نام مالک'
+                    ),
+                    'resident_label': owner_label,
+                    'balance': owner_balance,
+                    'balance_amount': abs(owner_balance),
+                    'balance_status': (
+                        'بدهکار'
+                        if owner_balance > 0
+                        else 'بستانکار'
+                    ),
+                    'total_debtor': owner_debtor,
+                    'total_creditor': owner_creditor,
+                    'transaction_count': len(owner_transactions),
+                })
+
+            # =============================================
+            # مستأجران فعال واحد
+            # =============================================
+            unit_renters = renters.filter(unit=unit)
+
+            for renter in unit_renters:
+
+                (
+                    renter_unit,
+                    _,
+                    renter_transactions,
+                    renter_label
+                ) = self.get_resident_transactions(
+                    'renter',
+                    renter.pk
+                )
+
+                (
+                    renter_transactions,
+                    renter_debtor,
+                    renter_creditor,
+                    renter_balance
+                ) = self.calculate_running_balance(
+                    renter_transactions
+                )
+
+                if renter_balance != Decimal('0'):
+                    balances.append({
+                        'unit': unit,
+                        'resident_type': 'renter',
+                        'resident_id': renter.pk,
+                        'resident_name': (
+                                renter.renter_name or 'بدون نام مستأجر'
+                        ),
+                        'resident_label': renter_label,
+                        'balance': renter_balance,
+                        'balance_amount': abs(renter_balance),
+                        'balance_status': (
+                            'بدهکار'
+                            if renter_balance > 0
+                            else 'بستانکار'
+                        ),
+                        'total_debtor': renter_debtor,
+                        'total_creditor': renter_creditor,
+                        'transaction_count': len(renter_transactions),
+                    })
+
+        # مرتب‌سازی بر اساس شماره واحد
+        balances.sort(
+            key=lambda item: (
+                str(item['unit'].unit),
+                0 if item['resident_type'] == 'owner' else 1
+            )
+        )
+
+        self.object_list = balances
+
+        return {
+            'balances': balances,
+
+            'total_people': len(balances),
+
+            'total_debtors': sum(
+                1 for item in balances
+                if item['balance'] > 0
+            ),
+
+            'total_creditors': sum(
+                1 for item in balances
+                if item['balance'] < 0
+            ),
+
+            'total_debtor_amount': sum(
+                (
+                    item['balance']
+                    for item in balances
+                    if item['balance'] > 0
+                ),
+                Decimal('0')
+            ),
+
+            'total_creditor_amount': sum(
+                (
+                    abs(item['balance'])
+                    for item in balances
+                    if item['balance'] < 0
+                ),
+                Decimal('0')
+            ),
+        }
+
+    def get(self, request, *args, **kwargs):
+
+        context_data = self.get_balances_context()
+
+        context = self.get_context_data(
+            object_list=context_data['balances'],
+            **context_data
+        )
+
+        return self.render_to_response(context)
+
+
+@method_decorator(middle_admin_required, name='dispatch')
+class UnitReportsBalancesPDFView(UnitReportsBalancesView):
+
+    def get(self, request, *args, **kwargs):
+        # دریافت اطلاعات گزارش از کلاس اصلی
+        context = self.get_balances_context()
+
+        balances = context.get('balances', [])
+
+        # مسیر فونت
+        font_url = request.build_absolute_uri(
+            '/static/fonts/BYekan.ttf'
+        )
+
+        css = CSS(
+            string=f"""
+            @page {{
+                size: A4 portrait;
+                margin: 1.2cm;
+            }}
+
+            @font-face {{
+                font-family: 'BYekan';
+                src: url('{font_url}');
+            }}
+
+            body {{
+                font-family: 'BYekan', sans-serif;
+                direction: rtl;
+                text-align: right;
+                font-size: 11px;
+                color: #222;
+            }}
+
+            h2 {{
+                text-align: center;
+                margin-bottom: 15px;
+            }}
+
+            table {{
+                border-collapse: collapse;
+                width: 100%;
+            }}
+
+            th, td {{
+                border: 1px solid #555;
+                padding: 7px 5px;
+                text-align: center;
+            }}
+
+            th {{
+                background-color: #e5e5e5;
+                font-weight: bold;
+            }}
+
+            .summary {{
+                margin-bottom: 15px;
+                width: 100%;
+            }}
+
+            .summary td {{
+                font-weight: bold;
+            }}
+
+            tr {{
+                page-break-inside: avoid;
+            }}
+
+            .watermark {{
+                position: fixed;
+                top: 40%;
+                left: 10%;
+                width: 80%;
+                text-align: center;
+                transform: rotate(-30deg);
+                font-family: 'BYekan', sans-serif;
+                font-size: 35px;
+                font-weight: bold;
+                color: rgba(90, 90, 90, 0.12);
+                z-index: -1;
+                direction: rtl;
+                white-space: nowrap;
+            }}
+
+            .debt {{
+                color: #c62828;
+                font-weight: bold;
+            }}
+
+            .credit {{
+                color: #1565c0;
+                font-weight: bold;
+            }}
+            """
+        )
+
+        template = get_template(
+            'creditor_units_pdf.html'
+        )
+
+        pdf_context = {
+            **context,
+            'balances': balances,
+            'font_path': font_url,
+            'today': timezone.now(),
+            'house': getattr(request.user, 'house', None),
+        }
+
+        html = template.render(
+            pdf_context,
+            request=request
+        )
+
+        pdf_file = io.BytesIO()
+
+        HTML(
+            string=html,
+            base_url=request.build_absolute_uri('/')
+        ).write_pdf(
+            pdf_file,
+            stylesheets=[css]
+        )
+
+        pdf_file.seek(0)
+
+        response = HttpResponse(
+            pdf_file.getvalue(),
+            content_type='application/pdf'
+        )
+
+        response['Content-Disposition'] = (
+            'attachment; filename="creditor_units_report.pdf"'
+        )
+
+        return response
 
 
 # ======================================================================================

@@ -2,13 +2,13 @@ import datetime
 import json
 import logging
 import secrets
-from collections import OrderedDict
+from collections import OrderedDict, defaultdict
 from datetime import date
 import jdatetime
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.core.exceptions import ValidationError
-from django.db.models import Count, Q, Sum, ProtectedError, Prefetch
+from django.db.models import Count, Q, Sum, ProtectedError, Prefetch, F
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
@@ -46,7 +46,7 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
     ChargeByFixPersonArea, ChargeFixVariable, ChargeCalculation, Expense, Maintenance, ChargeCalculationItem, \
     ChargeAllocation, CivilDocument, ExpenseCategory, ExpenseDocument, ThirdParty, Income, IncomeCategory, \
     IncomeDocument, ReceiveMoney, ReceiveDocument, PayDocument, PayMoney, MaintenanceDocument, Property, \
-    PropertyDocument, SewageDocument
+    PropertyDocument, SewageDocument, AdminFund
 from middleAdmin_panel.services.bank_balance_service import recalculate_bank_balance
 from middleAdmin_panel.services.bank_services import BankTransactionService, validate_bank_transaction_date
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
@@ -69,7 +69,7 @@ from .serializers import (
     UserSupportTicketListSerializer, UserSupportTicketCreateSerializer, UserSupportTicketDetailSerializer,
     AdminTicketDetailSerializer, AdminTicketCreateSerializer, AdminTicketListSerializer,
     AdminTicketMessageCreateSerializer, ManagerUnitSerializer, ManagerRenterSerializer, ManagerChargeHomeCardSerializer,
-    ManagerThirdPartySerializer,
+    ManagerThirdPartySerializer, ManagerAdminFundSerializer,
 
 )
 
@@ -33626,8 +33626,8 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
                     }, status=status.HTTP_400_BAD_REQUEST)
 
                 if (
-                    obj.property_purchase_date
-                    and payment_date < obj.property_purchase_date
+                        obj.property_purchase_date
+                        and payment_date < obj.property_purchase_date
                 ):
                     raise ValueError(
                         "تاریخ پرداخت نمی‌تواند قبل از تاریخ خرید اموال باشد."
@@ -33675,8 +33675,8 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
                     unit=None,
                     amount=amount,
                     description=(
-                        f"پرداخت بابت خرید اموال: {obj.property_name}"
-                    )[:500],
+                                    f"پرداخت بابت خرید اموال: {obj.property_name}"
+                                )[:500],
                     content_object=obj,
                     payment_date=payment_date,
                     transaction_no=transaction_reference or None,
@@ -33692,7 +33692,7 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
                 obj.payment_date = payment_date
                 obj.receiver_name = receiver_name
                 obj.transaction_reference = (
-                    transaction_reference or None
+                        transaction_reference or None
                 )
                 obj.is_paid = True
 
@@ -33896,7 +33896,7 @@ def sewage_count_fully_paid_units(sewage):
         )
 
         if installments.exists() and not installments.filter(
-            is_paid=False
+                is_paid=False
         ).exists():
             count += 1
 
@@ -33940,8 +33940,8 @@ def sewage_prepare_installments(sewage, user):
         )
 
     if (
-        installment_count == 0
-        and prepayment_total not in (0, total)
+            installment_count == 0
+            and prepayment_total not in (0, total)
     ):
         raise ValueError(
             "برای مبلغ باقی‌مانده، تعداد اقساط باید بیشتر از صفر باشد؛ "
@@ -34011,7 +34011,6 @@ def sewage_prepare_installments(sewage, user):
 
                 # پیش‌پرداخت
                 if unit_prepayment > 0:
-
                     rows.append(
                         SewageInstallment(
                             sewage_manage=sewage,
@@ -34045,10 +34044,9 @@ def sewage_prepare_installments(sewage, user):
                     )
 
                     for number in range(
-                        1,
-                        installment_count + 1,
+                            1,
+                            installment_count + 1,
                     ):
-
                         installment_amount = regular + (
                             1 if number <= extra else 0
                         )
@@ -34062,8 +34060,8 @@ def sewage_prepare_installments(sewage, user):
                                 amount=installment_amount,
                                 prepayment_per_unit=0,
                                 due_date=(
-                                    base_date
-                                    + relativedelta(months=number)
+                                        base_date
+                                        + relativedelta(months=number)
                                 ),
                                 financial_document_number=(
                                     get_next_financial_document_number(
@@ -34234,7 +34232,7 @@ class ManagerSewageChargesAPIView(APIView):
         amount = form.cleaned_data["amount"]
         prepayment = form.cleaned_data.get("prepayment") or 0
         installment_count = (
-            form.cleaned_data.get("installment_count") or 0
+                form.cleaned_data.get("installment_count") or 0
         )
 
         if amount <= 0:
@@ -34256,8 +34254,8 @@ class ManagerSewageChargesAPIView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         if (
-            installment_count == 0
-            and prepayment not in (0, amount)
+                installment_count == 0
+                and prepayment not in (0, amount)
         ):
             return Response({
                 "success": False,
@@ -34313,6 +34311,7 @@ class ManagerSewageChargesAPIView(APIView):
             "message": "هزینه فاضلاب ثبت و اقساط آن محاسبه شد.",
             "result": result,
         }, status=status.HTTP_201_CREATED)
+
 
 class ManagerSewageChargeDetailAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -34411,7 +34410,7 @@ class ManagerSewageChargeDetailAPIView(APIView):
         amount = form.cleaned_data["amount"]
         prepayment = form.cleaned_data.get("prepayment") or 0
         installment_count = (
-            form.cleaned_data.get("installment_count") or 0
+                form.cleaned_data.get("installment_count") or 0
         )
 
         if amount <= 0:
@@ -34433,8 +34432,8 @@ class ManagerSewageChargeDetailAPIView(APIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         if (
-            installment_count == 0
-            and prepayment not in (0, amount)
+                installment_count == 0
+                and prepayment not in (0, amount)
         ):
             return Response({
                 "success": False,
@@ -34544,6 +34543,7 @@ class ManagerSewageChargeDetailAPIView(APIView):
             "success": True,
             "message": "هزینه فاضلاب حذف شد.",
         }, status=status.HTTP_200_OK)
+
 
 class ManagerSewageChargeUnitsAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -34716,7 +34716,7 @@ class ManagerSendSewageChargeAPIView(APIView):
                         continue
 
                     if installments.filter(
-                        send_notification=True
+                            send_notification=True
                     ).exists():
                         already_sent_count += 1
                         continue
@@ -34841,9 +34841,9 @@ class ManagerCancelSewageChargeAPIView(APIView):
 
                     # اگر هر قسطی پرداخت شده باشد، اعلان این واحد لغو نمی‌شود.
                     if SewageInstallment.objects.filter(
-                        sewage_manage=sewage,
-                        unit=unit,
-                        is_paid=True,
+                            sewage_manage=sewage,
+                            unit=unit,
+                            is_paid=True,
                     ).exists():
                         skipped_paid_units_count += 1
                         continue
@@ -34884,7 +34884,6 @@ class ManagerCancelSewageChargeAPIView(APIView):
 # ============================================================
 
 class ManagerThirdPartyListCreateAPIView(APIView):
-
     permission_classes = [IsAuthenticated]
 
     # =====================================================
@@ -35069,8 +35068,8 @@ class ManagerThirdPartyListCreateAPIView(APIView):
 
         # بررسی نام تکراری در همین ساختمان
         if ThirdParty.objects.filter(
-            house=house,
-            name=name
+                house=house,
+                name=name
         ).exists():
             return Response(
                 {
@@ -35117,7 +35116,6 @@ class ManagerThirdPartyListCreateAPIView(APIView):
 
 
 class ManagerThirdPartyDetailAPIView(APIView):
-
     permission_classes = [IsAuthenticated]
 
     # =====================================================
@@ -35436,6 +35434,2183 @@ class ManagerThirdPartyDetailAPIView(APIView):
             {
                 'success': True,
                 'message': 'شخص ثالث با موفقیت حذف شد.'
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# =====================================================
+# گزارش ها
+# =====================================================
+
+class ManagerFundTurnoverAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        # =========================================
+        # تعداد رکوردهای درخواستی
+        # =========================================
+
+        try:
+            limit = int(request.query_params.get('limit', 20))
+        except (TypeError, ValueError):
+            limit = 20
+
+        if limit not in [10, 20, 30]:
+            limit = 20
+
+        # =========================================
+        # ساختمان‌های متعلق به مدیر
+        # =========================================
+
+        houses = MyHouse.objects.filter(
+            user=request.user,
+            is_active=True
+        )
+
+        house_ids = list(
+            houses.values_list('id', flat=True)
+        )
+
+        if not house_ids:
+            return Response({
+                'success': True,
+                'summary': {
+                    'total_debtor': 0,
+                    'total_creditor': 0,
+                    'balance': 0,
+                },
+                'limit': limit,
+                'count': 0,
+                'results': [],
+            })
+
+        # =========================================
+        # گردش‌های صندوق
+        # =========================================
+
+        funds = Fund.objects.filter(
+            house_id__in=house_ids
+        ).select_related(
+            'house',
+            'unit',
+            'bank',
+            'payer_renter',
+            'receiver_renter',
+            'payer_third_party',
+            'receiver_third_party',
+            'content_type',
+        )
+
+        # =========================================
+        # خلاصه مالی کل صندوق
+        # =========================================
+
+        totals = funds.aggregate(
+            total_debtor=Sum('debtor_amount'),
+            total_creditor=Sum('creditor_amount'),
+        )
+
+        total_debtor = (
+                totals['total_debtor'] or Decimal('0')
+        )
+
+        total_creditor = (
+                totals['total_creditor'] or Decimal('0')
+        )
+
+        # مانده نهایی هر ساختمان
+        # چون doc_number در هر ساختمان مستقل است،
+        # مانده آخرین سند هر ساختمان را جداگانه می‌گیریم.
+
+        balance = Decimal('0')
+
+        for house_id in house_ids:
+
+            last_fund = (
+                funds.filter(
+                    house_id=house_id
+                )
+                .order_by('-doc_number', '-pk')
+                .first()
+            )
+
+            if last_fund and last_fund.final_amount is not None:
+                balance += last_fund.final_amount
+
+        # =========================================
+        # آخرین گردش‌ها
+        # =========================================
+
+        latest_funds = (
+            funds
+            .order_by(
+                '-payment_date',
+                '-doc_number',
+                '-pk'
+            )[:limit]
+        )
+
+        results = []
+
+        for fund in latest_funds:
+            results.append({
+
+                'id': fund.id,
+
+                'doc_number': fund.doc_number,
+
+                'financial_document_number':
+                    fund.financial_document_number,
+
+                'payment_date': (
+                    fund.payment_date.isoformat()
+                    if fund.payment_date else None
+                ),
+
+                'payment_description':
+                    fund.payment_description or '',
+
+                'payer': fund.get_payer_display(),
+
+                'receiver': fund.get_receiver_display(),
+
+                'amount': str(
+                    fund.amount or Decimal('0')
+                ),
+
+                'debtor_amount': str(
+                    fund.debtor_amount or Decimal('0')
+                ),
+
+                'creditor_amount': str(
+                    fund.creditor_amount or Decimal('0')
+                ),
+
+                'final_amount': str(
+                    fund.final_amount or Decimal('0')
+                ),
+
+                'bank_display': (
+                    f'{fund.bank.bank_name} - {fund.bank.account_no}'
+                    if fund.bank else ''
+                ),
+
+                'transaction_no':
+                    fund.transaction_no or '',
+
+                'detail':
+                    fund.payment_description or '',
+
+                'house_name': (
+                    fund.house.name
+                    if fund.house else ''
+                ),
+
+                'is_initial': fund.is_initial,
+
+            })
+
+        # =========================================
+        # پاسخ نهایی
+        # =========================================
+
+        return Response({
+
+            'success': True,
+
+            'summary': {
+
+                'total_debtor': str(total_debtor),
+
+                'total_creditor': str(total_creditor),
+
+                'balance': str(balance),
+
+            },
+
+            'limit': limit,
+
+            'count': len(results),
+
+            'results': results,
+
+        }, status=status.HTTP_200_OK)
+
+
+def get_manager_debtor_units(user, query='', resident_type='all'):
+    # =====================================================
+    # شارژهای ماهیانه پرداخت نشده
+    # =====================================================
+
+    charges = (
+        UnifiedCharge.objects
+        .filter(
+            is_paid=False,
+            payment_pending=False,
+            unit__isnull=False,
+            user=user,
+            send_notification=True,
+        )
+        .select_related(
+            'unit',
+            'unit__myhouse',
+        )
+        .order_by('-created_at')
+    )
+
+    # =====================================================
+    # اقساط عمرانی
+    # =====================================================
+
+    civil_installments = (
+        CivilInstallment.objects
+        .filter(
+            is_paid=False,
+            payment_pending=False,
+            unit__isnull=False,
+            send_notification=True,
+            civil_manage__user=user,
+        )
+        .select_related(
+            'unit',
+            'civil_manage',
+        )
+    )
+
+    # =====================================================
+    # اقساط فاضلاب
+    # =====================================================
+
+    sewage_installments = (
+        SewageInstallment.objects
+        .filter(
+            is_paid=False,
+            payment_pending=False,
+            unit__isnull=False,
+            send_notification=True,
+            sewage_manage__user=user,
+        )
+        .select_related(
+            'unit',
+            'sewage_manage',
+        )
+    )
+
+    # =====================================================
+    # جستجو
+    # =====================================================
+
+    if query:
+        search_filter = (
+                Q(unit__unit__icontains=query)
+                | Q(unit__owner_name__icontains=query)
+                | Q(unit__renters__renter_name__icontains=query)
+        )
+
+        charges = charges.filter(search_filter).distinct()
+
+        civil_installments = (
+            civil_installments
+            .filter(search_filter)
+            .distinct()
+        )
+
+        sewage_installments = (
+            sewage_installments
+            .filter(search_filter)
+            .distinct()
+        )
+
+    # =====================================================
+    # به‌روزرسانی جریمه شارژ ماهیانه
+    # =====================================================
+
+    for charge in charges:
+        charge.update_penalty()
+
+        charge.save(
+            update_fields=[
+                'total_charge_month',
+                'penalty_amount',
+            ]
+        )
+
+    # =====================================================
+    # ساخت اطلاعات بدهکارها
+    # =====================================================
+
+    debtors = defaultdict(
+        lambda: {
+            'unit_id': None,
+            'unit_number': '',
+            'debtor_id': None,
+            'debtor_type': '',
+            'debtor_name': '',
+            'monthly_debt': 0,
+            'civil_debt': 0,
+            'sewage_debt': 0,
+            'total_debt': 0,
+            'monthly_count': 0,
+            'civil_count': 0,
+            'sewage_count': 0,
+        }
+    )
+
+    # =====================================================
+    # مالک
+    # =====================================================
+
+    def get_owner_data(unit):
+
+        key = (
+            unit.id,
+            'owner',
+            unit.user_id,
+        )
+
+        data = debtors[key]
+
+        data['unit_id'] = unit.id
+        data['unit_number'] = str(unit.unit)
+        data['debtor_id'] = unit.user_id
+        data['debtor_type'] = 'owner'
+
+        data['debtor_name'] = (
+                unit.owner_name or 'نام مالک ثبت نشده'
+        )
+
+        return data
+
+    # =====================================================
+    # مستأجر
+    # =====================================================
+
+    def get_renter_data(unit, renter):
+
+        key = (
+            unit.id,
+            'renter',
+            renter.id,
+        )
+
+        data = debtors[key]
+
+        data['unit_id'] = unit.id
+        data['unit_number'] = str(unit.unit)
+        data['debtor_id'] = renter.id
+        data['debtor_type'] = 'renter'
+
+        data['debtor_name'] = (
+                renter.renter_name or 'نام مستأجر ثبت نشده'
+        )
+
+        return data
+
+    # =====================================================
+    # شارژ ماهیانه
+    # =====================================================
+
+    for charge in charges:
+
+        unit = charge.unit
+
+        if not unit:
+            continue
+
+        renter = (
+            unit.renters
+            .filter(renter_is_active=True)
+            .first()
+        )
+
+        if renter:
+
+            data = get_renter_data(unit, renter)
+
+        else:
+
+            data = get_owner_data(unit)
+
+        data['monthly_debt'] += (
+                charge.total_charge_month or 0
+        )
+
+        data['monthly_count'] += 1
+
+    # =====================================================
+    # اقساط عمرانی - مالک
+    # =====================================================
+
+    for installment in civil_installments:
+
+        unit = installment.unit
+
+        if not unit:
+            continue
+
+        data = get_owner_data(unit)
+
+        data['civil_debt'] += installment.amount or 0
+
+        data['civil_count'] += 1
+
+    # =====================================================
+    # اقساط فاضلاب - مالک
+    # =====================================================
+
+    for installment in sewage_installments:
+
+        unit = installment.unit
+
+        if not unit:
+            continue
+
+        data = get_owner_data(unit)
+
+        data['sewage_debt'] += installment.amount or 0
+
+        data['sewage_count'] += 1
+
+    # =====================================================
+    # محاسبه جمع بدهی
+    # =====================================================
+
+    results = []
+
+    for data in debtors.values():
+
+        data['total_debt'] = (
+                data['monthly_debt']
+                + data['civil_debt']
+                + data['sewage_debt']
+        )
+
+        if data['total_debt'] <= 0:
+            continue
+
+        if resident_type == 'owner' and data['debtor_type'] != 'owner':
+            continue
+
+        if resident_type == 'renter' and data['debtor_type'] != 'renter':
+            continue
+
+        data['id'] = (
+            f"{data['unit_id']}_"
+            f"{data['debtor_type']}_"
+            f"{data['debtor_id']}"
+        )
+
+        results.append(data)
+
+    # =====================================================
+    # مرتب‌سازی
+    # =====================================================
+
+    results.sort(
+        key=lambda x: (
+            x['unit_id'],
+            0 if x['debtor_type'] == 'owner' else 1,
+        )
+    )
+
+    return results
+
+
+class ManagerDebtorUnitsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        query = request.query_params.get('q', '').strip()
+
+        resident_type = request.query_params.get(
+            'resident_type',
+            'all',
+        ).strip()
+
+        if resident_type not in ['all', 'owner', 'renter']:
+            resident_type = 'all'
+
+        try:
+            limit = int(
+                request.query_params.get('limit', 100)
+            )
+        except (TypeError, ValueError):
+            limit = 100
+
+        limit = max(1, min(limit, 200))
+
+        results = get_manager_debtor_units(
+            user=request.user,
+            query=query,
+            resident_type=resident_type,
+        )
+
+        total_debt = sum(
+            item['total_debt']
+            for item in results
+        )
+
+        return Response({
+            'success': True,
+            'count': len(results),
+            'limit': limit,
+            'total_debt': total_debt,
+            'results': results[:limit],
+        })
+
+
+class ManagerDebtorHistoryAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, unit_id, debtor_type, debtor_id):
+
+        if debtor_type not in ['owner', 'renter']:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'نوع ساکن معتبر نیست.',
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        # =================================================
+        # شارژهای ماهیانه
+        # =================================================
+
+        charges = (
+            UnifiedCharge.objects
+            .filter(
+                user=request.user,
+                unit_id=unit_id,
+                is_paid=False,
+                send_notification=True,
+                payment_pending=False,
+            )
+            .select_related('unit')
+            .order_by('-created_at')
+        )
+
+        # =================================================
+        # اقساط عمرانی
+        # =================================================
+
+        civil_installments = (
+            CivilInstallment.objects
+            .filter(
+                civil_manage__user=request.user,
+                unit_id=unit_id,
+                is_paid=False,
+                send_notification=True,
+                payment_pending=False,
+            )
+            .select_related('civil_manage', 'unit')
+            .order_by('installment_number')
+        )
+
+        # =================================================
+        # اقساط فاضلاب
+        # =================================================
+
+        sewage_installments = (
+            SewageInstallment.objects
+            .filter(
+                sewage_manage__user=request.user,
+                unit_id=unit_id,
+                is_paid=False,
+                send_notification=True,
+                payment_pending=False,
+            )
+            .select_related('sewage_manage', 'unit')
+            .order_by('installment_number')
+        )
+
+        # =================================================
+        # تعیین واحد از روی سوابق بدهی
+        # =================================================
+
+        unit = Unit.objects.filter(
+            id=unit_id,
+            user__manager=request.user,
+            is_active=True,
+        ).first()
+
+        if unit is None:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'واحد پیدا نشد یا دسترسی به آن ندارید.',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        # =================================================
+        # تشخیص مالک / مستأجر
+        # =================================================
+
+        renter = None
+
+        if debtor_type == 'owner':
+
+            if unit.user_id != debtor_id:
+                return Response(
+                    {
+                        'success': False,
+                        'message': 'اطلاعات مالک معتبر نیست.',
+                    },
+                    status=status.HTTP_403_FORBIDDEN,
+                )
+
+            debtor_name = (
+                    unit.owner_name or 'نام مالک ثبت نشده'
+            )
+
+        else:
+
+            renter = unit.renters.filter(
+                id=debtor_id,
+                renter_is_active=True,
+            ).first()
+
+            if renter is None:
+                return Response(
+                    {
+                        'success': False,
+                        'message': 'مستأجر فعال پیدا نشد.',
+                    },
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+
+            debtor_name = (
+                    renter.renter_name or 'نام مستأجر ثبت نشده'
+            )
+
+        # =================================================
+        # سوابق شارژ ماهیانه
+        # =================================================
+
+        monthly_history = []
+
+        if debtor_type == 'renter':
+
+            charges = charges.filter(
+                unit__renters__id=debtor_id,
+                unit__renters__renter_is_active=True,
+            ).distinct()
+
+        else:
+
+            charges = charges.exclude(
+                unit__renters__renter_is_active=True,
+            )
+
+        for charge in charges:
+            charge.update_penalty()
+
+            monthly_history.append({
+                'id': charge.id,
+                'type': 'monthly',
+                'title': charge.title or 'شارژ ماهیانه',
+                'description': charge.details or '',
+                'amount': charge.total_charge_month or 0,
+                'base_charge': charge.base_charge or 0,
+                'penalty_amount': charge.penalty_amount or 0,
+                'payment_deadline_date': (
+                    charge.payment_deadline_date.isoformat()
+                    if charge.payment_deadline_date else None
+                ),
+                'created_at': (
+                    charge.created_at.isoformat()
+                    if charge.created_at else None
+                ),
+                'financial_document_number': (
+                    charge.financial_document_number
+                ),
+            })
+
+        # =================================================
+        # سوابق عمرانی - فقط مالک
+        # =================================================
+
+        civil_history = []
+
+        if debtor_type == 'owner':
+
+            for installment in civil_installments:
+                civil_history.append({
+                    'id': installment.id,
+                    'type': 'civil',
+                    'title': (
+                        installment.civil_manage.name
+                    ),
+                    'installment_number': (
+                        installment.installment_number
+                    ),
+                    'amount': installment.amount or 0,
+                    'due_date': (
+                        installment.due_date.isoformat()
+                        if installment.due_date else None
+                    ),
+                    'financial_document_number': (
+                        installment.financial_document_number
+                    ),
+                })
+
+        # =================================================
+        # سوابق فاضلاب - فقط مالک
+        # =================================================
+
+        sewage_history = []
+
+        if debtor_type == 'owner':
+
+            for installment in sewage_installments:
+                sewage_history.append({
+                    'id': installment.id,
+                    'type': 'sewage',
+                    'title': (
+                        installment.sewage_manage.name
+                    ),
+                    'installment_number': (
+                        installment.installment_number
+                    ),
+                    'amount': installment.amount or 0,
+                    'due_date': (
+                        installment.due_date.isoformat()
+                        if installment.due_date else None
+                    ),
+                    'financial_document_number': (
+                        installment.financial_document_number
+                    ),
+                })
+
+        # =================================================
+        # جمع مبالغ
+        # =================================================
+
+        monthly_total = sum(
+            item['amount'] for item in monthly_history
+        )
+
+        civil_total = sum(
+            item['amount'] for item in civil_history
+        )
+
+        sewage_total = sum(
+            item['amount'] for item in sewage_history
+        )
+
+        return Response({
+            'success': True,
+
+            'unit': {
+                'id': unit.id,
+                'number': str(unit.unit),
+            },
+
+            'debtor': {
+                'id': debtor_id,
+                'type': debtor_type,
+                'name': debtor_name,
+            },
+
+            'summary': {
+                'monthly_debt': monthly_total,
+                'civil_debt': civil_total,
+                'sewage_debt': sewage_total,
+                'total_debt': (
+                        monthly_total
+                        + civil_total
+                        + sewage_total
+                ),
+            },
+
+            'history': {
+                'monthly': monthly_history,
+                'civil': civil_history,
+                'sewage': sewage_history,
+            },
+        })
+
+
+class ManagerCreditorUnitsAPIView(APIView):
+    from reports.views import UnitReportsTurnOver
+    permission_classes = [IsAuthenticated]
+
+    # =====================================================
+    # بررسی دسترسی مدیر
+    # =====================================================
+
+    def check_manager(self, request):
+
+        if not request.user.is_middle_admin:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'دسترسی فقط برای مدیر ساختمان مجاز است.'
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        return None
+
+    # =====================================================
+    # کاربران تحت مدیریت
+    # =====================================================
+
+    def get_managed_users(self, user):
+
+        return User.objects.filter(
+            Q(manager=user) |
+            Q(pk=user.pk)
+        )
+
+    # =====================================================
+    # واحدهای تحت مدیریت
+    # =====================================================
+
+    def get_managed_units(self, user):
+
+        return Unit.objects.filter(
+            is_active=True,
+            user__in=self.get_managed_users(user)
+        ).distinct().order_by('unit')
+
+    # =====================================================
+    # دریافت پارامترهای درخواست
+    # =====================================================
+
+    def get_request_filters(self, request):
+
+        query = request.query_params.get('q', '').strip()
+
+        resident_type = request.query_params.get(
+            'resident_type',
+            'all'
+        ).strip().lower()
+
+        if resident_type not in ['all', 'owner', 'renter']:
+            resident_type = 'all'
+
+        try:
+            limit = int(request.query_params.get('limit', 100))
+        except (TypeError, ValueError):
+            limit = 100
+
+        if limit < 1:
+            limit = 100
+
+        # جلوگیری از دریافت تعداد بسیار زیاد
+        limit = min(limit, 500)
+
+        return query, resident_type, limit
+
+    # =====================================================
+    # دریافت فهرست بستانکاران
+    # =====================================================
+
+    def get(self, request):
+
+        error = self.check_manager(request)
+
+        if error:
+            return error
+
+        query, resident_type, limit = self.get_request_filters(
+            request
+        )
+
+        # =================================================
+        # ساخت گزارش گردش مالی
+        # =================================================
+        from reports.views import UnitReportsTurnOver
+        report = UnitReportsTurnOver()
+        report.request = request
+
+        units = self.get_managed_units(request.user)
+
+        # =================================================
+        # دریافت مستأجران فعال
+        # =================================================
+
+        renters = Renter.objects.filter(
+            unit__in=units,
+            renter_is_active=True
+        ).select_related(
+            'unit'
+        )
+
+        # دسته‌بندی مستأجران بر اساس واحد
+        renters_by_unit = {}
+
+        for renter in renters:
+
+            renters_by_unit.setdefault(
+                renter.unit_id,
+                []
+            ).append(renter)
+
+        # =================================================
+        # متغیرهای محاسبات
+        # =================================================
+
+        results = []
+
+        total_creditor_amount = Decimal('0')
+
+        # =================================================
+        # بررسی واحدها
+        # =================================================
+
+        for unit in units:
+
+            # =============================================
+            # محاسبه حساب مالک
+            # =============================================
+
+            if resident_type in ['all', 'owner']:
+
+                (
+                    owner_unit,
+                    _,
+                    owner_transactions,
+                    owner_label
+                ) = report.get_resident_transactions(
+                    'owner',
+                    unit.pk
+                )
+
+                (
+                    _,
+                    owner_debtor,
+                    owner_creditor,
+                    owner_balance
+                ) = report.calculate_running_balance(
+                    owner_transactions
+                )
+
+                # فقط مالک بستانکار
+                if owner_balance < Decimal('0'):
+
+                    creditor_amount = abs(owner_balance)
+
+                    results.append({
+
+                        'unit_id': unit.pk,
+
+                        'unit_number': str(unit.unit),
+
+                        'resident_type': 'owner',
+
+                        'resident_id': unit.pk,
+
+                        'resident_name': (
+                            unit.owner_name or 'بدون نام مالک'
+                        ).strip(),
+
+                        'resident_label': owner_label,
+
+                        'balance': str(owner_balance),
+
+                        'creditor_amount': str(creditor_amount),
+
+                    })
+
+            # =============================================
+            # محاسبه حساب مستأجران
+            # =============================================
+
+            if resident_type in ['all', 'renter']:
+
+                unit_renters = renters_by_unit.get(
+                    unit.pk,
+                    []
+                )
+
+                for renter in unit_renters:
+
+                    (
+                        renter_unit,
+                        _,
+                        renter_transactions,
+                        renter_label
+                    ) = report.get_resident_transactions(
+                        'renter',
+                        renter.pk
+                    )
+
+                    (
+                        _,
+                        renter_debtor,
+                        renter_creditor,
+                        renter_balance
+                    ) = report.calculate_running_balance(
+                        renter_transactions
+                    )
+
+                    # فقط مستأجر بستانکار
+                    if renter_balance < Decimal('0'):
+
+                        creditor_amount = abs(renter_balance)
+
+                        results.append({
+
+                            'unit_id': unit.pk,
+
+                            'unit_number': str(unit.unit),
+
+                            'resident_type': 'renter',
+
+                            'resident_id': renter.pk,
+
+                            'resident_name': (
+                                renter.renter_name or 'بدون نام مستأجر'
+                            ).strip(),
+
+                            'resident_label': renter_label,
+
+                            'balance': str(renter_balance),
+
+                            'creditor_amount': str(creditor_amount),
+
+                        })
+
+        # =================================================
+        # مرتب‌سازی نتایج
+        # =================================================
+
+        results.sort(
+            key=lambda item: (
+                item['unit_number'],
+                0 if item['resident_type'] == 'owner' else 1
+            )
+        )
+
+        # =================================================
+        # اعمال جستجو
+        # =================================================
+
+        if query:
+
+            normalized_query = query.casefold()
+
+            results = [
+                item
+                for item in results
+                if (
+                    normalized_query in item['unit_number'].casefold()
+                    or normalized_query in item['resident_name'].casefold()
+                    or normalized_query in item['resident_label'].casefold()
+                )
+            ]
+
+        # =================================================
+        # محاسبه تعداد و مجموع بستانکاری
+        # قبل از اعمال limit
+        # =================================================
+
+        total_creditors = len(results)
+
+        total_creditor_amount = sum(
+            (
+                Decimal(item['creditor_amount'])
+                for item in results
+            ),
+            Decimal('0')
+        )
+
+        # =================================================
+        # اعمال محدودیت تعداد نتایج
+        # =================================================
+
+        paginated_results = results[:limit]
+
+        # =================================================
+        # پاسخ نهایی
+        # =================================================
+
+        return Response(
+            {
+                'success': True,
+
+                'total_creditors': total_creditors,
+
+                'total_creditor_amount': str(
+                    total_creditor_amount
+                ),
+
+                'limit': limit,
+
+                'results': paginated_results,
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+# =========================================================
+# Sewage List
+# =========================================================
+
+def sewage_api_error(message, status=400):
+    return Response(
+        {
+            "success": False,
+            "message": message,
+        },
+        status=status,
+    )
+
+
+def sewage_get_manager_charge(user, sewage_id):
+    return SewageManage.objects.filter(
+        pk=sewage_id,
+        user=user,
+        house__isnull=False,
+    ).first()
+
+
+def sewage_get_manager_unit(user, unit_id, house=None):
+    units = Unit.objects.filter(
+        pk=unit_id,
+        user__manager=user,
+        is_active=True,
+    )
+
+    if house is not None:
+        units = units.filter(myhouse=house)
+
+    return units.first()
+
+
+def sewage_installment_is_previous_paid(installment):
+    """
+    قسط شماره صفر پیش‌پرداخت است.
+    پرداخت اقساط بعدی فقط بعد از پرداخت قسط قبلی مجاز است.
+    """
+    if installment.installment_number == 0:
+        return True
+
+    previous = SewageInstallment.objects.filter(
+        sewage_manage=installment.sewage_manage,
+        unit=installment.unit,
+        installment_number=installment.installment_number - 1,
+    ).first()
+
+    return previous is None or previous.is_paid
+
+
+def sewage_serialize_installment(installment):
+    return {
+        "id": installment.id,
+        "sewage_id": installment.sewage_manage_id,
+        "unit_id": installment.unit_id,
+        "installment_number": installment.installment_number,
+        "amount": installment.amount,
+        "prepayment_per_unit": installment.prepayment_per_unit,
+        "due_date": (
+            installment.due_date.isoformat()
+            if installment.due_date else None
+        ),
+        "is_paid": installment.is_paid,
+        "payment_pending": installment.payment_pending,
+        "payment_date": (
+            installment.payment_date.isoformat()
+            if installment.payment_date else None
+        ),
+        "transaction_reference": (
+            str(installment.transaction_reference)
+            if installment.transaction_reference is not None else ""
+        ),
+        "send_notification": installment.send_notification,
+        "can_pay": (
+            not installment.is_paid
+            and not installment.payment_pending
+            and sewage_installment_is_previous_paid(installment)
+        ),
+    }
+
+
+class ManagerSewageChargesListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        user = request.user
+
+        if not getattr(user, "is_middle_admin", False):
+            return sewage_api_error(
+                "شما اجازه دسترسی به این بخش را ندارید.",
+                403,
+            )
+
+        charges = SewageManage.objects.filter(
+            user=user,
+            house__isnull=False,
+        ).order_by("-created_at")
+
+        search = request.query_params.get("q", "").strip()
+
+        if search:
+            query = (
+                Q(name__icontains=search)
+                | Q(details__icontains=search)
+            )
+
+            if search.isdigit():
+                query |= (
+                    Q(amount__icontains=search)
+                    | Q(prepayment__icontains=search)
+                    | Q(installment_count__icontains=search)
+                )
+
+            charges = charges.filter(query)
+
+        try:
+            page = max(int(request.query_params.get("page", 1)), 1)
+            page_size = min(
+                max(int(request.query_params.get("page_size", 20)), 1),
+                100,
+            )
+        except (ValueError, TypeError):
+            return sewage_api_error(
+                "شماره صفحه یا اندازه صفحه معتبر نیست."
+            )
+
+        total = charges.count()
+        start = (page - 1) * page_size
+
+        results = []
+
+        for sewage in charges[start:start + page_size]:
+            installments = SewageInstallment.objects.filter(
+                sewage_manage=sewage,
+            )
+
+            results.append({
+                "id": sewage.id,
+                "name": sewage.name,
+                "amount": sewage.amount,
+                "prepayment": sewage.prepayment,
+                "installment_count": sewage.installment_count,
+                "first_due_date": (
+                    sewage.first_due_date.isoformat()
+                    if sewage.first_due_date else None
+                ),
+                "details": sewage.details or "",
+                "created_at": (
+                    sewage.created_at.isoformat()
+                    if sewage.created_at else None
+                ),
+                "is_active": sewage.is_active,
+
+                "unit_count": installments.values(
+                    "unit_id"
+                ).distinct().count(),
+
+                "paid_installment_count": installments.filter(
+                    is_paid=True
+                ).count(),
+
+                "unpaid_installment_count": installments.filter(
+                    is_paid=False
+                ).count(),
+
+                "pending_installment_count": installments.filter(
+                    payment_pending=True,
+                    is_paid=False,
+                ).count(),
+            })
+
+        return Response({
+            "success": True,
+            "count": total,
+            "page": page,
+            "page_size": page_size,
+            "results": results,
+        })
+
+
+class ManagerSewageChargeUnitsListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, sewage_id):
+        sewage = sewage_get_manager_charge(
+            request.user,
+            sewage_id,
+        )
+
+        if not sewage:
+            return sewage_api_error(
+                "هزینه فاضلاب پیدا نشد.",
+                404,
+            )
+
+        unit_ids = (
+            SewageInstallment.objects.filter(
+                sewage_manage=sewage,
+                send_notification=True,
+                unit__isnull=False,
+                unit__is_active=True,
+                unit__user__manager=request.user,
+                unit__myhouse=sewage.house,
+            )
+            .values_list("unit_id", flat=True)
+            .distinct()
+        )
+
+        units = Unit.objects.filter(
+            id__in=unit_ids,
+            is_active=True,
+            user__manager=request.user,
+            myhouse=sewage.house,
+        ).order_by("unit")
+
+        search = request.query_params.get("q", "").strip()
+
+        if search:
+            units = units.filter(
+                Q(unit__icontains=search)
+                | Q(owner_name__icontains=search)
+                | Q(owner_mobile__icontains=search)
+                | Q(
+                    renters__renter_name__icontains=search,
+                    renters__renter_is_active=True,
+                )
+            ).distinct()
+
+        results = []
+
+        for unit in units:
+            all_installments = list(
+                SewageInstallment.objects.filter(
+                    sewage_manage=sewage,
+                    unit=unit,
+                    send_notification=True,
+                ).order_by("installment_number", "id")
+            )
+
+            prepayment_installments = [
+                item for item in all_installments
+                if item.installment_number == 0
+            ]
+
+            installments = [
+                item for item in all_installments
+                if item.installment_number > 0
+            ]
+
+            prepayment = next(
+                (
+                    item.amount or item.prepayment_per_unit or 0
+                    for item in prepayment_installments
+                ),
+                0,
+            )
+
+            if not prepayment:
+                prepayment = sewage.prepayment or 0
+
+            has_prepayment_installment = bool(
+                prepayment_installments
+            )
+
+            prepayment_is_paid = any(
+                item.is_paid
+                for item in prepayment_installments
+            )
+
+            paid_installments = [
+                item for item in installments
+                if item.is_paid
+            ]
+
+            unpaid_installments = [
+                item for item in installments
+                if not item.is_paid
+            ]
+
+            installments_total_amount = sum(
+                item.amount or 0
+                for item in installments
+            )
+
+            total_charge_amount = (
+                prepayment + installments_total_amount
+            )
+
+            paid_amount = sum(
+                item.amount or 0
+                for item in paid_installments
+            )
+
+            unpaid_amount = sum(
+                item.amount or 0
+                for item in unpaid_installments
+            )
+
+            if has_prepayment_installment:
+                if prepayment_is_paid:
+                    paid_amount += prepayment
+                else:
+                    unpaid_amount += prepayment
+
+            total_installments = (
+                len(installments)
+                + (1 if has_prepayment_installment else 0)
+            )
+
+            paid_count = (
+                len(paid_installments)
+                + (
+                    1
+                    if has_prepayment_installment
+                    and prepayment_is_paid
+                    else 0
+                )
+            )
+
+            unpaid_count = total_installments - paid_count
+
+            active_renter = unit.get_active_renter()
+
+            if active_renter:
+                resident_type = "renter"
+                resident_type_display = "مستأجر"
+                resident_name = (
+                    active_renter.renter_name or "نامشخص"
+                )
+                active_tenant_name = (
+                    active_renter.renter_name or ""
+                )
+            else:
+                resident_type = "owner"
+                resident_type_display = "مالک"
+                resident_name = unit.owner_name or "نامشخص"
+                active_tenant_name = ""
+
+            results.append({
+                "id": unit.id,
+                "unit": unit.unit,
+
+                "owner_name": unit.owner_name or "",
+                "owner_mobile": unit.owner_mobile or "",
+
+                "resident_type": resident_type,
+                "resident_type_display": resident_type_display,
+                "resident_name": resident_name,
+                "active_tenant_name": active_tenant_name,
+
+                "prepayment": prepayment,
+                "installments_total_amount": (
+                    installments_total_amount
+                ),
+                "amount": total_charge_amount,
+                "total_charge_amount": total_charge_amount,
+                "paid_amount": paid_amount,
+                "unpaid_amount": unpaid_amount,
+                "remaining_installments_amount": unpaid_amount,
+
+                "paid_count": paid_count,
+                "total_installments": total_installments,
+                "unpaid_count": unpaid_count,
+
+                "installments": [
+                    sewage_serialize_installment(item)
+                    for item in installments
+                ],
+            })
+
+        return Response({
+            "success": True,
+            "sewage_id": sewage.id,
+            "sewage_name": sewage.name,
+            "count": len(results),
+            "results": results,
+        })
+
+
+class ManagerSewageUnitInstallmentsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, sewage_id, unit_id):
+        sewage = sewage_get_manager_charge(
+            request.user,
+            sewage_id,
+        )
+
+        if not sewage:
+            return sewage_api_error(
+                "هزینه فاضلاب پیدا نشد.",
+                404,
+            )
+
+        unit = sewage_get_manager_unit(
+            request.user,
+            unit_id,
+            house=sewage.house,
+        )
+
+        if not unit:
+            return sewage_api_error(
+                "واحد پیدا نشد.",
+                404,
+            )
+
+        installments = SewageInstallment.objects.filter(
+            sewage_manage=sewage,
+            unit=unit,
+            send_notification=True,
+        ).order_by("installment_number", "id")
+
+        return Response({
+            "success": True,
+            "sewage": {
+                "id": sewage.id,
+                "name": sewage.name,
+            },
+            "unit": {
+                "id": unit.id,
+                "unit": unit.unit,
+                "owner_name": unit.owner_name or "",
+            },
+            "count": installments.count(),
+            "paid_count": installments.filter(
+                is_paid=True
+            ).count(),
+            "unpaid_count": installments.filter(
+                is_paid=False
+            ).count(),
+            "results": [
+                sewage_serialize_installment(item)
+                for item in installments
+            ],
+        })
+
+class ManagerSewageInstallmentPaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, installment_id):
+        user = request.user
+
+        if not getattr(user, "is_middle_admin", False):
+            return sewage_api_error(
+                "دسترسی غیرمجاز.",
+                403,
+            )
+
+        installment = SewageInstallment.objects.filter(
+            pk=installment_id,
+            sewage_manage__user=user,
+            sewage_manage__house__isnull=False,
+            unit__user__manager=user,
+            unit__myhouse=F("sewage_manage__house"),
+        ).select_related(
+            "sewage_manage",
+            "unit",
+            "sewage_manage__house",
+        ).first()
+
+        if not installment:
+            return sewage_api_error(
+                "قسط فاضلاب پیدا نشد.",
+                404,
+            )
+
+        if not installment.send_notification:
+            return sewage_api_error(
+                "این قسط هنوز برای واحد ارسال نشده است."
+            )
+
+        if installment.is_paid:
+            return sewage_api_error(
+                "این قسط قبلاً پرداخت شده است."
+            )
+
+        if installment.payment_pending:
+            return sewage_api_error(
+                "این قسط در انتظار تأیید پرداخت است."
+            )
+
+        if not sewage_installment_is_previous_paid(installment):
+            return sewage_api_error(
+                "ابتدا باید قسط قبلی پرداخت شود."
+            )
+
+        banks = Bank.objects.filter(
+            is_active=True,
+            house=installment.sewage_manage.house,
+        ).order_by("-is_default", "bank_name")
+
+        return Response({
+            "success": True,
+            "installment": sewage_serialize_installment(
+                installment
+            ),
+            "banks": [
+                {
+                    "id": bank.pk,
+                    "bank_name": bank.bank_name,
+                    "account_no": bank.account_no,
+                    "cart_number": bank.cart_number,
+                    "is_default": bank.is_default,
+                }
+                for bank in banks
+            ],
+        })
+
+    def post(self, request, installment_id):
+        user = request.user
+
+        if not getattr(user, "is_middle_admin", False):
+            return sewage_api_error(
+                "دسترسی غیرمجاز.",
+                403,
+            )
+
+        installment = SewageInstallment.objects.filter(
+            pk=installment_id,
+            sewage_manage__user=user,
+            sewage_manage__house__isnull=False,
+            unit__user__manager=user,
+            unit__myhouse=F("sewage_manage__house"),
+        ).select_related(
+            "sewage_manage",
+            "unit",
+            "sewage_manage__house",
+        ).first()
+
+        if not installment:
+            return sewage_api_error(
+                "قسط فاضلاب پیدا نشد.",
+                404,
+            )
+
+        if not installment.send_notification:
+            return sewage_api_error(
+                "این قسط برای واحد ارسال نشده است."
+            )
+
+        try:
+            bank_id = int(request.data.get("bank_id"))
+        except (ValueError, TypeError):
+            return sewage_api_error(
+                "حساب بانکی معتبر انتخاب کنید."
+            )
+
+        bank = Bank.objects.filter(
+            pk=bank_id,
+            house=installment.sewage_manage.house,
+            is_active=True,
+        ).first()
+
+        if not bank:
+            return sewage_api_error(
+                "حساب بانکی معتبر برای این ساختمان پیدا نشد."
+            )
+
+        raw_date = request.data.get("payment_date")
+
+        if raw_date:
+            try:
+                payment_date = datetime.date.fromisoformat(
+                    str(raw_date)[:10]
+                )
+            except (ValueError, TypeError):
+                return sewage_api_error(
+                    "تاریخ پرداخت باید به قالب YYYY-MM-DD باشد."
+                )
+        else:
+            payment_date = date.today()
+
+        if payment_date > date.today():
+            return sewage_api_error(
+                "تاریخ پرداخت نمی‌تواند بعد از امروز باشد."
+            )
+
+        transaction_reference = str(
+            request.data.get("transaction_reference") or ""
+        ).strip()
+
+        if len(transaction_reference) > 20:
+            return sewage_api_error(
+                "شماره پیگیری نمی‌تواند بیشتر از ۲۰ کاراکتر باشد."
+            )
+
+        try:
+            validate_bank_transaction_date(
+                bank,
+                payment_date,
+            )
+        except Exception as exc:
+            return sewage_api_error(str(exc))
+
+        with transaction.atomic():
+
+            installment = (
+                SewageInstallment.objects
+                .select_for_update()
+                .filter(
+                    pk=installment_id,
+                    sewage_manage__user=user,
+                    sewage_manage__house__isnull=False,
+                    unit__user__manager=user,
+                    unit__myhouse=F("sewage_manage__house"),
+                )
+                .select_related(
+                    "sewage_manage",
+                    "unit",
+                    "sewage_manage__house",
+                )
+                .first()
+            )
+
+            if not installment:
+                return sewage_api_error(
+                    "قسط پیدا نشد.",
+                    404,
+                )
+
+            if installment.is_paid:
+                return sewage_api_error(
+                    "این قسط قبلاً پرداخت شده است."
+                )
+
+            if installment.payment_pending:
+                return sewage_api_error(
+                    "این قسط در انتظار تأیید پرداخت است."
+                )
+
+            if not installment.send_notification:
+                return sewage_api_error(
+                    "این قسط برای واحد ارسال نشده است."
+                )
+
+            if not sewage_installment_is_previous_paid(
+                installment
+            ):
+                return sewage_api_error(
+                    "ابتدا باید قسط قبلی پرداخت شود."
+                )
+
+            # کنترل حساب بانکی در داخل تراکنش
+            bank = Bank.objects.filter(
+                pk=bank_id,
+                house=installment.sewage_manage.house,
+                is_active=True,
+            ).first()
+
+            if not bank:
+                return sewage_api_error(
+                    "حساب بانکی معتبر پیدا نشد."
+                )
+
+            content_type = ContentType.objects.get_for_model(
+                SewageInstallment
+            )
+
+            existing_fund = Fund.objects.filter(
+                content_type=content_type,
+                object_id=installment.pk,
+            ).exists()
+
+            if existing_fund:
+                return sewage_api_error(
+                    "برای این قسط سند مالی وجود دارد؛ "
+                    "ابتدا وضعیت آن را بررسی کنید."
+                )
+
+            unit = installment.unit
+            house = installment.sewage_manage.house
+
+            owner_name = (
+                unit.owner_name or ""
+            ).strip()
+
+            payer_name_snapshot = (
+                f"واحد {unit.unit} - {owner_name}"
+                if owner_name
+                else f"واحد {unit.unit}"
+            )
+
+            payment_description = (
+                f"پرداخت هزینه فاضلاب: "
+                f"{(installment.sewage_manage.name or '')[:50]}"
+            )
+
+            installment.bank = bank
+            installment.is_paid = True
+            installment.payment_date = payment_date
+            installment.transaction_reference = (
+                transaction_reference or None
+            )
+            installment.payment_gateway = "پرداخت الکترونیک"
+            installment.payment_pending = False
+
+            installment.save(update_fields=[
+                "bank",
+                "is_paid",
+                "payment_date",
+                "transaction_reference",
+                "payment_gateway",
+                "payment_pending",
+            ])
+
+            Fund.objects.create(
+                content_type=content_type,
+                object_id=installment.id,
+                unit=unit,
+                house=house,
+                bank=bank,
+                payer_type="owner",
+                payer_renter=None,
+                payer_name=payer_name_snapshot,
+                debtor_amount=installment.amount,
+                amount=installment.amount,
+                creditor_amount=0,
+                user=user,
+                is_paid=True,
+                payment_date=installment.payment_date,
+                payment_description=payment_description,
+                transaction_no=installment.transaction_reference,
+                financial_document_number=(
+                    installment.financial_document_number
+                ),
+                payment_gateway="پرداخت الکترونیک",
+            )
+
+            BankTransactionService.deposit(
+                user=user,
+                bank=bank,
+                unit=unit,
+                amount=Decimal(installment.amount),
+                description=payment_description,
+                payer_type="owner",
+                payer_renter=None,
+                payer_name=owner_name or None,
+                content_object=installment,
+                payment_date=installment.payment_date,
+                financial_document_number=(
+                    installment.financial_document_number
+                ),
+                transaction_no=installment.transaction_reference,
+                gateway="پرداخت الکترونیک",
+                house=house,
+            )
+
+        return Response({
+            "success": True,
+            "message": "پرداخت هزینه فاضلاب با موفقیت ثبت شد.",
+            "installment": sewage_serialize_installment(
+                installment
+            ),
+        })
+
+
+class ManagerSewageInstallmentCancelPaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, installment_id):
+        user = request.user
+
+        if not getattr(user, "is_middle_admin", False):
+            return sewage_api_error(
+                "دسترسی غیرمجاز.",
+                403,
+            )
+
+        with transaction.atomic():
+            installment = (
+                SewageInstallment.objects
+                .select_for_update()
+                .filter(
+                    pk=installment_id,
+                    sewage_manage__user=user,
+                    sewage_manage__house__isnull=False,
+                    unit__user__manager=user,
+                    unit__myhouse=F("sewage_manage__house"),
+                )
+                .select_related(
+                    "sewage_manage",
+                    "unit",
+                    "sewage_manage__house",
+                )
+                .first()
+            )
+
+            if not installment:
+                return sewage_api_error(
+                    "قسط فاضلاب پیدا نشد.",
+                    404,
+                )
+
+            if not installment.is_paid:
+                return sewage_api_error(
+                    "این قسط پرداخت نشده است."
+                )
+
+            content_type = ContentType.objects.get_for_model(
+                SewageInstallment
+            )
+
+            fund = Fund.objects.filter(
+                content_type=content_type,
+                object_id=installment.id,
+            ).first()
+
+            if not fund:
+                return sewage_api_error(
+                    "سند مالی مرتبط با این پرداخت پیدا نشد."
+                )
+
+            bank_fund = BankFund.objects.filter(
+                content_type=content_type,
+                object_id=installment.id,
+            ).select_related("bank").first()
+
+            if bank_fund:
+                bank = bank_fund.bank
+                amount = bank_fund.amount or 0
+
+                if bank_fund.transaction_type == "deposit":
+                    bank.current_balance -= amount
+                else:
+                    bank.current_balance += amount
+
+                bank.save(
+                    update_fields=["current_balance"]
+                )
+
+                bank_fund.delete()
+
+            fund_doc_number = fund.doc_number
+            fund.delete()
+
+            next_fund = (
+                Fund.objects
+                .filter(doc_number__gt=fund_doc_number)
+                .order_by("doc_number")
+                .first()
+            )
+
+            if next_fund:
+                Fund.recalc_final_amounts_from(next_fund)
+
+            installment.is_paid = False
+            installment.bank = None
+            installment.transaction_reference = None
+            installment.payment_date = None
+            installment.payment_gateway = None
+            installment.payment_pending = False
+
+            installment.save(update_fields=[
+                "is_paid",
+                "bank",
+                "transaction_reference",
+                "payment_date",
+                "payment_gateway",
+                "payment_pending",
+            ])
+
+        return Response({
+            "success": True,
+            "message": "پرداخت لغو شد و وضعیت مالی اصلاح شد.",
+            "installment": sewage_serialize_installment(
+                installment
+            ),
+        })
+
+
+
+class ManagerUserPayMoneyListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        # =========================================
+        # ساختمان مدیر
+        # =========================================
+
+        house = MyHouse.objects.filter(
+            user=request.user
+        ).first()
+
+        if not house:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'ساختمانی برای مدیر پیدا نشد.',
+                },
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        # =========================================
+        # فهرست کمک‌های ثبت‌شده در ساختمان
+        # =========================================
+
+        payments = (
+            UserPayMoney.objects
+            .filter(house=house)
+            .select_related(
+                'user',
+                'unit',
+                'unit__user',
+                'bank',
+                'house',
+            )
+            .prefetch_related(
+                'documents',
+            )
+            .order_by('-created_at', '-id')
+        )
+
+        # =========================================
+        # محاسبات آماری
+        # =========================================
+
+        statistics = payments.aggregate(
+            total_amount=Sum('amount'),
+        )
+
+        total_count = payments.count()
+
+        # =========================================
+        # سریالایزر
+        # =========================================
+
+        serializer = UserPayMoneySerializer(
+            payments,
+            many=True,
+            context={
+                'request': request,
+            }
+        )
+
+        # =========================================
+        # پاسخ
+        # =========================================
+
+        return Response(
+            {
+                'success': True,
+                'house_id': house.id,
+
+                'statistics': {
+                    'total_count': total_count,
+                    'total_amount': statistics['total_amount'] or 0,
+                },
+
+                'payments': serializer.data,
+            },
+            status=status.HTTP_200_OK,
+        )
+
+
+   # =========================================
+        # Financial Management
+        # =========================================
+
+class ManagerAdminFundListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        manager = request.user
+
+        # دریافت ساختمان مدیر
+        house = MyHouse.objects.filter(
+            user=manager
+        ).first()
+
+        if not house:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'ساختمانی برای مدیر پیدا نشد.'
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        # دریافت تمام تراکنش‌های مدیر
+        funds = (
+            AdminFund.objects
+            .filter(user=manager)
+            .select_related(
+                'user',
+                'house',
+                'bank',
+                'content_type',
+            )
+            .order_by('-payment_date', '-id')
+        )
+
+        # آمار کلی
+        total_count = funds.count()
+
+        paid_funds = funds.filter(is_paid=True)
+
+        paid_count = paid_funds.count()
+
+        total_amount = paid_funds.aggregate(
+            total=Sum('amount')
+        )['total'] or 0
+
+        # نوع تراکنش‌ها
+        sms_content_type = ContentType.objects.get_for_model(
+            SmsCredit
+        )
+
+        subscription_content_type = ContentType.objects.get_for_model(
+            Subscription
+        )
+
+        sms_funds = paid_funds.filter(
+            content_type=sms_content_type
+        )
+
+        subscription_funds = paid_funds.filter(
+            content_type=subscription_content_type
+        )
+
+        sms_statistics = sms_funds.aggregate(
+            count=Count('id'),
+            amount=Sum('amount')
+        )
+
+        subscription_statistics = subscription_funds.aggregate(
+            count=Count('id'),
+            amount=Sum('amount')
+        )
+
+        serializer = ManagerAdminFundSerializer(
+            funds,
+            many=True,
+            context={'request': request}
+        )
+
+        return Response(
+            {
+                'success': True,
+                'house_id': house.id,
+                'house_name': house.name,
+
+                'statistics': {
+                    'total_count': total_count,
+                    'paid_count': paid_count,
+                    'unpaid_count': 0,
+                    'total_amount': total_amount,
+
+                    'sms_credit': {
+                        'count': sms_statistics['count'] or 0,
+                        'amount': sms_statistics['amount'] or 0,
+                    },
+
+                    'subscription': {
+                        'count': subscription_statistics['count'] or 0,
+                        'amount': subscription_statistics['amount'] or 0,
+                    },
+                },
+
+                'transactions': serializer.data,
             },
             status=status.HTTP_200_OK
         )
