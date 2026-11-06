@@ -23,6 +23,56 @@ import uuid
 import secrets
 
 
+
+class AppVersion(models.Model):
+    version = models.CharField(
+        max_length=20,
+        verbose_name='شماره نسخه',
+        help_text='مثلاً 2.0.1'
+    )
+
+    download_url = models.URLField(
+        max_length=500,
+        verbose_name='لینک دانلود اپلیکیشن'
+    )
+
+    force_update = models.BooleanField(
+        default=False,
+        verbose_name='بروزرسانی اجباری'
+    )
+
+    release_notes = models.TextField(
+        blank=True,
+        verbose_name='توضیحات تغییرات نسخه'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='نسخه فعال'
+    )
+
+    created_at = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='تاریخ ثبت'
+    )
+
+    class Meta:
+        verbose_name = 'نسخه اپلیکیشن'
+        verbose_name_plural = 'نسخه‌های اپلیکیشن'
+        ordering = ['-created_at']
+
+    def save(self, *args, **kwargs):
+        if self.is_active:
+            AppVersion.objects.exclude(pk=self.pk).update(
+                is_active=False
+            )
+
+        super().save(*args, **kwargs)
+
+    def __str__(self):
+        return f'نسخه {self.version}'
+
+
 class ThirdParty(models.Model):
     PERSON_TYPE_CHOICES = (
         ('person', 'شخص حقیقی'),
@@ -3545,6 +3595,12 @@ class SubscriptionPayment(models.Model):
         User,
         on_delete=models.CASCADE,
         related_name='subscription_payments'
+    )
+    authority = models.CharField(
+        max_length=100,
+        null=True,
+        blank=True,
+        unique=True
     )
 
     house = models.ForeignKey(

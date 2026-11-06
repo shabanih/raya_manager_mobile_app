@@ -59,7 +59,9 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerFundTurnoverAPIView, ManagerDebtorUnitsAPIView, ManagerDebtorHistoryAPIView, ManagerCreditorUnitsAPIView, \
     ManagerSewageChargesListAPIView, ManagerSewageChargeUnitsListAPIView, ManagerSewageUnitInstallmentsAPIView, \
     ManagerSewageInstallmentCancelPaymentAPIView, ManagerSewageInstallmentPaymentAPIView, \
-    ManagerUserPayMoneyListAPIView, ManagerAdminFundListAPIView
+    ManagerUserPayMoneyListAPIView, ManagerAdminFundListAPIView, ManagerAdminMessageListAPIView, \
+    ManagerAdminMessageMarkReadAPIView, ManagerSubscriptionAPIView, ManagerApprovePaymentAPIView, \
+    ManagerPendingPaymentsAPIView, ContactUsCreateAPIView, LatestAppVersionAPIView
 
 urlpatterns = [
     path(
@@ -1275,6 +1277,7 @@ urlpatterns = [
         ManagerSewageInstallmentCancelPaymentAPIView.as_view(),
         name="manager-sewage-installment-cancel-payment",
     ),
+
     path(
         'manager/user-help-money/',
         ManagerUserPayMoneyListAPIView.as_view(),
@@ -1286,5 +1289,45 @@ urlpatterns = [
         ManagerAdminFundListAPIView.as_view(),
         name='manager-admin-funds',
     ),
+
+    path(
+        'manager/admin-messages/',
+        ManagerAdminMessageListAPIView.as_view(),
+        name='manager-admin-messages'
+    ),
+
+    path(
+        'manager/admin-messages/<int:pk>/read/',
+        ManagerAdminMessageMarkReadAPIView.as_view(),
+        name='manager-admin-message-read'
+    ),
+    path(
+        'manager/subscription/current/',
+        ManagerSubscriptionAPIView.as_view(),
+        name='manager-subscription-current'
+    ),
+    # ================== Approve Payment URLs ==================
+    path(
+        'manager/pending-payments/',
+        ManagerPendingPaymentsAPIView.as_view(),
+        name='manager-pending-payments'
+    ),
+
+    path(
+        'manager/approve-payment/',
+        ManagerApprovePaymentAPIView.as_view(),
+        name='manager-approve-payment'
+    ),
+    path(
+        'contact-us/',
+        ContactUsCreateAPIView.as_view(),
+        name='contact-us-create'
+    ),
+    path(
+        'app/version/',
+        LatestAppVersionAPIView.as_view(),
+        name='latest-app-version'
+    ),
+
 
 ]

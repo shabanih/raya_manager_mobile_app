@@ -40,14 +40,14 @@ from admin_panel.forms import announcementForm, UnitForm, ExpenseForm, ExpenseCa
     MaintenanceForm, FixChargeForm, PersonAreaChargeForm, AreaChargeForm, PersonChargeForm, FixAreaChargeForm, \
     FixPersonChargeForm, PersonAreaFixChargeForm, VariableFixChargeForm, UserRegistrationForm, SmsForm, MyHouseForm, \
     ChargeCategoryForm, AdminSmsForm, SubscriptionPlanForm, SliderForm, SubscriptionUpdateForm, CouponApplyForm, \
-    HouseLicenseForm, HousePaymentGatewayForm
+    HouseLicenseForm, HousePaymentGatewayForm, AppVersionForm
 from admin_panel.models import Announcement, Expense, ExpenseCategory, ExpenseDocument, Income, IncomeDocument, \
     IncomeCategory, ReceiveMoney, ReceiveDocument, PayMoney, PayDocument, Property, PropertyDocument, Maintenance, \
     MaintenanceDocument, ChargeByPersonArea, \
     ChargeByFixPersonArea, FixCharge, AreaCharge, PersonCharge, \
     FixPersonCharge, FixAreaCharge, ChargeFixVariable, \
     SmsManagement, Fund, UnifiedCharge, AdminSmsManagement, SmsCredit, ImpersonationLog, SubscriptionPlan, Subscription, \
-    AdminFund, Coupon
+    AdminFund, Coupon, AppVersion
 from home.forms import ArticleForm
 from home.models import SliderText, ContactUs, FreeRequest, Articles, CommentSite
 from notifications.models import AdminTicket
@@ -139,6 +139,85 @@ def site_header_component(request):
         'user': request.user,
     }
     return render(request, 'shared/notification_template.html', context)
+
+
+
+@login_required
+def app_version_create(request):
+    versions = AppVersion.objects.all().order_by('-created_at')
+
+    if request.method == 'POST':
+        form = AppVersionForm(request.POST)
+
+        if form.is_valid():
+            form.save()
+
+            messages.success(
+                request,
+                'نسخه جدید اپلیکیشن با موفقیت ثبت شد.'
+            )
+
+            return redirect('app_version_create')
+
+    else:
+        form = AppVersionForm()
+
+    return render(
+        request,
+        'admin_panel/app_version_page.html',
+        {
+            'form': form,
+            'title': 'ثبت نسخه جدید اپلیکیشن',
+            'versions': versions
+        }
+    )
+
+
+@login_required
+def app_version_update(request, pk):
+    versions = AppVersion.objects.all().order_by('-created_at')
+    version = get_object_or_404(AppVersion, pk=pk)
+
+    if request.method == 'POST':
+        form = AppVersionForm(request.POST, instance=version)
+
+        if form.is_valid():
+            form.save()
+
+            messages.success(
+                request,
+                'اطلاعات نسخه اپلیکیشن با موفقیت ویرایش شد.'
+            )
+
+            return redirect('app_version_create')
+
+    else:
+        form = AppVersionForm(instance=version)
+
+    return render(
+        request,
+        'admin_panel/app_version_page.html',
+        {
+            'form': form,
+            'title': 'ویرایش نسخه اپلیکیشن',
+            'versions': versions
+        }
+    )
+
+
+@login_required
+def app_version_delete(request, pk):
+    version = get_object_or_404(AppVersion, pk=pk)
+    version.delete()
+
+    messages.success(
+        request,
+        'نسخه اپلیکیشن حذف شد.'
+    )
+
+    return redirect('app_version_create')
+
+
 
 
 # ===============================================

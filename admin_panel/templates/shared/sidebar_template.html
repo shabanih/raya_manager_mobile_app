@@ -25,6 +25,13 @@
                 <i class="mdi mdi-cellphone-link menu-icon"></i>
               </a>
             </li>
+              <li class="nav-item border-top mt-0">
+                 {% url 'app_version_create' as address_url %}
+                <a class="nav-link {% if request.path == address_url %}active{% endif %}" href="{{ address_url }}">
+                <i class="menu-title"> مدیریت بروزرسانی</i>
+                <i class="mdi mdi mdi-update menu-icon"></i>
+              </a>
+            </li>
           
                <li class="nav-item border-top mt-0">
                  {% url 'consultant_management' as address_url %}

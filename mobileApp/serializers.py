@@ -2,7 +2,9 @@ from django.db.models import Q
 from rest_framework import serializers
 from datetime import date, datetime
 from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, CivilInstallment, SewageInstallment, \
-    SewageManage, MessageToUser, AnnouncementDocument, BankFund, ThirdParty, AdminFund, SmsCredit, Subscription
+    SewageManage, MessageToUser, AnnouncementDocument, BankFund, ThirdParty, AdminFund, SmsCredit, Subscription, \
+    AdminMessageToMiddle
+from home.models import ContactUs
 from notifications.models import SupportFile, SupportMessage, SupportUser, Notification, AdminTicketFile, \
     AdminTicketMessage, AdminTicket, MiddleAdminNotification
 from polls_app.models import Choice, Question, Poll, Vote
@@ -4464,3 +4466,54 @@ class ManagerAdminFundSerializer(serializers.ModelSerializer):
             }
 
         return {}
+
+
+# ============ Admin send message to middleAdmin  ====================
+
+class ManagerAdminMessageSerializer(serializers.ModelSerializer):
+    sender_name = serializers.CharField(
+        source='sender.full_name',
+        read_only=True
+    )
+
+    is_read = serializers.SerializerMethodField()
+    read_at = serializers.SerializerMethodField()
+
+    class Meta:
+        model = AdminMessageToMiddle
+        fields = [
+            'id',
+            'title',
+            'message',
+            'sender_name',
+            'created_at',
+            'is_read',
+            'read_at',
+        ]
+
+    def get_is_read(self, obj):
+        status = getattr(obj, 'current_user_read_status', None)
+        return status.is_read if status else False
+
+    def get_read_at(self, obj):
+        status = getattr(obj, 'current_user_read_status', None)
+        return status.read_at if status and status.is_read else None
+
+
+
+
+class ContactUsSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = ContactUs
+        fields = ['name', 'subject', 'mobile', 'message']
+
+    def validate_message(self, value):
+        value = value.strip()
+
+        if not value:
+            raise serializers.ValidationError('متن پیشنهاد الزامی است.')
+
+        if len(value) > 360:
+            raise serializers.ValidationError('حداکثر طول پیام ۳۶۰ کاراکتر است.')
+
+        return value

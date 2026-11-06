@@ -17,7 +17,7 @@ from admin_panel.models import (Announcement, Expense, ExpenseCategory, Income, 
                                 FixPersonCharge, FixAreaCharge, ChargeFixVariable, SmsManagement, UnifiedCharge,
                                 MessageToUser, SmsCredit, AdminMessageToMiddle, AdminSmsManagement, Subscription,
                                 SubscriptionPlan, CivilManage, SewageManage, BankFund, Coupon, ChargeCalculation,
-                                ThirdParty)
+                                ThirdParty, AppVersion)
 from home.models import SliderText
 from middleAdmin_panel.services.bank_services import validate_bank_transaction_date
 
@@ -3481,3 +3481,44 @@ class ThirdPartySelectForm(forms.Form):
             )
 
         self.fields['third_party'].choices = choices
+
+
+class AppVersionForm(forms.ModelForm):
+
+    class Meta:
+        model = AppVersion
+        fields = [
+            'version',
+            'download_url',
+            'force_update',
+            'release_notes',
+            'is_active',
+        ]
+
+        widgets = {
+            'version': forms.TextInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'مثلاً 2.0.1',
+                'dir': 'ltr',
+            }),
+
+            'download_url': forms.URLInput(attrs={
+                'class': 'form-control',
+                'placeholder': 'https://www.rayacharge.ir/downloads/rayaApp-release.apk',
+                'dir': 'ltr',
+            }),
+
+            'release_notes': forms.Textarea(attrs={
+                'class': 'form-control',
+                'rows': 4,
+                'placeholder': 'توضیحات تغییرات نسخه جدید',
+            }),
+
+            'force_update': forms.CheckboxInput(attrs={
+                'class': 'form-check-input',
+            }),
+
+            'is_active': forms.CheckboxInput(attrs={
+                'class': 'form-check-input',
+            }),
+        }

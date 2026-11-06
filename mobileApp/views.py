@@ -13,6 +13,7 @@ from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
 from django.utils.dateparse import parse_date
+from rest_framework.decorators import api_view, permission_classes
 from rest_framework.parsers import JSONParser, MultiPartParser, FormParser
 
 import requests
@@ -46,7 +47,9 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
     ChargeByFixPersonArea, ChargeFixVariable, ChargeCalculation, Expense, Maintenance, ChargeCalculationItem, \
     ChargeAllocation, CivilDocument, ExpenseCategory, ExpenseDocument, ThirdParty, Income, IncomeCategory, \
     IncomeDocument, ReceiveMoney, ReceiveDocument, PayDocument, PayMoney, MaintenanceDocument, Property, \
-    PropertyDocument, SewageDocument, AdminFund
+    PropertyDocument, SewageDocument, AdminFund, MiddleMessageReadStatus, AdminMessageToMiddle, SubscriptionPlan, \
+    AppVersion
+from home.models import ContactUs
 from middleAdmin_panel.services.bank_balance_service import recalculate_bank_balance
 from middleAdmin_panel.services.bank_services import BankTransactionService, validate_bank_transaction_date
 from notifications.models import SupportUser, SupportMessage, Notification, SupportFile, AdminTicketFile, \
@@ -69,7 +72,7 @@ from .serializers import (
     UserSupportTicketListSerializer, UserSupportTicketCreateSerializer, UserSupportTicketDetailSerializer,
     AdminTicketDetailSerializer, AdminTicketCreateSerializer, AdminTicketListSerializer,
     AdminTicketMessageCreateSerializer, ManagerUnitSerializer, ManagerRenterSerializer, ManagerChargeHomeCardSerializer,
-    ManagerThirdPartySerializer, ManagerAdminFundSerializer,
+    ManagerThirdPartySerializer, ManagerAdminFundSerializer, ManagerAdminMessageSerializer, ContactUsSerializer,
 
 )
 
@@ -544,42 +547,6 @@ class MeView(APIView):
                         house.subdomain or '',
                 }
 
-        # =====================================================
-        # Debug
-        # =====================================================
-
-        print(
-            '================ ME DEBUG ================'
-        )
-
-        print(
-            'USER ID:',
-            user.id
-        )
-
-        print(
-            'IS UNIT:',
-            is_unit
-        )
-
-        print(
-            'IS MIDDLE ADMIN:',
-            is_middle_admin
-        )
-
-        print(
-            'HOUSE:',
-            house_data
-        )
-
-        print(
-            'UNITS:',
-            units_data
-        )
-
-        print(
-            '==========================================='
-        )
 
         # =====================================================
         # پاسخ نهایی
@@ -953,11 +920,6 @@ class DashboardView(APIView):
 
     def get(self, request):
 
-        # print(
-        #     "🔥🔥🔥 DASHBOARD VIEW CALLED 🔥🔥🔥",
-        #     flush=True
-        # )
-
         user = request.user
 
         # =====================================================
@@ -991,66 +953,6 @@ class DashboardView(APIView):
                 owner_units | renter_units
         ).distinct()
 
-        print(
-            '================ DASHBOARD DEBUG ================',
-            flush=True
-        )
-
-        print(
-            'USER ID:',
-            user.id,
-            flush=True
-        )
-
-        print(
-            'USER MOBILE:',
-            user.mobile,
-            flush=True
-        )
-
-        print(
-            'OWNER UNITS:',
-            list(
-                owner_units.values(
-                    'id',
-                    'unit',
-                    'user_id',
-                    'myhouse_id'
-                )
-            ),
-            flush=True
-        )
-
-        print(
-            'RENTER UNITS:',
-            list(
-                renter_units.values(
-                    'id',
-                    'unit',
-                    'user_id',
-                    'myhouse_id'
-                )
-            ),
-            flush=True
-        )
-
-        print(
-            'ALL UNITS:',
-            list(
-                units.values(
-                    'id',
-                    'unit',
-                    'user_id',
-                    'myhouse_id'
-                )
-            ),
-            flush=True
-        )
-
-        print(
-            '==================================================',
-            flush=True
-        )
 
         # =====================================================
         # 4. شارژهای مربوط به واحدهای کاربر
@@ -1331,74 +1233,6 @@ class DashboardView(APIView):
                 ),
             }
 
-        # =====================================================
-        # 14. Debug
-        # =====================================================
-
-        # print(
-        #     "==========================================",
-        #     flush=True
-        # )
-
-        # print(
-        #     "🔥 DASHBOARD STATISTICS",
-        #     flush=True
-        # )
-
-        # print(
-        #     f"USER ID: {user.id}",
-        #     flush=True
-        # )
-
-        # print(
-        #     f"USERNAME: {user.username}",
-        #     flush=True
-        # )
-
-        # print(
-        #     f"TOTAL CHARGES: {total_charges}",
-        #     flush=True
-        # )
-
-        # print(
-        #     f"PAID: {paid_count}",
-        #     flush=True
-        # )
-
-        # print(
-        #     f"UNPAID: {unpaid_count}",
-        #     flush=True
-        # )
-
-        # print(
-        #     f"PENDING: {pending_count}",
-        #     flush=True
-        # )
-
-        # print(
-        #     f"TOTAL PAID: {total_paid}",
-        #     flush=True
-        # )
-
-        # print(
-        #     f"TOTAL DEBT: {total_debt}",
-        #     flush=True
-        # )
-
-        # print(
-        #     "==========================================",
-        #     flush=True
-        # )
-        print(
-            "CHART DATA:",
-            {
-                "total": total_charges,
-                "paid": paid_count,
-                "unpaid": unpaid_count,
-                "pending": pending_count,
-            },
-            flush=True
-        )
 
         # =====================================================
         # 15. پاسخ API
@@ -2352,13 +2186,6 @@ class MobilePaymentHistoryView(APIView):
     def get(self, request):
         user = request.user
 
-        # print("==============================================")
-        # print("PAYMENT HISTORY DEBUG")
-        # print("USER ID:", user.id)
-        # print("USERNAME:", user.username)
-        # print("FULL NAME:", user.full_name)
-        # print("MOBILE:", user.mobile)
-        # print("==============================================")
 
         # =====================================================
         # واحدهای مالک
@@ -2373,7 +2200,7 @@ class MobilePaymentHistoryView(APIView):
             )
         )
 
-        print("OWNER UNIT IDS:", owner_units)
+
 
         # =====================================================
         # واحدهای مستأجر
@@ -2389,7 +2216,7 @@ class MobilePaymentHistoryView(APIView):
             ).distinct()
         )
 
-        print("RENTER UNIT IDS:", renter_units)
+
 
         # =====================================================
         # مجموع واحدهای کاربر
@@ -2399,7 +2226,7 @@ class MobilePaymentHistoryView(APIView):
             set(owner_units + renter_units)
         )
 
-        print("FINAL UNIT IDS:", unit_ids)
+
 
         if not unit_ids:
             return Response({
@@ -2426,20 +2253,13 @@ class MobilePaymentHistoryView(APIView):
             "-payment_date",
             "-id"
         )
-        print("PAYMENT COUNT:", payments.count())
+
 
         result = []
 
         for fund in payments:
 
-            # print(
-            #     f"FUND: {fund.id} | "
-            #     f"UNIT: {fund.unit_id} | "
-            #     f"FUND USER: {fund.user_id} | "
-            #     f"REQUEST USER: {user.id} | "
-            #     f"AMOUNT: {fund.amount} | "
-            #     f"DESCRIPTION: {fund.payment_description}"
-            # )
+
 
             # -------------------------------------------------
             # اطلاعات واحد
@@ -2631,7 +2451,7 @@ class MobilePaymentHistoryView(APIView):
                 ),
             })
 
-        print("FINAL PAYMENT COUNT:", len(result))
+
 
         return Response({
             "success": True,
@@ -2698,13 +2518,8 @@ class MobilePollListView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-        print()
-        print("=============== MOBILE POLL LIST ===============")
 
         user = request.user
-
-        print("USER:", user)
-        print("USER ID:", user.id)
 
         # -------------------------------------------------
         # مجتمع کاربر
@@ -2713,16 +2528,13 @@ class MobilePollListView(APIView):
         user_house = user.house
 
         if not user_house:
-            print("NO HOUSE")
+
 
             return Response({
                 'success': False,
                 'message': 'مجتمع کاربر مشخص نیست.',
                 'polls': [],
             })
-
-        print("HOUSE:", user_house)
-        print("HOUSE ID:", user_house.id)
 
         # -------------------------------------------------
         # بررسی مالک بودن
@@ -2745,15 +2557,14 @@ class MobilePollListView(APIView):
             renter_is_active=True,
         ).exists()
 
-        print("IS OWNER:", is_owner)
-        print("IS RENTER:", is_renter)
+
 
         # -------------------------------------------------
         # اگر کاربر نه مالک است نه مستاجر
         # -------------------------------------------------
 
         if not is_owner and not is_renter:
-            print("USER IS NOT ELIGIBLE FOR ANY POLL")
+
 
             return Response({
                 'success': True,
@@ -2773,27 +2584,6 @@ class MobilePollListView(APIView):
             house=user_house,
             is_active=True,
         ).order_by('-created_at')
-
-        print()
-        print("=============== ALL ACTIVE HOUSE POLLS ===============")
-
-        for poll in polls:
-            print(
-                "POLL ID:",
-                poll.id,
-                "| TITLE:",
-                poll.title,
-                "| TYPE:",
-                repr(poll.participant_type),
-                "| ACTIVE:",
-                poll.is_active,
-                "| START:",
-                poll.start_date,
-                "| END:",
-                poll.end_date,
-            )
-
-        print("=======================================================")
 
         # -------------------------------------------------
         # فیلتر بر اساس نوع شرکت‌کننده
@@ -11888,7 +11678,7 @@ class ManagerUnitListAPIView(ManagerUnitBaseView):
                     to_attr='active_renters_list',
                 )
             )
-            .order_by('floor_number', 'unit')
+            .order_by('unit')
         )
 
         # -----------------------------------------
@@ -36345,7 +36135,6 @@ class ManagerCreditorUnitsAPIView(APIView):
         renters_by_unit = {}
 
         for renter in renters:
-
             renters_by_unit.setdefault(
                 renter.unit_id,
                 []
@@ -36392,7 +36181,6 @@ class ManagerCreditorUnitsAPIView(APIView):
 
                 # فقط مالک بستانکار
                 if owner_balance < Decimal('0'):
-
                     creditor_amount = abs(owner_balance)
 
                     results.append({
@@ -36406,7 +36194,7 @@ class ManagerCreditorUnitsAPIView(APIView):
                         'resident_id': unit.pk,
 
                         'resident_name': (
-                            unit.owner_name or 'بدون نام مالک'
+                                unit.owner_name or 'بدون نام مالک'
                         ).strip(),
 
                         'resident_label': owner_label,
@@ -36451,7 +36239,6 @@ class ManagerCreditorUnitsAPIView(APIView):
 
                     # فقط مستأجر بستانکار
                     if renter_balance < Decimal('0'):
-
                         creditor_amount = abs(renter_balance)
 
                         results.append({
@@ -36465,7 +36252,7 @@ class ManagerCreditorUnitsAPIView(APIView):
                             'resident_id': renter.pk,
 
                             'resident_name': (
-                                renter.renter_name or 'بدون نام مستأجر'
+                                    renter.renter_name or 'بدون نام مستأجر'
                             ).strip(),
 
                             'resident_label': renter_label,
@@ -36492,16 +36279,15 @@ class ManagerCreditorUnitsAPIView(APIView):
         # =================================================
 
         if query:
-
             normalized_query = query.casefold()
 
             results = [
                 item
                 for item in results
                 if (
-                    normalized_query in item['unit_number'].casefold()
-                    or normalized_query in item['resident_name'].casefold()
-                    or normalized_query in item['resident_label'].casefold()
+                        normalized_query in item['unit_number'].casefold()
+                        or normalized_query in item['resident_name'].casefold()
+                        or normalized_query in item['resident_label'].casefold()
                 )
             ]
 
@@ -36624,9 +36410,9 @@ def sewage_serialize_installment(installment):
         ),
         "send_notification": installment.send_notification,
         "can_pay": (
-            not installment.is_paid
-            and not installment.payment_pending
-            and sewage_installment_is_previous_paid(installment)
+                not installment.is_paid
+                and not installment.payment_pending
+                and sewage_installment_is_previous_paid(installment)
         ),
     }
 
@@ -36652,15 +36438,15 @@ class ManagerSewageChargesListAPIView(APIView):
 
         if search:
             query = (
-                Q(name__icontains=search)
-                | Q(details__icontains=search)
+                    Q(name__icontains=search)
+                    | Q(details__icontains=search)
             )
 
             if search.isdigit():
                 query |= (
-                    Q(amount__icontains=search)
-                    | Q(prepayment__icontains=search)
-                    | Q(installment_count__icontains=search)
+                        Q(amount__icontains=search)
+                        | Q(prepayment__icontains=search)
+                        | Q(installment_count__icontains=search)
                 )
 
             charges = charges.filter(query)
@@ -36835,7 +36621,7 @@ class ManagerSewageChargeUnitsListAPIView(APIView):
             )
 
             total_charge_amount = (
-                prepayment + installments_total_amount
+                    prepayment + installments_total_amount
             )
 
             paid_amount = sum(
@@ -36855,18 +36641,18 @@ class ManagerSewageChargeUnitsListAPIView(APIView):
                     unpaid_amount += prepayment
 
             total_installments = (
-                len(installments)
-                + (1 if has_prepayment_installment else 0)
+                    len(installments)
+                    + (1 if has_prepayment_installment else 0)
             )
 
             paid_count = (
-                len(paid_installments)
-                + (
-                    1
-                    if has_prepayment_installment
-                    and prepayment_is_paid
-                    else 0
-                )
+                    len(paid_installments)
+                    + (
+                        1
+                        if has_prepayment_installment
+                           and prepayment_is_paid
+                        else 0
+                    )
             )
 
             unpaid_count = total_installments - paid_count
@@ -36877,10 +36663,10 @@ class ManagerSewageChargeUnitsListAPIView(APIView):
                 resident_type = "renter"
                 resident_type_display = "مستأجر"
                 resident_name = (
-                    active_renter.renter_name or "نامشخص"
+                        active_renter.renter_name or "نامشخص"
                 )
                 active_tenant_name = (
-                    active_renter.renter_name or ""
+                        active_renter.renter_name or ""
                 )
             else:
                 resident_type = "owner"
@@ -36985,6 +36771,7 @@ class ManagerSewageUnitInstallmentsAPIView(APIView):
                 for item in installments
             ],
         })
+
 
 class ManagerSewageInstallmentPaymentAPIView(APIView):
     permission_classes = [IsAuthenticated]
@@ -37186,7 +36973,7 @@ class ManagerSewageInstallmentPaymentAPIView(APIView):
                 )
 
             if not sewage_installment_is_previous_paid(
-                installment
+                    installment
             ):
                 return sewage_api_error(
                     "ابتدا باید قسط قبلی پرداخت شود."
@@ -37223,7 +37010,7 @@ class ManagerSewageInstallmentPaymentAPIView(APIView):
             house = installment.sewage_manage.house
 
             owner_name = (
-                unit.owner_name or ""
+                    unit.owner_name or ""
             ).strip()
 
             payer_name_snapshot = (
@@ -37241,7 +37028,7 @@ class ManagerSewageInstallmentPaymentAPIView(APIView):
             installment.is_paid = True
             installment.payment_date = payment_date
             installment.transaction_reference = (
-                transaction_reference or None
+                    transaction_reference or None
             )
             installment.payment_gateway = "پرداخت الکترونیک"
             installment.payment_pending = False
@@ -37420,12 +37207,10 @@ class ManagerSewageInstallmentCancelPaymentAPIView(APIView):
         })
 
 
-
 class ManagerUserPayMoneyListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-
         # =========================================
         # ساختمان مدیر
         # =========================================
@@ -37505,15 +37290,14 @@ class ManagerUserPayMoneyListAPIView(APIView):
         )
 
 
-   # =========================================
-        # Financial Management
-        # =========================================
+# =========================================
+# Financial Management
+# =========================================
 
 class ManagerAdminFundListAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
     def get(self, request):
-
         manager = request.user
 
         # دریافت ساختمان مدیر
@@ -37614,3 +37398,1043 @@ class ManagerAdminFundListAPIView(APIView):
             },
             status=status.HTTP_200_OK
         )
+
+
+# ============ Admin send message to middleAdmin  ====================
+
+class ManagerAdminMessageListAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        manager = request.user
+
+        read_statuses = MiddleMessageReadStatus.objects.filter(
+            user=manager
+        )
+
+        messages = AdminMessageToMiddle.objects.filter(
+            middleAdmins=manager,
+            is_active=True,
+        ).select_related(
+            'sender'
+        ).prefetch_related(
+            Prefetch(
+                'read_statuses',
+                queryset=read_statuses,
+                to_attr='user_read_statuses'
+            )
+        ).order_by('-created_at', '-id').distinct()
+
+        # اتصال وضعیت خواندن مخصوص همین مدیر
+        for message in messages:
+            statuses = message.user_read_statuses
+            message.current_user_read_status = (
+                statuses[0] if statuses else None
+            )
+
+        unread_count = sum(
+            1 for message in messages
+            if not (
+                    message.current_user_read_status
+                    and message.current_user_read_status.is_read
+            )
+        )
+
+        read_count = len(messages) - unread_count
+
+        selected_status = request.query_params.get('status', 'all')
+
+        if selected_status == 'unread':
+            messages = [
+                message for message in messages
+                if not (
+                        message.current_user_read_status
+                        and message.current_user_read_status.is_read
+                )
+            ]
+
+        elif selected_status == 'read':
+            messages = [
+                message for message in messages
+                if (
+                        message.current_user_read_status
+                        and message.current_user_read_status.is_read
+                )
+            ]
+
+        serializer = ManagerAdminMessageSerializer(
+            messages,
+            many=True
+        )
+
+        return Response({
+            'success': True,
+            'statistics': {
+                'total_count': read_count + unread_count,
+                'read_count': read_count,
+                'unread_count': unread_count,
+            },
+            'messages': serializer.data,
+        }, status=status.HTTP_200_OK)
+
+
+class ManagerAdminMessageMarkReadAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        message = AdminMessageToMiddle.objects.filter(
+            id=pk,
+            middleAdmins=request.user,
+            is_active=True,
+        ).first()
+
+        if not message:
+            return Response({
+                'success': False,
+                'message': 'پیام موردنظر پیدا نشد.'
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        read_status, created = MiddleMessageReadStatus.objects.get_or_create(
+            message=message,
+            user=request.user,
+            defaults={
+                'is_read': True,
+                'read_at': timezone.now(),
+            }
+        )
+
+        if not read_status.is_read:
+            read_status.is_read = True
+            read_status.read_at = timezone.now()
+            read_status.save(update_fields=['is_read', 'read_at'])
+
+        return Response({
+            'success': True,
+            'message': 'پیام با موفقیت خوانده شد.',
+            'is_read': True,
+            'read_at': read_status.read_at,
+        }, status=status.HTTP_200_OK)
+
+
+class ManagerSubscriptionAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        # فقط مدیر ساختمان
+        if not getattr(request.user, 'is_middle_admin', False):
+            return Response({
+                'success': False,
+                'message': 'دسترسی فقط برای مدیر ساختمان مجاز است.'
+            }, status=status.HTTP_403_FORBIDDEN)
+
+        # دریافت ساختمان مدیر
+        house = MyHouse.objects.filter(
+            user=request.user
+        ).first()
+
+        if not house:
+            return Response({
+                'success': True,
+                'has_house': False,
+                'has_subscription': False,
+                'subscription': None,
+                'message': 'ساختمانی برای این مدیر ثبت نشده است.'
+            }, status=status.HTTP_200_OK)
+
+        now = timezone.now()
+
+        # ابتدا اشتراک فعال
+        subscription = Subscription.objects.filter(
+            user=request.user,
+            house=house,
+            is_paid=True,
+            status='active',
+            end_date__gte=now,
+        ).select_related(
+            'plan'
+        ).order_by(
+            '-end_date',
+            '-created_at'
+        ).first()
+
+        # در صورت نبود اشتراک فعال، آخرین اشتراک پرداخت‌شده
+        if not subscription:
+            subscription = Subscription.objects.filter(
+                user=request.user,
+                house=house,
+                is_paid=True,
+            ).select_related(
+                'plan'
+            ).order_by(
+                '-created_at'
+            ).first()
+
+        if not subscription:
+            return Response({
+                'success': True,
+                'has_house': True,
+                'has_subscription': False,
+                'house': {
+                    'id': house.id,
+                    'name': house.name,
+                },
+                'subscription': None,
+                'message': 'برای این ساختمان اشتراکی ثبت نشده است.'
+            }, status=status.HTTP_200_OK)
+
+        # اطلاعات روزهای اشتراک
+        total_days = max(0, subscription.total_days)
+        days_remaining = max(0, subscription.days_remaining)
+
+        if total_days > 0:
+            remaining_percent = round(
+                (days_remaining / total_days) * 100
+            )
+        else:
+            remaining_percent = 0
+
+        remaining_percent = max(
+            0,
+            min(100, remaining_percent)
+        )
+
+        elapsed_percent = 100 - remaining_percent
+        elapsed_days = max(
+            0,
+            total_days - days_remaining
+        )
+
+        # وضعیت اشتراک
+        if (
+                subscription.status == 'active'
+                and subscription.end_date >= now
+        ):
+            subscription_status = 'active'
+            status_label = 'فعال'
+        else:
+            subscription_status = 'expired'
+            status_label = 'منقضی شده'
+
+        plan = subscription.plan
+
+        return Response({
+            'success': True,
+            'has_house': True,
+            'has_subscription': True,
+
+            'house': {
+                'id': house.id,
+                'name': house.name,
+            },
+
+            'subscription': {
+                'id': subscription.id,
+
+                'status': subscription_status,
+                'status_label': status_label,
+
+                'plan': {
+                    'id': plan.id if plan else None,
+                    'duration': plan.duration if plan else None,
+                    'price_per_unit': (
+                        str(plan.price_per_unit)
+                        if plan else None
+                    ),
+                },
+
+                'units_count': subscription.units_count,
+
+                'total_amount': str(
+                    subscription.total_amount or 0
+                ),
+
+                'discount_amount': str(
+                    subscription.discount_amount or 0
+                ),
+
+                'final_amount': str(
+                    subscription.final_amount or 0
+                ),
+
+                'is_trial': subscription.is_trial,
+
+                'start_date': (
+                    subscription.start_date.isoformat()
+                    if subscription.start_date else None
+                ),
+
+                'end_date': (
+                    subscription.end_date.isoformat()
+                    if subscription.end_date else None
+                ),
+
+                'payment_date': (
+                    subscription.payment_date.isoformat()
+                    if subscription.payment_date else None
+                ),
+
+                'days_remaining': days_remaining,
+                'total_days': total_days,
+                'elapsed_days': elapsed_days,
+
+                'remaining_percent': remaining_percent,
+                'elapsed_percent': elapsed_percent,
+            }
+        }, status=status.HTTP_200_OK)
+
+
+# ============ approved payment  ====================
+from django.core.exceptions import ValidationError as DjangoValidationError
+
+
+def get_payment_payer_info(unit, allow_renter=False):
+    """
+    تشخیص پرداخت‌کننده و آماده‌سازی اطلاعات برای Fund و BankFund.
+    """
+
+    if not unit:
+        raise DjangoValidationError('واحد پرداخت‌کننده مشخص نیست.')
+
+    # پرداخت توسط مستأجر فعال
+    if allow_renter:
+        renter = Renter.objects.filter(
+            unit=unit,
+            renter_is_active=True
+        ).exclude(
+            renter_name__isnull=True
+        ).exclude(
+            renter_name__exact=''
+        ).order_by('-id').first()
+
+        if renter:
+            person_name = renter.renter_name.strip()
+
+            return (
+                'renter',
+                renter,
+                person_name,
+                f'واحد {unit.unit} - مستأجر: {person_name}'
+            )
+
+    # در غیر این صورت پرداخت‌کننده مالک است
+    owner_name = (unit.owner_name or '').strip()
+
+    if not owner_name:
+        raise DjangoValidationError(
+            'نام مالک این واحد مشخص نیست.'
+        )
+
+    return (
+        'owner',
+        None,
+        owner_name,
+        f'واحد {unit.unit} - مالک: {owner_name}'
+    )
+
+
+class ManagerPendingPaymentsAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+
+        manager = request.user
+        house = getattr(manager, 'house', None)
+
+        if not house:
+            return Response({
+                'success': False,
+                'message': 'ساختمان برای مدیر تعریف نشده است.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        payment_type = (
+                request.query_params.get('type') or ''
+        ).strip().lower()
+
+        if payment_type not in ['', 'monthly', 'civil', 'sewage']:
+            return Response({
+                'success': False,
+                'message': 'نوع پرداخت نامعتبر است.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        payments = []
+
+        # ==========================================
+        # شارژ ماهیانه
+        # ==========================================
+
+        if payment_type in ['', 'monthly']:
+
+            monthly_qs = UnifiedCharge.objects.filter(
+                unit__myhouse=house,
+                payment_pending=True,
+                is_paid=False
+            ).select_related(
+                'unit',
+                'house',
+                'bank'
+            ).order_by('-payment_submitted_at', '-id')
+
+            for charge in monthly_qs:
+                unit = charge.unit
+
+                payments.append({
+                    'payment_id': charge.pk,
+                    'payment_type': 'monthly',
+                    'payment_type_display': 'شارژ ماهیانه',
+                    'title': charge.title or 'شارژ ماهیانه',
+
+                    'unit_id': unit.pk if unit else None,
+                    'unit_number': str(unit.unit) if unit else '-',
+                    'owner_name': unit.owner_name if unit else '-',
+
+                    'amount': str(
+                        charge.total_charge_month
+                        or charge.amount
+                        or Decimal('0')
+                    ),
+
+                    'bank_name': str(charge.bank) if charge.bank else '-',
+
+                    'transaction_reference': (
+                            charge.transaction_reference or ''
+                    ),
+
+                    'payment_submitted_at': (
+                        charge.payment_submitted_at.isoformat()
+                        if charge.payment_submitted_at else None
+                    ),
+                })
+
+        # ==========================================
+        # شارژ عمرانی
+        # ==========================================
+
+        if payment_type in ['', 'civil']:
+
+            civil_qs = CivilInstallment.objects.filter(
+                unit__myhouse=house,
+                payment_pending=True,
+                is_paid=False
+            ).select_related(
+                'unit',
+                'house',
+                'bank',
+                'civil_manage'
+            ).order_by('-payment_submitted_at', '-id')
+
+            for installment in civil_qs:
+                unit = installment.unit
+
+                payments.append({
+                    'payment_id': installment.pk,
+                    'payment_type': 'civil',
+                    'payment_type_display': 'شارژ عمرانی',
+
+                    'title': (
+                        installment.civil_manage.name
+                        if installment.civil_manage
+                        else 'شارژ عمرانی'
+                    ),
+
+                    'installment_number': installment.installment_number,
+
+                    'unit_id': unit.pk if unit else None,
+                    'unit_number': str(unit.unit) if unit else '-',
+                    'owner_name': unit.owner_name if unit else '-',
+
+                    'amount': str(installment.amount or 0),
+
+                    'bank_name': (
+                        str(installment.bank)
+                        if installment.bank else '-'
+                    ),
+
+                    'transaction_reference': (
+                            installment.transaction_reference or ''
+                    ),
+
+                    'payment_submitted_at': (
+                        installment.payment_submitted_at.isoformat()
+                        if installment.payment_submitted_at else None
+                    ),
+                })
+
+        # ==========================================
+        # هزینه فاضلاب
+        # ==========================================
+
+        if payment_type in ['', 'sewage']:
+
+            sewage_qs = SewageInstallment.objects.filter(
+                unit__myhouse=house,
+                payment_pending=True,
+                is_paid=False
+            ).select_related(
+                'unit',
+                'house',
+                'bank',
+                'sewage_manage'
+            ).order_by('-payment_submitted_at', '-id')
+
+            for installment in sewage_qs:
+                unit = installment.unit
+
+                payments.append({
+                    'payment_id': installment.pk,
+                    'payment_type': 'sewage',
+                    'payment_type_display': 'هزینه فاضلاب',
+
+                    'title': (
+                        installment.sewage_manage.name
+                        if installment.sewage_manage
+                        else 'هزینه فاضلاب'
+                    ),
+
+                    'installment_number': installment.installment_number,
+
+                    'unit_id': unit.pk if unit else None,
+                    'unit_number': str(unit.unit) if unit else '-',
+                    'owner_name': unit.owner_name if unit else '-',
+
+                    'amount': str(installment.amount or 0),
+
+                    'bank_name': (
+                        str(installment.bank)
+                        if installment.bank else '-'
+                    ),
+
+                    'transaction_reference': (
+                            installment.transaction_reference or ''
+                    ),
+
+                    'payment_submitted_at': (
+                        installment.payment_submitted_at.isoformat()
+                        if installment.payment_submitted_at else None
+                    ),
+                })
+
+        # ==========================================
+        # مرتب‌سازی کلی
+        # ==========================================
+
+        payments.sort(
+            key=lambda item: item['payment_submitted_at'] or '',
+            reverse=True
+        )
+
+        return Response({
+            'success': True,
+
+            'statistics': {
+                'total': len(payments),
+
+                'monthly': sum(
+                    p['payment_type'] == 'monthly'
+                    for p in payments
+                ),
+
+                'civil': sum(
+                    p['payment_type'] == 'civil'
+                    for p in payments
+                ),
+
+                'sewage': sum(
+                    p['payment_type'] == 'sewage'
+                    for p in payments
+                ),
+            },
+
+            'payments': payments,
+
+        }, status=status.HTTP_200_OK)
+
+
+class ManagerApprovePaymentAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    @transaction.atomic
+    def post(self, request):
+        manager = request.user
+        house = getattr(manager, "house", None)
+
+        if not house:
+            return Response(
+                {
+                    "success": False,
+                    "message": "ساختمان مدیر مشخص نیست."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        payment_type = request.data.get("payment_type")
+        payment_id = request.data.get("payment_id")
+
+        if payment_type not in ("monthly", "civil", "sewage"):
+            return Response(
+                {
+                    "success": False,
+                    "message": "نوع پرداخت معتبر نیست."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not payment_id:
+            return Response(
+                {
+                    "success": False,
+                    "message": "شناسه پرداخت ارسال نشده است."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --------------------------------------------------
+        # 1. دریافت قسط بر اساس نوع پرداخت
+        # --------------------------------------------------
+
+        try:
+            if payment_type == "monthly":
+                payment = (
+                    UnifiedCharge.objects
+                    .select_for_update()
+                    .select_related("unit", "bank")
+                    .get(
+                        pk=payment_id,
+                        unit__myhouse=house,
+                        payment_pending=True,
+                        is_paid=False,
+                    )
+                )
+
+                amount = Decimal(
+                    payment.total_charge_month or 0
+                )
+
+                title = "پرداخت شارژ ماهانه"
+                allow_renter = True
+
+            elif payment_type == "civil":
+                payment = (
+                    CivilInstallment.objects
+                    .select_for_update()
+                    .select_related("unit", "bank")
+                    .get(
+                        pk=payment_id,
+                        unit__myhouse=house,
+                        payment_pending=True,
+                        is_paid=False,
+                    )
+                )
+
+                amount = Decimal(payment.amount or 0)
+
+                title = "پرداخت شارژ عمرانی"
+                allow_renter = False
+
+            else:
+                payment = (
+                    SewageInstallment.objects
+                    .select_for_update()
+                    .select_related("unit", "bank")
+                    .get(
+                        pk=payment_id,
+                        unit__myhouse=house,
+                        payment_pending=True,
+                        is_paid=False,
+                    )
+                )
+
+                amount = Decimal(payment.amount or 0)
+
+                title = "پرداخت شارژ فاضلاب"
+                allow_renter = False
+
+        except (
+            UnifiedCharge.DoesNotExist,
+            CivilInstallment.DoesNotExist,
+            SewageInstallment.DoesNotExist,
+        ):
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "پرداخت موردنظر پیدا نشد یا قبلاً تأیید شده است."
+                    )
+                },
+                status=status.HTTP_404_NOT_FOUND
+            )
+
+        except (InvalidOperation, TypeError, ValueError):
+            return Response(
+                {
+                    "success": False,
+                    "message": "مبلغ پرداخت معتبر نیست."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --------------------------------------------------
+        # 2. اعتبارسنجی واحد و بانک
+        # --------------------------------------------------
+
+        unit = payment.unit
+        bank = payment.bank
+
+        if not unit:
+            return Response(
+                {
+                    "success": False,
+                    "message": "واحد مربوط به پرداخت مشخص نیست."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not bank:
+            return Response(
+                {
+                    "success": False,
+                    "message": "حساب بانکی مربوط به پرداخت مشخص نیست."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        payment_house = unit.myhouse
+
+        if payment_house != house:
+            return Response(
+                {
+                    "success": False,
+                    "message": "این پرداخت متعلق به ساختمان شما نیست."
+                },
+                status=status.HTTP_403_FORBIDDEN
+            )
+
+        if amount <= 0:
+            return Response(
+                {
+                    "success": False,
+                    "message": "مبلغ پرداخت باید بیشتر از صفر باشد."
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --------------------------------------------------
+        # 3. شماره سند مالی از خود قسط خوانده می‌شود
+        # --------------------------------------------------
+
+        financial_document_number = (
+            payment.financial_document_number
+        )
+
+        if not financial_document_number:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "شماره سند مالی برای این قسط ثبت نشده است. "
+                        "ابتدا اطلاعات قسط را بررسی کنید."
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --------------------------------------------------
+        # 4. بررسی اطلاعات پرداخت‌کننده
+        # --------------------------------------------------
+
+        try:
+            (
+                payer_type,
+                payer_renter,
+                payer_person_name,
+                payer_name_snapshot,
+            ) = get_payment_payer_info(
+                unit,
+                allow_renter=allow_renter
+            )
+
+        except DjangoValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc)
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "خطا در دریافت اطلاعات پرداخت‌کننده: "
+                        f"{str(exc)}"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --------------------------------------------------
+        # 5. بررسی سوابق مالی قبلی
+        # --------------------------------------------------
+
+        # عمداً از حالت پیش‌فرض get_for_model استفاده شده
+        # تا ContentType با BankTransactionService یکسان باشد.
+        content_type = ContentType.objects.get_for_model(payment)
+
+        fund_record = Fund.objects.filter(
+            content_type=content_type,
+            object_id=payment.pk,
+        ).first()
+
+        bank_fund_record = BankFund.objects.filter(
+            content_type=content_type,
+            object_id=payment.pk,
+            transaction_type="deposit",
+        ).first()
+
+        # هر دو سابقه وجود دارند؛ ثبت مجدد ممنوع است.
+        if fund_record and bank_fund_record:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "برای این پرداخت قبلاً سابقه مالی ثبت شده است. "
+                        "لطفاً گردش مالی را بررسی کنید."
+                    ),
+                    "fund_id": fund_record.pk,
+                    "bank_fund_id": bank_fund_record.pk,
+                    "financial_document_number": (
+                        payment.financial_document_number
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+
+        # فقط یکی از سوابق وجود دارد؛ وضعیت ناسازگار است.
+        if fund_record or bank_fund_record:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "سوابق مالی این پرداخت ناقص است. "
+                        "یکی از رکوردهای صندوق یا بانک وجود دارد. "
+                        "برای جلوگیری از ثبت تکراری، عملیات انجام نشد."
+                    ),
+                    "fund_id": (
+                        fund_record.pk if fund_record else None
+                    ),
+                    "bank_fund_id": (
+                        bank_fund_record.pk
+                        if bank_fund_record else None
+                    ),
+                    "financial_document_number": (
+                        payment.financial_document_number
+                    ),
+                },
+                status=status.HTTP_409_CONFLICT
+            )
+
+        # --------------------------------------------------
+        # 6. ثبت واریز در بانک
+        # --------------------------------------------------
+
+        payment_date = timezone.now().date()
+        gateway = "پرداخت الکترونیک"
+
+        transaction_no = getattr(
+            payment,
+            "transaction_reference",
+            None
+        )
+
+        description = f"{title}: {payment}"
+
+        try:
+            bank_fund = BankTransactionService.deposit(
+                user=manager,
+                bank=bank,
+                unit=unit,
+                amount=amount,
+                description=description,
+                content_object=payment,
+                payment_date=payment_date,
+                transaction_no=transaction_no,
+                gateway=gateway,
+                house=payment_house,
+                payer_type=payer_type,
+                payer_renter=payer_renter,
+                payer_name=payer_name_snapshot,
+
+                # مهم:
+                # شماره سند از قسط موجود گرفته می‌شود.
+                # سرویس نباید شماره جدید بسازد.
+                financial_document_number=financial_document_number,
+            )
+
+        except DjangoValidationError as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": str(exc)
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        except Exception as exc:
+            return Response(
+                {
+                    "success": False,
+                    "message": (
+                        "خطا در ثبت گردش بانکی: "
+                        f"{str(exc)}"
+                    )
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # --------------------------------------------------
+        # 7. کنترل شماره سند ثبت‌شده در BankFund
+        # --------------------------------------------------
+
+        if (
+            bank_fund.financial_document_number
+            != financial_document_number
+        ):
+            raise DjangoValidationError(
+                "شماره سند ثبت‌شده در بانک با شماره سند قسط مطابقت ندارد."
+            )
+
+        # --------------------------------------------------
+        # 8. ثبت در صندوق
+        # --------------------------------------------------
+
+        fund = Fund.objects.create(
+            user=manager,
+            content_type=content_type,
+            object_id=payment.pk,
+            unit=unit,
+            house=payment_house,
+            bank=bank,
+
+            financial_document_number=financial_document_number,
+
+            amount=amount,
+            debtor_amount=amount,
+            creditor_amount=Decimal("0"),
+
+            payment_date=payment_date,
+            transaction_no=transaction_no,
+            payment_description=description,
+            is_paid=True,
+        )
+
+        # --------------------------------------------------
+        # 9. تغییر وضعیت قسط پس از ثبت سوابق مالی
+        # --------------------------------------------------
+
+        payment.is_paid = True
+        payment.payment_pending = False
+        payment.payment_date = payment_date
+        payment.payment_gateway = gateway
+
+        payment.save(
+            update_fields=[
+                "is_paid",
+                "payment_pending",
+                "payment_date",
+                "payment_gateway",
+            ]
+        )
+
+        # --------------------------------------------------
+        # 10. پاسخ موفقیت
+        # --------------------------------------------------
+
+        return Response(
+            {
+                "success": True,
+                "message": "پرداخت با موفقیت تأیید شد.",
+                "data": {
+                    "payment_id": payment.pk,
+                    "payment_type": payment_type,
+                    "amount": str(amount),
+                    "unit_id": unit.pk,
+                    "fund_id": fund.pk,
+                    "bank_fund_id": bank_fund.pk,
+                    "financial_document_number": (
+                        financial_document_number
+                    ),
+                    "is_paid": payment.is_paid,
+                    "payment_pending": payment.payment_pending,
+                }
+            },
+            status=status.HTTP_200_OK
+        )
+
+
+
+class ContactUsCreateAPIView(APIView):
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        subject = request.data.get('subject', '').strip()
+        message = request.data.get('message', '').strip()
+
+        if not subject:
+            return Response({
+                'success': False,
+                'message': 'موضوع پیشنهاد را وارد کنید.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not message:
+            return Response({
+                'success': False,
+                'message': 'متن پیشنهاد را وارد کنید.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        if len(message) > 360:
+            return Response({
+                'success': False,
+                'message': 'متن پیشنهاد حداکثر باید ۳۶۰ کاراکتر باشد.'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        user = request.user
+
+        contact = ContactUs.objects.create(
+            name=user.get_full_name() or str(user),
+            mobile=user.mobile,
+            subject=subject,
+            message=message,
+        )
+
+        return Response({
+            'success': True,
+            'message': 'پیشنهاد شما با موفقیت ثبت شد.',
+            'id': contact.id,
+        }, status=status.HTTP_201_CREATED)
+
+
+class LatestAppVersionAPIView(APIView):
+    permission_classes = [AllowAny]
+    authentication_classes = []
+
+    def get(self, request):
+        version = AppVersion.objects.filter(
+            is_active=True
+        ).order_by('-created_at').first()
+
+        if not version:
+            return Response({
+                'success': False,
+                'message': 'هیچ نسخه فعالی ثبت نشده است.'
+            }, status=404)
+
+        return Response({
+            'success': True,
+            'version': version.version,
+            'download_url': version.download_url,
+            'force_update': version.force_update,
+            'release_notes': version.release_notes,
+            'created_at': version.created_at,
+        })

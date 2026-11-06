@@ -1,0 +1,337 @@
+
+{% extends 'middleShared/base_template.html' %}
+{% load static %}
+{% load poll_extras %}
+
+{% block page_title %}
+اشتراک ساختمان
+{% endblock %}
+
+{% block main_content %}
+
+<div class="container py-4" dir="rtl">
+
+{#    <div class="d-flex justify-content-between align-items-center mb-4">#}
+{#        <div>#}
+{#            <h4 class="fw-bold mb-1">اشتراک ساختمان</h4>#}
+{#            <small class="text-muted">#}
+{#                مشاهده وضعیت و تمدید اشتراک رایا شارژ#}
+{#            </small>#}
+{#        </div>#}
+{#        <i class="fas fa-crown fa-2x text-warning"></i>#}
+{#    </div>#}
+
+    {% if subscription %}
+<div class="subscription-chart-card">
+
+    <h4 class="text-center mb-4">وضعیت اشتراک ساختمان</h4>
+
+    <div class="subscription-chart-wrapper">
+
+        <div class="subscription-chart"
+             style="--progress: {{ remaining_percent }}%;">
+
+            <div class="subscription-chart-inner">
+                <strong>{{ days_remaining|to_persian_number }}</strong>
+                <span>روز باقی‌مانده</span>
+            </div>
+
+        </div>
+
+        <div class="subscription-chart-info">
+
+            <div class="status-label">
+                <span class="status-dot"></span>
+                اشتراک فعال
+            </div>
+
+            <p>مدت کل اشتراک: {{ total_days|to_persian_number }} روز</p>
+
+            <p>روزهای سپری‌شده:
+                {{ elapsed_days|to_persian_number }}
+            </p>
+
+            <p>روزهای باقی‌مانده: {{ days_remaining|to_persian_number }} روز</p>
+
+        </div>
+
+    </div>
+
+    <div class="subscription-progress">
+        <div class="progress-track">
+            <div class="progress-used"
+                 style="width: {{ elapsed_percent }}%;">
+            </div>
+        </div>
+
+        <div class="progress-labels">
+            <span>سپری‌شده: {{ elapsed_percent }}٪</span>
+            <span>باقی‌مانده: {{ remaining_percent }}٪</span>
+        </div>
+    </div>
+
+</div>
+{% endif %}
+
+
+    <!-- بخش تمدید اشتراک -->
+
+    <div class="subscription-renewal-card">
+
+    <h4 class="mb-4 text-center">
+        انتخاب پلن تمدید اشتراک
+    </h4>
+
+    <form method="post"
+          action="{% url 'manager_subscription' %}"
+          id="subscriptionForm">
+
+        {% csrf_token %}
+
+        <div class="form-group mb-4">
+            <label>تعداد واحدها</label>
+
+            <input
+                type="number"
+                name="units_count"
+                id="unitsCount"
+                class="form-control"
+                min="1"
+                value="{{ units_count }}"
+                required
+            >
+        </div>
+
+        <div class="row">
+
+            {% for plan in plans %}
+
+            <div class="col-md-4 mb-3">
+
+                <label class="plan-card-m
+                    {% if selected_plan_id == plan.id|stringformat:'s' %}
+                        selected
+                    {% endif %}"
+                    for="plan_{{ plan.id }}">
+
+                    <input
+                        type="radio"
+                        name="plan"
+                        id="plan_{{ plan.id }}"
+                        value="{{ plan.id }}"
+                        data-price="{{ plan.price_per_unit }}"
+                        data-duration="{{ plan.duration }}"
+                        {% if selected_plan_id == plan.id|stringformat:'s' %}
+                            checked
+                        {% endif %}
+                        required
+                    >
+
+                    <div class="plan-card-m-content">
+
+                        <h5>{{ plan.duration|to_persian_number }} ماهه</h5>
+
+                        <div class="plan-price">
+                            <span class="plan-total">
+                                {% if selected_plan_id == plan.id|stringformat:'s' %}
+                                    {{ total_amount|floatformat:0|three_digit_currency }}
+                                {% else %}
+                                    {{ plan.price_per_unit|floatformat:0|three_digit_currency }}
+                                {% endif %}
+                            </span>
+                            <span>تومان</span>
+                        </div>
+
+                        <p>
+                            قیمت هر واحد در هر ماه:
+                            {{ plan.price_per_unit|floatformat:0|three_digit_currency }}
+                            تومان
+                        </p>
+
+                        <div class="plan-selection">
+                            انتخاب این پلن
+                        </div>
+
+                    </div>
+
+                </label>
+
+            </div>
+
+            {% endfor %}
+
+        </div>
+
+        <div class="form-group mt-3">
+
+            <label>کد تخفیف</label>
+
+            <div class="input-group">
+
+                <input
+                    type="text"
+                    name="code"
+                    id="couponCode"
+                    class="form-control"
+                    value="{{ coupon_code }}"
+                    placeholder="کد تخفیف را وارد کنید"
+                >
+
+                <button
+                    type="submit"
+                    class="btn btn-outline-primary"
+                    id="applyCouponBtn">
+
+                    اعمال کد تخفیف
+
+                </button>
+
+            </div>
+
+        </div>
+
+    </form>
+
+
+    {% if error_message %}
+        <div class="alert alert-danger mt-3">
+            {{ error_message }}
+        </div>
+    {% endif %}
+
+    {% if success_message %}
+        <div class="alert alert-success mt-3">
+            {{ success_message }}
+        </div>
+    {% endif %}
+
+
+    <div class="payment-summary mt-4">
+
+        <h5>صورتحساب اشتراک</h5>
+
+        <div class="summary-row">
+            <span>مبلغ کل:</span>
+            <strong id="totalAmount">
+                {{ total_amount|floatformat:0|three_digit_currency }}
+            </strong>
+            <span>تومان</span>
+        </div>
+
+        <div class="summary-row">
+            <span>تخفیف:</span>
+            <strong id="discountAmount">
+                {{ discount_amount|floatformat:0|three_digit_currency }}
+            </strong>
+            <span>تومان</span>
+        </div>
+
+        <hr>
+
+        <div class="summary-row final-price">
+            <span>مبلغ قابل پرداخت:</span>
+            <strong id="finalAmount">
+                {{ final_amount|floatformat:0|three_digit_currency }}
+            </strong>
+            <span>تومان</span>
+        </div>
+
+    </div>
+
+
+    {% if selected_plan_id and not error_message %}
+
+    <form method="post"
+          action="{% url 'request_subscription_pay' %}"
+          class="mt-4">
+
+        {% csrf_token %}
+
+        <input type="hidden"
+               name="plan"
+               value="{{ selected_plan_id }}">
+
+        <input type="hidden"
+               name="units_count"
+               value="{{ units_count }}">
+
+        <input type="hidden"
+               name="code"
+               value="{{ coupon_code }}">
+        <div class="text-center">
+            <button type="submit"
+                class="btn btn-primary ">
+
+            <i class="fas fa-credit-card"></i>
+            پرداخت {{ final_amount|floatformat:0|three_digit_currency }} تومان و تمدید اشتراک
+
+        </button> 
+        </div>
+
+       
+
+    </form>
+
+    {% endif %}
+
+</div>
+
+</div>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+
+    const unitsInput = document.getElementById('unitsCount');
+
+    const totalAmountElement = document.getElementById('totalAmount');
+    const discountAmountElement = document.getElementById('discountAmount');
+    const finalAmountElement = document.getElementById('finalAmount');
+
+    const planCards = document.querySelectorAll(
+        'input[name="plan"]'
+    );
+
+    const numberFormat = new Intl.NumberFormat('fa-IR');
+
+    function calculatePrice() {
+
+        const selectedPlan = document.querySelector(
+            'input[name="plan"]:checked'
+        );
+
+        if (!selectedPlan) return;
+
+        const units = parseInt(unitsInput.value) || 1;
+        const price = parseFloat(selectedPlan.dataset.price);
+        const duration = parseInt(selectedPlan.dataset.duration);
+
+        const total = units * price * duration;
+
+        // تا زمان تأیید مجدد کد تخفیف، تخفیف را صفر در نظر می‌گیریم.
+        const discount = 0;
+        const finalPrice = total - discount;
+
+        totalAmountElement.textContent =
+            numberFormat.format(total);
+
+        discountAmountElement.textContent =
+            numberFormat.format(discount);
+
+        finalAmountElement.textContent =
+            numberFormat.format(finalPrice);
+
+        document.querySelectorAll('.plan-card-m').forEach(card => {
+            card.classList.remove('selected');
+        });
+
+        selectedPlan.closest('.plan-card-m').classList.add('selected');
+    }
+
+    planCards.forEach(plan => {
+        plan.addEventListener('change', calculatePrice);
+    });
+
+    unitsInput.addEventListener('input', calculatePrice);
+
+});
+</script>
+{% endblock %}

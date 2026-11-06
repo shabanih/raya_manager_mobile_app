@@ -262,6 +262,21 @@
                 <i class="mdi mdi-cash-multiple menu-icon menu-icon"></i>
               </a>
             </li>
+
+              <li class="nav-item  mt-0">
+                 {% url 'middle_payment_approval' as address_url %}
+                <a class="nav-link {% if request.path == address_url %}active{% endif %}" href="{{ address_url }}">
+                <i class="menu-title"> تایید پرداخت ها</i>
+                <i class="mdi mdi-cash-multiple menu-icon menu-icon"></i>
+              </a>
+            </li>
+          <li class="nav-item  mt-0">
+                 {% url 'manager_subscription' as address_url %}
+                <a class="nav-link {% if request.path == address_url %}active{% endif %}" href="{{ address_url }}">
+                <i class="menu-title"> مدیریت اشتراک</i>
+                <i class="mdi mdi-cash-multiple menu-icon menu-icon"></i>
+              </a>
+            </li>
                              <li class="nav-item  mt-0">
                  {% url 'third_party_list' as address_url %}
                 <a class="nav-link {% if request.path == address_url %}active{% endif %}" href="{{ address_url }}">

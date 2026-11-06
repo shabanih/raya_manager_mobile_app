@@ -12,6 +12,25 @@ urlpatterns = [
     path("impersonate/<int:user_id>/", views.impersonate_user, name="impersonate"),
     path("stop-impersonation/", views.stop_impersonation, name="stop_impersonation"),
 
+    path(
+        'manage/app-versions/create/',
+        views.app_version_create,
+        name='app_version_create'
+    ),
+
+    path(
+        'manage/app-versions/<int:pk>/edit/',
+        views.app_version_update,
+        name='app-version-update'
+    ),
+
+    path(
+        'manage/app-versions/<int:pk>/delete/',
+        views.app_version_delete,
+        name='app-version-delete'
+    ),
+
+
     path('add-articles/', views.ArticleCreateView.as_view(), name='add_articles'),
     path('manage-articles/', views.manage_articles, name='manage_articles'),
     path('edit-article/<int:pk>/', views.ArticleUpdateView.as_view(), name='edit_article'),

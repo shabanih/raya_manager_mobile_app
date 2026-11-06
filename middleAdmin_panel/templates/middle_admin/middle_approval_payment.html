@@ -1,0 +1,475 @@
+{% extends 'middleShared/base_template.html' %}
+{% load static %}
+{% load poll_extras %}
+
+{% block page_title %}
+تایید پرداخت های ساکنین
+{% endblock page_title %}
+
+{% block main_content %}
+    <hr/>
+<div class="container-fluid mt-3">
+
+    <div class="row mb-4">
+
+        <!-- شارژ ساختمان -->
+        <div class="col-md-4 mb-3">
+            <div class="card shadow-sm">
+                <div class="card-body text-center">
+
+                    <i class="fa fa-home fa-2x mb-2"></i>
+
+                    <h5>
+                        شارژ ساختمان
+                    </h5>
+
+                    <h3>
+                        {{ charge_count|to_persian_number }}
+                    </h3>
+
+                    <small class="text-muted">
+                        پرداخت در انتظار تایید
+                    </small>
+
+                </div>
+            </div>
+        </div>
+
+
+        <!-- شارژ عمرانی -->
+        <div class="col-md-4 mb-3">
+            <div class="card shadow-sm">
+                <div class="card-body text-center">
+
+                    <i class="fa fa-building fa-2x mb-2"></i>
+
+                    <h5>
+                        شارژ عمرانی
+                    </h5>
+
+                    <h3>
+                        {{ civil_count|to_persian_number }}
+                    </h3>
+
+                    <small class="text-muted">
+                        پرداخت در انتظار تایید
+                    </small>
+
+                </div>
+            </div>
+        </div>
+
+
+        <!-- فاضلاب -->
+        <div class="col-md-4 mb-3">
+            <div class="card shadow-sm">
+                <div class="card-body text-center">
+
+                    <i class="fa fa-tint fa-2x mb-2"></i>
+
+                    <h5>
+                        هزینه فاضلاب
+                    </h5>
+
+                    <h3>
+                        {{ sewage_count|to_persian_number }}
+                    </h3>
+
+                    <small class="text-muted">
+                        پرداخت در انتظار تایید
+                    </small>
+
+                </div>
+            </div>
+        </div>
+
+    </div>
+
+
+    <!-- عنوان -->
+    <div class="card shadow-sm">
+
+        <div class="card-header">
+
+            <h5 class="mb-0">
+                <i class="fa fa-check-circle"></i>
+                تأیید پرداخت‌ها
+            </h5>
+
+        </div>
+
+
+        <div class="card-body">
+
+            {% if total_count == 0 %}
+
+                <div class="badage badage-info text-center">
+                    در حال حاضر پرداختی برای تایید وجود ندارد.
+                </div>
+
+            {% else %}
+
+
+            <!-- ================================================= -->
+            <!-- شارژ ساختمان -->
+            <!-- ================================================= -->
+
+            {% if charges %}
+
+                <h5 class="mb-3">
+                    شارژ ساختمان
+                </h5>
+
+                <div class="table-responsive mb-5">
+
+                    <table class="table table-bordered table-hover text-center">
+
+                        <thead>
+                        <tr>
+
+                            <th>
+                                واحد
+                            </th>
+
+                            <th>
+                                عنوان
+                            </th>
+
+                            <th>
+                                مبلغ
+                            </th>
+
+                            <th>
+                                شماره پیگیری
+                            </th>
+
+                            <th>
+                                تاریخ پرداخت
+                            </th>
+
+                            <th>
+                                عملیات
+                            </th>
+
+                        </tr>
+                        </thead>
+
+
+                        <tbody>
+
+                        {% for charge in charges %}
+
+                            <tr>
+
+                                <td>
+                               {{ charge.unit.get_label|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ charge.title|to_persian_number }}
+                                </td>
+
+                                <td>
+                         {{ charge.total_charge_month|three_digit_currency }}
+                                </td>
+
+                                <td>
+                              {{ charge.transaction_reference|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ charge.payment_date|show_jalali }}
+                                </td>
+
+                                <td>
+
+              <form method="post"
+      action="{% url 'approve_unified_charge_payment' charge.id %}"
+      style="display: inline;">
+    {% csrf_token %}
+
+    <button type="submit"
+            class="btn btn-gradient-success btn-sm"
+            onclick="return confirmApprovedPaymentWithSweetAlert(event)">
+
+        <i class="fa fa-check"></i>
+        تایید
+
+    </button>
+</form>
+
+                                </td>
+
+                            </tr>
+
+                        {% endfor %}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            {% endif %}
+
+
+
+            <!-- ================================================= -->
+            <!-- شارژ عمرانی -->
+            <!-- ================================================= -->
+
+            {% if civil_installments %}
+
+                <h5 class="mb-3">
+                    شارژ عمرانی
+                </h5>
+
+                <div class="table-responsive mb-5">
+
+                    <table class="table table-bordered table-hover text-center">
+
+                        <thead>
+                        <tr>
+
+                            <th>
+                                واحد
+                            </th>
+
+                            <th>
+                                عنوان
+                            </th>
+
+                            <th>
+                                قسط
+                            </th>
+
+                            <th>
+                                مبلغ
+                            </th>
+
+                            <th>
+                                شماره پیگیری
+                            </th>
+
+                            <th>
+                                تاریخ پرداخت
+                            </th>
+
+                            <th>
+                                عملیات
+                            </th>
+
+                        </tr>
+                        </thead>
+
+
+                        <tbody>
+
+                        {% for installment in civil_installments %}
+
+                            <tr>
+
+                                <td>
+                                    {{ installment.unit.get_label|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ installment.civil_manage.name|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ installment.installment_number|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ installment.amount|three_digit_currency }}
+                                </td>
+
+                                <td>
+                                    {{ installment.transaction_reference|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ installment.payment_date|show_jalali }}
+                                </td>
+
+                                <td>
+
+                         <form method="post"
+      action="{% url 'approve_civil_payment' installment.id %}"
+      style="display: inline;">
+    {% csrf_token %}
+
+    <button type="submit"
+            class="btn btn-gradient-success btn-sm"
+            onclick="return confirmApprovedPaymentWithSweetAlert(event)">
+
+        <i class="fa fa-check"></i>
+        تایید
+
+    </button>
+</form>
+
+                                </td>
+
+                            </tr>
+
+                        {% endfor %}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            {% endif %}
+
+
+
+            <!-- ================================================= -->
+            <!-- فاضلاب -->
+            <!-- ================================================= -->
+
+            {% if sewage_installments %}
+
+                <h5 class="mb-3">
+                    هزینه فاضلاب
+                </h5>
+
+                <div class="table-responsive mb-5">
+
+                    <table class="table table-bordered table-hover text-center">
+
+                        <thead>
+                        <tr>
+
+                            <th>
+                                واحد
+                            </th>
+
+                            <th>
+                                عنوان
+                            </th>
+
+                            <th>
+                                قسط
+                            </th>
+
+                            <th>
+                                مبلغ
+                            </th>
+
+                            <th>
+                                شماره پیگیری
+                            </th>
+
+                            <th>
+                                تاریخ پرداخت
+                            </th>
+
+                            <th>
+                                عملیات
+                            </th>
+
+                        </tr>
+                        </thead>
+
+
+                        <tbody>
+
+                        {% for installment in sewage_installments %}
+
+                            <tr>
+
+                                <td>
+                                    {{ installment.unit.get_label|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ installment.sewage_manage.name|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ installment.installment_number|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ installment.amount|three_digit_currency }}
+                                </td>
+
+                                <td>
+                                    {{ installment.transaction_reference|to_persian_number }}
+                                </td>
+
+                                <td>
+                                    {{ installment.payment_date|show_jalali }}
+                                </td>
+
+                                <td>
+
+                           <form method="post"
+      action="{% url 'approve_sewage_payment' installment.id %}"
+      style="display: inline;">
+    {% csrf_token %}
+
+    <button type="submit"
+            class="btn btn-gradient-success btn-sm"
+             onclick="return confirmApprovedPaymentWithSweetAlert(event)">
+
+        <i class="fa fa-check"></i>
+        تایید
+
+    </button>
+</form>
+
+                                </td>
+
+                            </tr>
+
+                        {% endfor %}
+
+                        </tbody>
+
+                    </table>
+
+                </div>
+
+            {% endif %}
+
+
+            {% endif %}
+
+        </div>
+
+    </div>
+
+</div>
+<script>
+function confirmApprovedPaymentWithSweetAlert(event) {
+    event.preventDefault();
+
+    const form = event.target.closest('form');
+
+    Swal.fire({
+        title: 'تایید پرداخت؟',
+        text: 'آیا از تایید این پرداخت اطمینان دارید؟',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'بله، تایید کن',
+        cancelButtonText: 'انصراف',
+        reverseButtons: true
+    }).then((result) => {
+
+        if (result.isConfirmed) {
+            form.submit();
+        }
+
+    });
+
+    return false;
+}
+</script>
+
+
+
+{% endblock main_content %}

@@ -11,6 +11,11 @@ urlpatterns = [
     path('switch-to-resident/', views.switch_to_resident, name='switch_to_resident'),
 
     path('buy-subscription/', views.buy_subscription, name='buy_subscription'),
+    path(
+        'subscription/status/',
+        views.manager_subscription,
+        name='manager_subscription',
+    ),
     path("ajax/check-coupon/", views.check_coupon, name="check_coupon"),
 
     path('middle/profile/', views.middle_profile, name='middle_profile'),
@@ -371,6 +376,30 @@ urlpatterns = [
         views.third_party_delete,
         name='third_party_delete',
     ),
+    path(
+        'middle/payment/approval/',
+        views.middle_payment_approval,
+        name='middle_payment_approval'
+    ),
+
+    path(
+        'middle/payment/approval/civil/<int:pk>/',
+        views.approve_civil_payment,
+        name='approve_civil_payment'
+    ),
+
+    path(
+        'middle/payment/approval/sewage/<int:pk>/',
+        views.approve_sewage_payment,
+        name='approve_sewage_payment'
+    ),
+
+    path(
+        'middle/payment/approval/charge/<int:pk>/',
+        views.approve_unified_charge_payment,
+        name='approve_unified_charge_payment'
+    ),
+
 ]
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)

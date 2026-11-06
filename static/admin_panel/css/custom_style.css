@@ -1167,3 +1167,185 @@ body.sidebar-icon-only .sidebar-subscription-box {
     50% { opacity: 0.2; transform: scale(0.8); }
     100% { opacity: 1; transform: scale(1); }
 }
+
+.subscription-chart-card {
+    background: #fff;
+    border-radius: 16px;
+    padding: 25px;
+    box-shadow: 0 3px 15px rgba(0,0,0,.06);
+    margin-bottom: 25px;
+}
+
+.subscription-chart-wrapper {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 35px;
+    flex-wrap: wrap;
+}
+
+.subscription-chart {
+    width: 175px;
+    height: 175px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: conic-gradient(
+        #16a34a 0 var(--progress),
+        #e5e7eb var(--progress) 100%
+    );
+    position: relative;
+}
+
+.subscription-chart-inner {
+    width: 140px;
+    height: 140px;
+    border-radius: 50%;
+    background: #fff;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    align-items: center;
+}
+
+.subscription-chart-inner strong {
+    font-size: 36px;
+    color: #16a34a;
+}
+
+.subscription-chart-inner span {
+    font-size: 13px;
+    color: #777;
+}
+
+.subscription-chart-info {
+    min-width: 190px;
+    line-height: 2;
+}
+
+.status-label {
+    color: #16a34a;
+    font-weight: bold;
+    margin-bottom: 10px;
+}
+
+.status-dot {
+    display: inline-block;
+    width: 9px;
+    height: 9px;
+    background: #16a34a;
+    border-radius: 50%;
+    margin-left: 6px;
+}
+
+.subscription-progress {
+    margin-top: 25px;
+}
+
+.progress-track {
+    width: 100%;
+    height: 12px;
+    background: #e5e7eb;
+    border-radius: 20px;
+    overflow: hidden;
+}
+
+.progress-used {
+    height: 100%;
+    background: #d97706;
+    border-radius: 20px;
+}
+
+.progress-labels {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    font-size: 12px;
+    color: #777;
+}
+
+@media(max-width: 576px) {
+    .subscription-chart-wrapper {
+        flex-direction: column;
+        gap: 20px;
+    }
+}
+
+.subscription-renewal-card {
+    background: #fff;
+    padding: 25px;
+    border-radius: 15px;
+    box-shadow: 0 3px 15px rgba(0,0,0,.06);
+}
+
+.plan-card-m {
+    display: block;
+    cursor: pointer;
+    border: 2px solid #e5e7eb;
+    border-radius: 14px;
+    padding: 20px;
+    height: 100%;
+    transition: .2s;
+}
+
+.plan-card-m input {
+    display: none;
+}
+
+.plan-card-m.selected,
+.plan-card-m:has(input:checked) {
+    border-color: #16a085;
+    background: #f0fdfa;
+    box-shadow: 0 4px 12px rgba(22,160,133,.12);
+}
+
+.plan-card-m-content {
+    text-align: center;
+}
+
+.plan-price {
+    margin: 20px 0;
+    color: #16a085;
+    font-size: 22px;
+    font-weight: bold;
+}
+
+.plan-card-m p {
+    font-size: 13px;
+    color: #777;
+}
+
+.plan-selection-m {
+    background: #16a085;
+    color: white;
+    border-radius: 8px;
+    padding: 8px;
+    margin-top: 15px;
+}
+
+.payment-summary {
+    background: #f8fafc;
+    padding: 20px;
+    border-radius: 12px;
+}
+
+.summary-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin: 15px 0;
+    gap: 8px;
+}
+
+.final-price {
+    color: #16a085;
+    font-size: 18px;
+    font-weight: bold;
+}
+
+@media(max-width: 576px) {
+    .summary-row {
+        font-size: 13px;
+    }
+}

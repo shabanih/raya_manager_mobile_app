@@ -233,6 +233,220 @@ def buy_subscription(request):
     })
 
 
+@login_required
+def manager_subscription(request):
+
+    house = MyHouse.objects.filter(
+        user=request.user
+    ).first()
+
+    if not house:
+        return render(
+            request,
+            'middle_admin/manager_subscription.html',
+            {
+                'house': None,
+                'subscription': None,
+                'plans': [],
+                'units_count': 1,
+                'error_message': 'ساختمانی برای حساب کاربری شما ثبت نشده است.',
+            }
+        )
+
+    now = timezone.now()
+
+    # جدیدترین اشتراک معتبر ساختمان
+    subscription = Subscription.objects.filter(
+        user=request.user,
+        house=house,
+        is_paid=True,
+        status='active',
+        end_date__gte=now,
+    ).select_related(
+        'plan',
+        'coupon',
+    ).order_by(
+        '-end_date',
+        '-created_at',
+    ).first()
+
+    # اگر اشتراک فعالی وجود نداشت، آخرین اشتراک را نشان بده
+    if not subscription:
+        subscription = Subscription.objects.filter(
+            user=request.user,
+            house=house,
+            is_paid=True,
+        ).select_related(
+            'plan',
+            'coupon',
+        ).order_by(
+            '-created_at',
+        ).first()
+
+    plans = SubscriptionPlan.objects.filter(
+        is_active=True
+    ).order_by('duration')
+
+    units_count = (
+        subscription.units_count
+        if subscription
+        else 1
+    )
+
+    # اطلاعات نمودار
+    days_remaining = 0
+    total_days = 0
+    remaining_percent = 0
+    elapsed_percent = 0
+    elapsed_days = 0
+
+    if subscription:
+        days_remaining = subscription.days_remaining
+        total_days = subscription.total_days
+
+        if total_days and total_days > 0:
+            remaining_percent = round(
+                (days_remaining / total_days) * 100
+            )
+            remaining_percent = max(
+                0,
+                min(100, remaining_percent)
+            )
+
+        elapsed_percent = 100 - remaining_percent
+        elapsed_days = max(
+            0,
+            total_days - days_remaining
+        )
+
+    # اطلاعات تمدید
+    selected_plan_id = ''
+    coupon_code = ''
+    coupon = None
+
+    total_amount = Decimal('0')
+    discount_amount = Decimal('0')
+    final_amount = Decimal('0')
+
+    error_message = ''
+    success_message = ''
+
+    if request.method == 'POST':
+
+        selected_plan_id = request.POST.get('plan', '')
+        coupon_code = request.POST.get('code', '').strip()
+
+        try:
+            units_count = int(
+                request.POST.get('units_count', units_count)
+            )
+
+            if units_count < 1:
+                raise ValueError
+
+        except (ValueError, TypeError):
+            units_count = 1
+            error_message = 'تعداد واحدها معتبر نیست.'
+
+        selected_plan = plans.filter(
+            id=selected_plan_id
+        ).first()
+
+        if not selected_plan:
+            error_message = 'لطفاً یک پلن معتبر انتخاب کنید.'
+
+        elif not error_message:
+
+            total_amount = (
+                Decimal(str(selected_plan.price_per_unit))
+                * Decimal(str(selected_plan.duration))
+                * Decimal(units_count)
+            )
+
+            final_amount = total_amount
+
+            if coupon_code:
+                try:
+                    coupon = Coupon.objects.get(
+                        code__iexact=coupon_code
+                    )
+
+                    # این بخش باید با فیلدها و متد اعتبارسنجی
+                    # واقعی مدل Coupon هماهنگ شود.
+                    if not coupon.is_valid():
+                        error_message = 'کد تخفیف معتبر یا فعال نیست.'
+
+                    elif CouponUsage.objects.filter(
+                        user=request.user,
+                        coupon=coupon
+                    ).exists():
+                        error_message = 'این کد تخفیف قبلاً استفاده شده است.'
+
+                    else:
+                        discount_amount = Decimal(
+                            str(coupon.discount)
+                        )
+
+                        if discount_amount < 0:
+                            discount_amount = Decimal('0')
+
+                        if discount_amount > total_amount:
+                            discount_amount = total_amount
+
+                        final_amount = (
+                            total_amount - discount_amount
+                        )
+
+                        success_message = (
+                            'کد تخفیف با موفقیت اعمال شد.'
+                        )
+
+                except Coupon.DoesNotExist:
+                    error_message = 'کد تخفیف واردشده وجود ندارد.'
+
+                except Exception as e:
+                    error_message = (
+                        'خطا در بررسی کد تخفیف: {}'.format(e)
+                    )
+
+            if error_message:
+                coupon = None
+                discount_amount = Decimal('0')
+                final_amount = total_amount
+
+    context = {
+        'house': house,
+        'subscription': subscription,
+        'plans': plans,
+
+        'units_count': units_count,
+
+        'days_remaining': days_remaining,
+        'total_days': total_days,
+        'remaining_percent': remaining_percent,
+        'elapsed_percent': elapsed_percent,
+        'elapsed_days': elapsed_days,
+
+        # اطلاعات محاسبه تمدید
+        'selected_plan_id': str(selected_plan_id),
+        'coupon_code': coupon_code,
+        'coupon': coupon,
+
+        'total_amount': total_amount,
+        'discount_amount': discount_amount,
+        'final_amount': final_amount,
+
+        'error_message': error_message,
+        'success_message': success_message,
+    }
+
+    return render(
+        request,
+        'middle_admin/manager_subscription.html',
+        context
+    )
+
+
 def get_single_resident_building(user):
     units = Unit.objects.filter(
         Q(user=user) |
@@ -15689,3 +15903,444 @@ def third_party_delete(request, pk):
     )
 
     return redirect('third_party_list')
+
+
+@login_required
+def middle_payment_approval(request):
+
+    # =====================================================
+    # پرداخت‌های شارژ ساختمان
+    # =====================================================
+
+    charges = UnifiedCharge.objects.filter(
+        payment_pending=True,
+        is_paid=False,
+        unit__myhouse__user=request.user
+    ).select_related(
+        'unit',
+        'house',
+        'user'
+    ).order_by(
+        'payment_submitted_at'
+    )
+
+    # =====================================================
+    # پرداخت‌های عمرانی
+    # =====================================================
+
+    civil_installments = CivilInstallment.objects.filter(
+        payment_pending=True,
+        is_paid=False,
+        unit__myhouse__user=request.user
+    ).select_related(
+        'unit',
+        'civil_manage',
+        'house'
+    ).order_by(
+        'payment_submitted_at'
+    )
+
+    # =====================================================
+    # پرداخت‌های فاضلاب
+    # =====================================================
+
+    sewage_installments = SewageInstallment.objects.filter(
+        payment_pending=True,
+        is_paid=False,
+        unit__myhouse__user=request.user
+    ).select_related(
+        'unit',
+        'sewage_manage',
+        'house'
+    ).order_by(
+        'payment_submitted_at'
+    )
+
+    context = {
+        'charges': charges,
+        'civil_installments': civil_installments,
+        'sewage_installments': sewage_installments,
+
+        'charge_count': charges.count(),
+        'civil_count': civil_installments.count(),
+        'sewage_count': sewage_installments.count(),
+
+        'total_count': (
+            charges.count() +
+            civil_installments.count() +
+            sewage_installments.count()
+        ),
+    }
+
+    return render(
+        request,
+        'middle_admin/middle_approval_payment.html',
+        context
+    )
+
+def get_fund_payer_info(unit, allow_renter=True):
+    """
+    خروجی:
+    payer_type, payer_renter, payer_person_name, payer_name_snapshot
+
+    payer_name_snapshot:
+        واحد 1 - نام مالک یا مستأجر
+    """
+
+    if not unit:
+        raise ValidationError('واحد این پرداخت مشخص نشده است.')
+
+    # در پرداخت‌های عادی، اگر مستأجر فعال وجود داشته باشد
+    # پرداخت‌کننده را مستأجر در نظر می‌گیریم.
+    if allow_renter:
+        renter = unit.renters.filter(
+            renter_is_active=True
+        ).first()
+
+        if renter:
+            person_name = (
+                renter.renter_name or ''
+            ).strip()
+
+            if not person_name:
+                raise ValidationError(
+                    'نام مستأجر فعال ثبت نشده است.'
+                )
+
+            return (
+                'renter',
+                renter,
+                person_name,
+                f'واحد {unit.unit} - {person_name}',
+            )
+
+    # شارژ عمرانی و فاضلاب در این پیاده‌سازی مالک‌محور هستند.
+    owner_name = (
+        getattr(unit, 'owner_name', '') or ''
+    ).strip()
+
+    if not owner_name:
+        raise ValidationError(
+            'نام مالک این واحد ثبت نشده است.'
+        )
+
+    return (
+        'owner',
+        None,
+        owner_name,
+        f'واحد {unit.unit} - {owner_name}',
+    )
+@login_required
+@transaction.atomic
+def approve_unified_charge_payment(request, pk):
+    if request.method != 'POST':
+        return redirect('middle_payment_approval')
+
+    charge = get_object_or_404(
+        UnifiedCharge,
+        pk=pk,
+        payment_pending=True,
+        is_paid=False
+    )
+
+    # TODO: قبل از انتشار، دسترسی مدیر به charge.house
+    # باید با رابطه واقعی مدیر و ساختمان در پروژه بررسی شود.
+
+    if not charge.unit:
+        messages.error(request, 'واحد این شارژ مشخص نشده است.')
+        return redirect('middle_payment_approval')
+
+    (
+        payer_type,
+        payer_renter,
+        payer_person_name,
+        payer_name_snapshot,
+    ) = get_fund_payer_info(charge.unit, allow_renter=True)
+
+    amount = Decimal(str(charge.total_charge_month or 0))
+
+    if amount <= 0:
+        messages.error(request, 'مبلغ شارژ معتبر نیست.')
+        return redirect('middle_payment_approval')
+
+    charge.is_paid = True
+    charge.payment_pending = False
+    charge.payment_date = timezone.now().date()
+    charge.payment_gateway = 'پرداخت الکترونیک'
+
+    charge.save(update_fields=[
+        'is_paid',
+        'payment_pending',
+        'payment_date',
+        'payment_gateway',
+    ])
+
+    content_type = ContentType.objects.get_for_model(charge)
+
+    description = f'پرداخت شارژ ماهانه: {charge.title}'
+
+    Fund.objects.create(
+        user=request.user,
+        content_type=content_type,
+        object_id=charge.id,
+        unit=charge.unit,
+        house=charge.house,
+        bank=charge.bank,
+        financial_document_number=charge.financial_document_number,
+
+        amount=amount,
+        debtor_amount=amount,
+        creditor_amount=0,
+
+        payer_type=payer_type,
+        payer_renter=payer_renter,
+        payer_name=payer_name_snapshot,
+
+        is_paid=True,
+        payment_date=charge.payment_date,
+        transaction_no=charge.transaction_reference,
+        payment_description=description,
+        payment_gateway='پرداخت الکترونیک',
+    )
+
+    BankTransactionService.deposit(
+        user=request.user,
+        bank=charge.bank,
+        unit=charge.unit,
+        financial_document_number=charge.financial_document_number,
+        amount=amount,
+        description=description,
+        content_object=charge,
+        payment_date=charge.payment_date,
+        transaction_no=charge.transaction_reference,
+        gateway='پرداخت الکترونیک',
+
+        payer_type=payer_type,
+        payer_renter=payer_renter,
+        payer_name=payer_person_name,
+
+        house=charge.house,
+    )
+
+    messages.success(
+        request,
+        'پرداخت شارژ با موفقیت تایید شد.'
+    )
+
+    return redirect('middle_payment_approval')
+
+
+@login_required
+@transaction.atomic
+def approve_civil_payment(request, pk):
+    if request.method != 'POST':
+        return redirect('middle_payment_approval')
+
+    installment = get_object_or_404(
+        CivilInstallment,
+        pk=pk,
+        payment_pending=True,
+        is_paid=False
+    )
+
+    if not installment.unit:
+        messages.error(request, 'واحد این پرداخت مشخص نشده است.')
+        return redirect('middle_payment_approval')
+
+    house = installment.unit.myhouse
+    selected_bank = installment.bank
+
+    # TODO: دسترسی مدیر به house باید بررسی شود.
+
+    (
+        payer_type,
+        payer_renter,
+        payer_person_name,
+        payer_name_snapshot,
+    ) = get_fund_payer_info(
+        installment.unit,
+        allow_renter=False
+    )
+
+    amount = Decimal(str(installment.amount or 0))
+
+    if amount <= 0:
+        messages.error(request, 'مبلغ شارژ عمرانی معتبر نیست.')
+        return redirect('middle_payment_approval')
+
+    installment.is_paid = True
+    installment.payment_pending = False
+    installment.payment_date = timezone.now().date()
+    installment.payment_gateway = 'پرداخت الکترونیک'
+
+    installment.save(update_fields=[
+        'is_paid',
+        'payment_pending',
+        'payment_date',
+        'payment_gateway',
+    ])
+
+    description = (
+        f"پرداخت شارژ عمرانی: "
+        f"{(installment.civil_manage.name or '')[:50]}"
+    )
+
+    content_type = ContentType.objects.get_for_model(installment)
+
+    Fund.objects.create(
+        user=request.user,
+        content_type=content_type,
+        object_id=installment.id,
+        unit=installment.unit,
+        house=house,
+        bank=selected_bank,
+        financial_document_number=installment.financial_document_number,
+
+        amount=amount,
+        debtor_amount=amount,
+        creditor_amount=0,
+
+        payer_type=payer_type,
+        payer_renter=payer_renter,
+        payer_name=payer_name_snapshot,
+
+        is_paid=True,
+        payment_date=installment.payment_date,
+        transaction_no=installment.transaction_reference,
+        payment_description=description,
+        payment_gateway='پرداخت الکترونیک',
+    )
+
+    BankTransactionService.deposit(
+        user=request.user,
+        bank=selected_bank,
+        unit=installment.unit,
+        financial_document_number=installment.financial_document_number,
+        amount=amount,
+        description=description,
+        content_object=installment,
+        payment_date=installment.payment_date,
+        transaction_no=installment.transaction_reference,
+        gateway='پرداخت الکترونیک',
+
+        payer_type=payer_type,
+        payer_renter=payer_renter,
+        payer_name=payer_person_name,
+
+        house=house,
+    )
+
+    messages.success(
+        request,
+        'پرداخت شارژ عمرانی با موفقیت تایید شد.'
+    )
+
+    return redirect('middle_payment_approval')
+
+
+@login_required
+@transaction.atomic
+def approve_sewage_payment(request, pk):
+    if request.method != 'POST':
+        return redirect('middle_payment_approval')
+
+    installment = get_object_or_404(
+        SewageInstallment,
+        pk=pk,
+        payment_pending=True,
+        is_paid=False
+    )
+
+    if not installment.unit:
+        messages.error(request, 'واحد این پرداخت مشخص نشده است.')
+        return redirect('middle_payment_approval')
+
+    house = installment.unit.myhouse
+    selected_bank = installment.bank
+
+    # TODO: دسترسی مدیر به house باید بررسی شود.
+
+    (
+        payer_type,
+        payer_renter,
+        payer_person_name,
+        payer_name_snapshot,
+    ) = get_fund_payer_info(
+        installment.unit,
+        allow_renter=False
+    )
+
+    amount = Decimal(str(installment.amount or 0))
+
+    if amount <= 0:
+        messages.error(request, 'مبلغ هزینه فاضلاب معتبر نیست.')
+        return redirect('middle_payment_approval')
+
+    installment.is_paid = True
+    installment.payment_pending = False
+    installment.payment_date = timezone.now().date()
+    installment.payment_gateway = 'پرداخت الکترونیک'
+
+    installment.save(update_fields=[
+        'is_paid',
+        'payment_pending',
+        'payment_date',
+        'payment_gateway',
+    ])
+
+    description = (
+        f"پرداخت هزینه فاضلاب: "
+        f"{(installment.sewage_manage.name or '')[:50]}"
+    )
+
+    content_type = ContentType.objects.get_for_model(installment)
+
+    Fund.objects.create(
+        user=request.user,
+        content_type=content_type,
+        object_id=installment.id,
+        unit=installment.unit,
+        house=house,
+        bank=selected_bank,
+        financial_document_number=installment.financial_document_number,
+
+        amount=amount,
+        debtor_amount=amount,
+        creditor_amount=0,
+
+        payer_type=payer_type,
+        payer_renter=payer_renter,
+        payer_name=payer_name_snapshot,
+
+        is_paid=True,
+        payment_date=installment.payment_date,
+        transaction_no=installment.transaction_reference,
+        payment_description=description,
+        payment_gateway='پرداخت الکترونیک',
+    )
+
+    BankTransactionService.deposit(
+        user=request.user,
+        bank=selected_bank,
+        unit=installment.unit,
+        financial_document_number=installment.financial_document_number,
+        amount=amount,
+        description=description,
+        content_object=installment,
+        payment_date=installment.payment_date,
+        transaction_no=installment.transaction_reference,
+        gateway='پرداخت الکترونیک',
+
+        payer_type=payer_type,
+        payer_renter=payer_renter,
+        payer_name=payer_person_name,
+
+        house=house,
+    )
+
+    messages.success(
+        request,
+        'پرداخت هزینه فاضلاب با موفقیت تایید شد.'
+    )
+
+    return redirect('middle_payment_approval')
