@@ -1,14 +1,18 @@
 import datetime
 import json
 import logging
+import os
 import secrets
+import uuid
 from collections import OrderedDict, defaultdict
 from datetime import date
 import jdatetime
+from PIL import UnidentifiedImageError
 from dateutil.relativedelta import relativedelta
 from django.apps import apps
 from django.core.exceptions import ValidationError
 from django.db.models import Count, Q, Sum, ProtectedError, Prefetch, F
+from django.http import QueryDict
 from django.utils import timezone
 from decimal import Decimal, ROUND_HALF_UP, InvalidOperation
 
@@ -48,7 +52,7 @@ from admin_panel.models import UnifiedCharge, Fund, Announcement, CivilManage, C
     ChargeAllocation, CivilDocument, ExpenseCategory, ExpenseDocument, ThirdParty, Income, IncomeCategory, \
     IncomeDocument, ReceiveMoney, ReceiveDocument, PayDocument, PayMoney, MaintenanceDocument, Property, \
     PropertyDocument, SewageDocument, AdminFund, MiddleMessageReadStatus, AdminMessageToMiddle, SubscriptionPlan, \
-    AppVersion
+    AppVersion, AppInstallation
 from home.models import ContactUs
 from middleAdmin_panel.services.bank_balance_service import recalculate_bank_balance
 from middleAdmin_panel.services.bank_services import BankTransactionService, validate_bank_transaction_date
@@ -6099,22 +6103,55 @@ class ManagerAnnouncementDetailView(APIView):
             announcement.show_in_marquee = (
                     str(
                         request.data.get('show_in_marquee')
-                    ).lower()
-                    in ['true', '1', 'yes', 'on']
+                    ).lower() in ['true', '1', 'yes', 'on']
             )
 
         if 'is_active' in request.data:
             announcement.is_active = (
                     str(
                         request.data.get('is_active')
-                    ).lower()
-                    in ['true', '1', 'yes', 'on']
+                    ).lower() in ['true', '1', 'yes', 'on']
             )
 
         announcement.save()
 
         # ================================================
-        # فایل‌های جدید
+        # حذف فایل‌های قبلی
+        # ================================================
+
+        deleted_ids = request.data.get(
+            'deleted_document_ids',
+            ''
+        )
+
+        if isinstance(deleted_ids, str):
+            deleted_ids = [
+                item.strip()
+                for item in deleted_ids.split(',')
+                if item.strip()
+            ]
+
+        elif isinstance(deleted_ids, list):
+            deleted_ids = [
+                str(item).strip()
+                for item in deleted_ids
+                if str(item).strip()
+            ]
+
+        if deleted_ids:
+            documents = AnnouncementDocument.objects.filter(
+                announcement=announcement,
+                id__in=deleted_ids
+            )
+
+            for document in documents:
+                if document.document:
+                    document.document.delete(save=False)
+
+                document.delete()
+
+        # ================================================
+        # اضافه کردن فایل‌های جدید
         # ================================================
 
         files = request.FILES.getlist('documents')
@@ -6124,6 +6161,10 @@ class ManagerAnnouncementDetailView(APIView):
                 announcement=announcement,
                 document=uploaded_file
             )
+
+        # ================================================
+        # پاسخ نهایی
+        # ================================================
 
         serializer = ManagerAnnouncementSerializer(
             announcement,
@@ -10398,30 +10439,48 @@ class ManagerSupportTicketMessageView(APIView):
             is_read=False,
         )
 
+
         # -------------------------------------------------
         # ذخیره فایل‌ها
         # -------------------------------------------------
 
         created_files = []
 
+        ALLOWED_IMAGE_EXTENSIONS = {
+            '.jpg',
+            '.jpeg',
+            '.png',
+            '.webp',
+            '.gif',
+        }
+
         for uploaded_file in uploaded_files:
 
-            # فقط تصویر چون SupportFile از ImageField استفاده می‌کند
-            content_type = getattr(
-                uploaded_file,
-                'content_type',
-                ''
-            )
+            # بررسی پسوند فایل
+            extension = os.path.splitext(
+                uploaded_file.name
+            )[1].lower()
 
-            if not content_type.startswith('image/'):
-                transaction.set_rollback(True)
-
+            if extension not in ALLOWED_IMAGE_EXTENSIONS:
                 return Response({
                     'success': False,
-                    'message': (
-                        'فقط فایل‌های تصویری قابل ارسال هستند.'
-                    ),
+                    'message': 'فرمت فایل تصویری پشتیبانی نمی‌شود.',
                 }, status=status.HTTP_400_BAD_REQUEST)
+
+            # بررسی واقعی بودن تصویر
+            try:
+                from PIL import Image
+                image = Image.open(uploaded_file)
+                image.verify()
+
+            except (UnidentifiedImageError, OSError, ValueError):
+                return Response({
+                    'success': False,
+                    'message': 'فایل انتخاب‌شده یک تصویر معتبر نیست.',
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            # آماده‌سازی مجدد فایل پس از verify
+            uploaded_file.seek(0)
 
             support_file = SupportFile.objects.create(
                 support_user=ticket,
@@ -25662,6 +25721,64 @@ def civil_serialize(civil, request):
     }
 
 
+def get_deleted_document_ids(request):
+    """
+    دریافت شناسه مدارک حذف‌شده از درخواست Multipart.
+    فرمت‌های قابل قبول:
+    [1, 2]
+    "1,2"
+    ["1", "2"]
+    """
+
+    try:
+        if hasattr(request.data, "getlist"):
+            values = request.data.getlist("deleted_document_ids")
+        else:
+            values = request.data.get("deleted_document_ids", [])
+
+        if not values:
+            return []
+
+        # اگر چند مقدار جداگانه ارسال شده باشد
+        if isinstance(values, list) and len(values) > 1:
+            raw_ids = values
+        else:
+            raw = values[0] if isinstance(values, list) else values
+
+            if raw in (None, ""):
+                return []
+
+            if isinstance(raw, list):
+                raw_ids = raw
+            else:
+                raw = str(raw).strip()
+
+                try:
+                    parsed = json.loads(raw)
+                    raw_ids = parsed if isinstance(parsed, list) else [parsed]
+                except (json.JSONDecodeError, TypeError):
+                    raw_ids = raw.split(",")
+
+        result = []
+
+        for value in raw_ids:
+            if value in (None, ""):
+                continue
+
+            document_id = int(value)
+
+            if document_id <= 0:
+                raise ValueError
+
+            if document_id not in result:
+                result.append(document_id)
+
+        return result
+
+    except (ValueError, TypeError):
+        raise ValueError("شناسه مدارک حذف‌شده معتبر نیست.")
+
+
 class ManagerCivilChargesAPIView(APIView):
     permission_classes = [IsAuthenticated]
 
@@ -25782,90 +25899,282 @@ class ManagerCivilChargeDetailAPIView(APIView):
         if not house:
             return None
 
-        return CivilManage.objects.filter(
-            id=civil_id,
-            user=request.user,
-            house=house,
-        ).prefetch_related("civil_documents").first()
+        return (
+            CivilManage.objects.filter(
+                id=civil_id,
+                user=request.user,
+                house=house,
+            )
+            .prefetch_related("civil_documents")
+            .first()
+        )
+
+    # =====================================================
+    # دریافت جزئیات شارژ عمرانی
+    # =====================================================
+
+    def get(self, request, civil_id):
+        civil = self.get_civil(request, civil_id)
+
+        if not civil:
+            return Response({
+                "success": False,
+                "message": "شارژ عمرانی پیدا نشد.",
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        return Response({
+            "success": True,
+            "result": civil_serialize(civil, request),
+        }, status=status.HTTP_200_OK)
+
+    # =====================================================
+    # ویرایش شارژ عمرانی و مدیریت مدارک
+    # =====================================================
 
     def put(self, request, civil_id):
         civil = self.get_civil(request, civil_id)
+
         if not civil:
-            return Response({"success": False, "message": "شارژ عمرانی پیدا نشد."}, status=status.HTTP_404_NOT_FOUND)
+            return Response({
+                "success": False,
+                "message": "شارژ عمرانی پیدا نشد.",
+            }, status=status.HTTP_404_NOT_FOUND)
 
-        existing = CivilInstallment.objects.filter(civil_manage=civil)
+        existing = CivilInstallment.objects.filter(
+            civil_manage=civil
+        )
+
         if existing.filter(send_notification=True).exists():
-            return Response({"success": False,
-                             "message": "این شارژ قبلاً اعلان شده است و برای جلوگیری از تغییر سوابق، قابل ویرایش نیست."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "success": False,
+                "message": (
+                    "این شارژ قبلاً اعلان شده است و برای جلوگیری "
+                    "از تغییر سوابق، قابل ویرایش نیست."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         if existing.filter(is_paid=True).exists():
-            return Response(
-                {"success": False, "message": "این شارژ دارای قسط پرداخت‌شده است و امکان بازسازی اقساط آن وجود ندارد."},
-                status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "success": False,
+                "message": (
+                    "این شارژ دارای قسط پرداخت‌شده است و امکان "
+                    "بازسازی اقساط آن وجود ندارد."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
 
+        # فایل‌های جدید
         files = request.FILES.getlist("document")
-        if len(files) > 2:
-            return Response({"success": False, "message": "حداکثر دو فایل جدید مجاز است."},
-                            status=status.HTTP_400_BAD_REQUEST)
 
-        data = request.data.copy()
+        # شناسه مدارک قبلی که مدیر قصد حذف آن‌ها را دارد
+        try:
+            deleted_ids = get_deleted_document_ids(request)
+        except ValueError as exc:
+            return Response({
+                "success": False,
+                "message": str(exc),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # فقط مدارک متعلق به همین شارژ قابل حذف هستند
+        documents_to_delete = list(
+            civil.civil_documents.filter(
+                id__in=deleted_ids
+            )
+        )
+
+        valid_deleted_ids = {
+            doc.id for doc in documents_to_delete
+        }
+
+        if valid_deleted_ids != set(deleted_ids):
+            return Response({
+                "success": False,
+                "message": "بعضی از مدارک انتخاب‌شده معتبر نیستند.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # حداکثر دو مدرک در مجموع
+        current_documents_count = civil.civil_documents.count()
+
+        remaining_documents_count = (
+            current_documents_count - len(documents_to_delete)
+        )
+
+        total_documents_count = (
+            remaining_documents_count + len(files)
+        )
+
+        if total_documents_count > 2:
+            return Response({
+                "success": False,
+                "message": "حداکثر دو تصویر برای هر شارژ عمرانی مجاز است.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # =================================================
+        # اعتبارسنجی اطلاعات فرم
+        # =================================================
+
+        data = QueryDict('', mutable=True)
+
+        for key in request.data:
+            values = request.data.getlist(key)
+
+            for value in values:
+                data.appendlist(key, value)
+
         raw_date = data.get("first_due_date")
+
         if raw_date:
             parsed_date = civil_parse_date(raw_date)
+
             if not parsed_date:
-                return Response({"success": False, "message": "تاریخ اولین سررسید معتبر نیست."},
-                                status=status.HTTP_400_BAD_REQUEST)
-            data["first_due_date"] = jdatetime.date.fromgregorian(date=parsed_date).strftime("%Y-%m-%d")
+                return Response({
+                    "success": False,
+                    "message": "تاریخ اولین سررسید معتبر نیست.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            data["first_due_date"] = (
+                jdatetime.date
+                .fromgregorian(date=parsed_date)
+                .strftime("%Y-%m-%d")
+            )
+
         if data.get("prepayment") in (None, ""):
             data["prepayment"] = 0
+
         if data.get("installment_count") in (None, ""):
             data["installment_count"] = 0
 
-        form = CivilForm(data=data, files=request.FILES, instance=civil)
+        form = CivilForm(
+            data=data,
+            files=request.FILES,
+            instance=civil,
+        )
+
         if not form.is_valid():
-            return Response(
-                {"success": False, "message": "اطلاعات شارژ عمرانی معتبر نیست.", "errors": form.errors.get_json_data()},
-                status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "success": False,
+                "message": "اطلاعات شارژ عمرانی معتبر نیست.",
+                "errors": form.errors.get_json_data(),
+            }, status=status.HTTP_400_BAD_REQUEST)
 
         amount = form.cleaned_data["amount"]
         prepayment = form.cleaned_data.get("prepayment") or 0
-        installment_count = form.cleaned_data.get("installment_count") or 0
+        installment_count = (
+            form.cleaned_data.get("installment_count") or 0
+        )
+
         if amount <= 0:
-            return Response({"success": False, "message": "مبلغ شارژ باید بیشتر از صفر باشد."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "success": False,
+                "message": "مبلغ شارژ باید بیشتر از صفر باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         if prepayment < 0 or prepayment > amount:
-            return Response({"success": False, "message": "پیش‌پرداخت باید بین صفر و مبلغ شارژ باشد."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "success": False,
+                "message": "پیش‌پرداخت باید بین صفر و مبلغ شارژ باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         if installment_count < 0:
-            return Response({"success": False, "message": "تعداد اقساط نمی‌تواند منفی باشد."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "success": False,
+                "message": "تعداد اقساط نمی‌تواند منفی باشد.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         if installment_count == 0 and prepayment not in (0, amount):
-            return Response({"success": False,
-                             "message": "برای مبلغ باقی‌مانده، تعداد اقساط را بیشتر از صفر وارد کنید؛ برای پرداخت یکجا پیش‌پرداخت و تعداد اقساط را صفر بگذارید."},
-                            status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "success": False,
+                "message": (
+                    "برای مبلغ باقی‌مانده، تعداد اقساط را بیشتر از صفر "
+                    "وارد کنید؛ برای پرداخت یکجا پیش‌پرداخت و تعداد "
+                    "اقساط را صفر بگذارید."
+                ),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # =================================================
+        # ذخیره تغییرات
+        # =================================================
 
         try:
             with transaction.atomic():
-                CivilInstallment.objects.filter(civil_manage=civil, send_notification=False, is_paid=False).delete()
+
+                # حذف اقساط قبلیِ ارسال‌نشده و پرداخت‌نشده
+                CivilInstallment.objects.filter(
+                    civil_manage=civil,
+                    send_notification=False,
+                    is_paid=False,
+                ).delete()
+
+                # حذف رکورد مدارک انتخاب‌شده
+                for doc in documents_to_delete:
+                    if doc.document:
+                        storage = doc.document.storage
+                        file_name = doc.document.name
+
+                        def delete_file_after_commit(
+                            storage=storage,
+                            file_name=file_name,
+                        ):
+                            try:
+                                storage.delete(file_name)
+                            except Exception:
+                                logger.exception(
+                                    "Deleting civil document file failed: %s",
+                                    file_name,
+                                )
+
+                        transaction.on_commit(
+                            delete_file_after_commit
+                        )
+
+                    doc.delete()
+
+                # ذخیره اطلاعات شارژ
                 civil = form.save(commit=False)
                 civil.prepayment = prepayment
                 civil.installment_count = installment_count
                 civil.save()
+
+                # ذخیره تصاویر جدید
                 for uploaded_file in files:
-                    CivilDocument.objects.create(civil=civil, document=uploaded_file)
-                calculation = civil_prepare_installments(civil, request.user)
+                    CivilDocument.objects.create(
+                        civil=civil,
+                        document=uploaded_file,
+                    )
+
+                # محاسبه مجدد اقساط
+                calculation = civil_prepare_installments(
+                    civil,
+                    request.user,
+                )
+
         except ValueError as exc:
-            return Response({"success": False, "message": str(exc)}, status=status.HTTP_400_BAD_REQUEST)
+            return Response({
+                "success": False,
+                "message": str(exc),
+            }, status=status.HTTP_400_BAD_REQUEST)
+
         except Exception:
-            import logging
-            logging.getLogger(__name__).exception("Updating civil charge/installments failed")
-            return Response({"success": False, "message": "ویرایش شارژ و محاسبه مجدد اقساط انجام نشد."},
-                            status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            logger.exception(
+                "Updating civil charge/installments failed"
+            )
+
+            return Response({
+                "success": False,
+                "message": "ویرایش شارژ و محاسبه مجدد اقساط انجام نشد.",
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
         result = civil_serialize(civil, request)
         result["calculation"] = calculation
-        return Response({"success": True, "message": "شارژ عمرانی و اقساط آن ویرایش شدند.", "result": result},
-                        status=status.HTTP_200_OK)
+
+        return Response({
+            "success": True,
+            "message": "شارژ عمرانی و مدارک آن با موفقیت ویرایش شدند.",
+            "result": result,
+        }, status=status.HTTP_200_OK)
+
+    # =====================================================
+    # حذف کامل شارژ عمرانی
+    # =====================================================
 
     def delete(self, request, civil_id):
         civil = self.get_civil(request, civil_id)
@@ -25876,7 +26185,6 @@ class ManagerCivilChargeDetailAPIView(APIView):
                 "message": "شارژ عمرانی پیدا نشد.",
             }, status=status.HTTP_404_NOT_FOUND)
 
-        # از حذف سوابق مالی پرداخت‌شده جلوگیری می‌کنیم.
         installments = CivilInstallment.objects.filter(
             civil_manage=civil
         )
@@ -25901,11 +26209,10 @@ class ManagerCivilChargeDetailAPIView(APIView):
 
         try:
             civil.delete()
+
         except Exception:
-            import logging
-            logging.getLogger(__name__).exception(
-                "Deleting civil charge failed"
-            )
+            logger.exception("Deleting civil charge failed")
+
             return Response({
                 "success": False,
                 "message": "حذف شارژ عمرانی انجام نشد.",
@@ -38438,3 +38745,91 @@ class LatestAppVersionAPIView(APIView):
             'release_notes': version.release_notes,
             'created_at': version.created_at,
         })
+
+
+class AppInstallationAPIView(APIView):
+    """
+    ثبت نصب و به‌روزرسانی آخرین فعالیت اپلیکیشن
+    """
+
+    permission_classes = [AllowAny]
+    authentication_classes = [JWTAuthentication]
+
+    def post(self, request):
+
+        installation_id = request.data.get('installation_id')
+        app_version = request.data.get('app_version', '')
+        platform = request.data.get('platform', 'Android')
+        device_name = request.data.get('device_name', '')
+
+        if not installation_id:
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شناسه نصب ارسال نشده است.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        # اعتبارسنجی UUID
+        try:
+            installation_id = uuid.UUID(str(installation_id))
+        except (ValueError, TypeError, AttributeError):
+            return Response(
+                {
+                    'success': False,
+                    'message': 'شناسه نصب معتبر نیست.'
+                },
+                status=status.HTTP_400_BAD_REQUEST
+            )
+
+        try:
+            installation, created = AppInstallation.objects.get_or_create(
+                installation_id=installation_id,
+                defaults={
+                    'app_version': app_version,
+                    'platform': platform,
+                    'device_name': device_name,
+                    'user': (
+                        request.user
+                        if request.user.is_authenticated
+                        else None
+                    ),
+                    'is_active': True,
+                }
+            )
+
+            if not created:
+                installation.app_version = app_version
+                installation.platform = platform
+                installation.device_name = device_name
+                installation.is_active = True
+
+                # فقط در صورت ورود کاربر، نصب به او متصل شود
+                if request.user.is_authenticated:
+                    installation.user = request.user
+
+                installation.save()
+
+            return Response(
+                {
+                    'success': True,
+                    'message': 'اطلاعات نصب با موفقیت ثبت شد.',
+                    'created': created,
+                    'installation_id': str(installation.installation_id),
+                },
+                status=status.HTTP_200_OK
+            )
+
+        except Exception:
+            logging.exception(
+                'App installation registration failed'
+            )
+
+            return Response(
+                {
+                    'success': False,
+                    'message': 'خطا در ثبت اطلاعات نصب.'
+                },
+                status=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

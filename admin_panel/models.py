@@ -3686,3 +3686,64 @@ class CouponUsage(models.Model):
         unique_together = ('user', 'coupon')
 
 
+class AppInstallation(models.Model):
+    """
+    ثبت نصب و فعالیت اپلیکیشن رایا شارژ
+    """
+
+    installation_id = models.UUIDField(
+        default=uuid.uuid4,
+        unique=True,
+        editable=False,
+        verbose_name='شناسه یکتای نصب'
+    )
+
+    user = models.ForeignKey(
+        User,
+        on_delete=models.SET_NULL,
+        null=True,
+        blank=True,
+        related_name='app_installations',
+        verbose_name='کاربر'
+    )
+
+    app_version = models.CharField(
+        max_length=30,
+        blank=True,
+        verbose_name='نسخه اپلیکیشن'
+    )
+
+    platform = models.CharField(
+        max_length=30,
+        default='Android',
+        verbose_name='سیستم عامل'
+    )
+
+    device_name = models.CharField(
+        max_length=150,
+        blank=True,
+        verbose_name='نام دستگاه'
+    )
+
+    first_seen = models.DateTimeField(
+        auto_now_add=True,
+        verbose_name='اولین اجرا'
+    )
+
+    last_seen = models.DateTimeField(
+        auto_now=True,
+        verbose_name='آخرین فعالیت'
+    )
+
+    is_active = models.BooleanField(
+        default=True,
+        verbose_name='دستگاه فعال'
+    )
+
+    class Meta:
+        verbose_name = 'نصب اپلیکیشن'
+        verbose_name_plural = 'نصب‌های اپلیکیشن'
+        ordering = ['-last_seen']
+
+    def __str__(self):
+        return f'{self.installation_id} - {self.app_version}'

@@ -61,7 +61,7 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerSewageInstallmentCancelPaymentAPIView, ManagerSewageInstallmentPaymentAPIView, \
     ManagerUserPayMoneyListAPIView, ManagerAdminFundListAPIView, ManagerAdminMessageListAPIView, \
     ManagerAdminMessageMarkReadAPIView, ManagerSubscriptionAPIView, ManagerApprovePaymentAPIView, \
-    ManagerPendingPaymentsAPIView, ContactUsCreateAPIView, LatestAppVersionAPIView
+    ManagerPendingPaymentsAPIView, ContactUsCreateAPIView, LatestAppVersionAPIView, AppInstallationAPIView
 
 urlpatterns = [
     path(
@@ -1328,6 +1328,11 @@ urlpatterns = [
         LatestAppVersionAPIView.as_view(),
         name='latest-app-version'
     ),
+    path(
+        'app/installation/',
+        AppInstallationAPIView.as_view(),
+        name='app-installation'
+    )
 
 
 ]

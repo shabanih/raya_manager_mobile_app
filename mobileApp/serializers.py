@@ -3396,7 +3396,7 @@ class SupportTicketDetailSerializer(serializers.ModelSerializer):
             'sender'
         ).prefetch_related(
             'attachments'
-        ).order_by('created_at')
+        ).order_by('-created_at')
 
         return SupportMessageSerializer(
             queryset,
@@ -3629,15 +3629,13 @@ class UserSupportTicketListSerializer(serializers.ModelSerializer):
 # =========================================================
 
 class UserSupportTicketDetailSerializer(serializers.ModelSerializer):
+
     files = UserSupportFileSerializer(
         many=True,
         read_only=True,
     )
 
-    messages = UserSupportMessageSerializer(
-        many=True,
-        read_only=True,
-    )
+    messages = serializers.SerializerMethodField()
 
     unread_count = serializers.SerializerMethodField()
     status = serializers.SerializerMethodField()
@@ -3681,10 +3679,30 @@ class UserSupportTicketDetailSerializer(serializers.ModelSerializer):
         ]
 
     # -----------------------------------------------------
+    # پیام‌های تیکت به ترتیب ارسال
+    # -----------------------------------------------------
+
+    def get_messages(self, obj):
+
+        queryset = (
+            obj.messages
+            .select_related('sender')
+            .prefetch_related('attachments')
+            .order_by('created_at', 'id')
+        )
+
+        return UserSupportMessageSerializer(
+            queryset,
+            many=True,
+            context=self.context,
+        ).data
+
+    # -----------------------------------------------------
     # تعداد پیام‌های خوانده نشده
     # -----------------------------------------------------
 
     def get_unread_count(self, obj):
+
         request = self.context.get('request')
 
         if not request or not request.user:
@@ -3702,6 +3720,7 @@ class UserSupportTicketDetailSerializer(serializers.ModelSerializer):
     # -----------------------------------------------------
 
     def get_status(self, obj):
+
         if obj.is_closed:
             return 'بسته شده'
 
