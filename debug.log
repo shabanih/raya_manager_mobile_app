@@ -121073,3 +121073,8 @@ Traceback (most recent call last):
 TypeError: cannot pickle 'BufferedRandom' instances
 D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
 Watching for file changes with StatReloader
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader
+D:\Django_project\absharProject\mobileApp\views.py changed, reloading.
+Watching for file changes with StatReloader

@@ -7585,7 +7585,7 @@ class ManagerBankListCreateView(APIView):
                 description='افتتاح حساب',
                 content_object=bank,
                 payment_date=bank.create_at,
-                gateway=' افتتاحیه',
+                gateway='افتتاحیه',
                 house=house,
                 financial_document_number=financial_document_number,
             )
@@ -28464,13 +28464,13 @@ class ManagerExpenseBaseAPIView(ManagerFinancialCommonMixin, APIView):
 
         return value.translate(translation).replace(",", "").replace("٬", "")
 
+
     @staticmethod
     def category_queryset(user):
-        # سرفصل‌های اختصاصی مدیر و سرفصل‌های پیش‌فرض او
         return ExpenseCategory.objects.filter(
-            Q(user=user) | Q(is_default=True),
+            user=user,
             is_active=True,
-        ).distinct()
+        )
 
     @staticmethod
     def expense_queryset(user, house):
