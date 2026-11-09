@@ -61,7 +61,8 @@ from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, On
     ManagerSewageInstallmentCancelPaymentAPIView, ManagerSewageInstallmentPaymentAPIView, \
     ManagerUserPayMoneyListAPIView, ManagerAdminFundListAPIView, ManagerAdminMessageListAPIView, \
     ManagerAdminMessageMarkReadAPIView, ManagerSubscriptionAPIView, ManagerApprovePaymentAPIView, \
-    ManagerPendingPaymentsAPIView, ContactUsCreateAPIView, LatestAppVersionAPIView, AppInstallationAPIView
+    ManagerPendingPaymentsAPIView, ContactUsCreateAPIView, LatestAppVersionAPIView, AppInstallationAPIView, \
+    ManagerBankReportListView, ManagerBankReportTransactionsView
 
 urlpatterns = [
     path(
@@ -1332,7 +1333,18 @@ urlpatterns = [
         'app/installation/',
         AppInstallationAPIView.as_view(),
         name='app-installation'
-    )
+    ),
+    path(
+        'manager/bank-reports/',
+        ManagerBankReportListView.as_view(),
+        name='manager-bank-report-list'
+    ),
+
+    path(
+        'manager/bank-reports/<int:pk>/transactions/',
+        ManagerBankReportTransactionsView.as_view(),
+        name='manager-bank-report-transactions'
+    ),
 
 
 ]
