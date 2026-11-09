@@ -1,6 +1,7 @@
 from django.urls import path
 from rest_framework_simplejwt.views import TokenRefreshView
 
+from .api_views.finance import ManagerExpenseDocumentAPIView
 from .views import LoginView, MeView, DashboardView, ManualChargePaymentView, OnlineChargePaymentView, \
     ChargePaymentMethodsView, MobileChargeListView, MobileChargeDetailView, MobilePaymentHistoryView, \
     MobileAnnouncementListView, MobilePollListView, MobilePollDetailView, MobilePollVoteView, ChargePaymentBanksView, \
@@ -972,6 +973,11 @@ urlpatterns = [
         "manager/expenses/<int:pk>/",
         ManagerExpenseDetailAPIView.as_view(),
         name="manager-expense-detail",
+    ),
+    path(
+        "manager/expenses/<int:pk>/documents/<int:document_id>/",
+        ManagerExpenseDocumentAPIView.as_view(),
+        name="manager-expense-document-delete",
     ),
     path(
         "manager/expenses/<int:pk>/pay/",
