@@ -3,6 +3,7 @@ Extracted from the original mobileApp/views.py.
 """
 from .common import *  # noqa: F401,F403
 
+
 class ManagerFinancialCommonMixin:
     """
     توابع مشترک عملیات مالی مدیر ساختمان.
@@ -203,6 +204,8 @@ class ManagerFinancialCommonMixin:
             "success": True,
             "results": results,
         })
+
+
 class ManagerExpenseBaseAPIView(ManagerFinancialCommonMixin, APIView):
     permission_classes = [IsAuthenticated]
 
@@ -246,7 +249,6 @@ class ManagerExpenseBaseAPIView(ManagerFinancialCommonMixin, APIView):
         )
 
         return value.translate(translation).replace(",", "").replace("٬", "")
-
 
     @staticmethod
     def category_queryset(user):
@@ -370,6 +372,8 @@ class ManagerExpenseBaseAPIView(ManagerFinancialCommonMixin, APIView):
             raise ValueError("حداکثر دو مدرک برای هر هزینه مجاز است.")
 
         return files
+
+
 class ManagerExpenseCategoriesAPIView(ManagerExpenseBaseAPIView):
 
     def get(self, request):
@@ -432,6 +436,8 @@ class ManagerExpenseCategoriesAPIView(ManagerExpenseBaseAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
 class ManagerExpenseCategoryDetailAPIView(ManagerExpenseBaseAPIView):
 
     def get_category(self, request, pk):
@@ -536,6 +542,8 @@ class ManagerExpenseCategoryDetailAPIView(ManagerExpenseBaseAPIView):
             "success": True,
             "message": message,
         })
+
+
 class ManagerExpenseAPIView(ManagerExpenseBaseAPIView):
 
     def get(self, request):
@@ -644,6 +652,8 @@ class ManagerExpenseAPIView(ManagerExpenseBaseAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
 class ManagerExpenseDetailAPIView(ManagerExpenseBaseAPIView):
 
     def get_expense(self, request, house, pk):
@@ -786,6 +796,7 @@ class ManagerExpenseDetailAPIView(ManagerExpenseBaseAPIView):
             "message": "هزینه با موفقیت حذف شد.",
         })
 
+
 class ManagerExpenseDocumentAPIView(ManagerExpenseBaseAPIView):
 
     def get_expense(self, request, house, pk):
@@ -841,6 +852,8 @@ class ManagerExpenseDocumentAPIView(ManagerExpenseBaseAPIView):
             "success": True,
             "message": "فایل پیوست با موفقیت حذف شد.",
         })
+
+
 class ManagerExpensePayAPIView(ManagerExpenseBaseAPIView):
 
     def post(self, request, pk):
@@ -1159,14 +1172,20 @@ class ManagerExpensePayAPIView(ManagerExpenseBaseAPIView):
             "message": "پرداخت هزینه با موفقیت ثبت شد.",
             "expense": self.serialize_expense(expense),
         })
+
+
 class ManagerExpenseBanksAPIView(ManagerExpenseBaseAPIView):
 
     def get(self, request):
         return self.get_manager_banks_response(request)
+
+
 class ManagerExpenseReceiversAPIView(ManagerExpenseBaseAPIView):
 
     def get(self, request):
         return self.get_manager_payers_response(request)
+
+
 class ManagerExpenseCancelPayAPIView(APIView):
 
     @transaction.atomic
@@ -1280,6 +1299,8 @@ class ManagerExpenseCancelPayAPIView(APIView):
             },
             status=status.HTTP_200_OK,
         )
+
+
 class ManagerIncomeBaseAPIView(ManagerFinancialCommonMixin, APIView):
     permission_classes = [IsAuthenticated]
 
@@ -1559,6 +1580,8 @@ class ManagerIncomeBaseAPIView(ManagerFinancialCommonMixin, APIView):
             "payer_third_party": payer_third_party,
             "payer_name": payer_name,
         }
+
+
 class ManagerIncomeCategoriesAPIView(ManagerIncomeBaseAPIView):
 
     def get(self, request):
@@ -1606,6 +1629,8 @@ class ManagerIncomeCategoriesAPIView(ManagerIncomeBaseAPIView):
             "message": "سرفصل درآمد ایجاد شد.",
             "result": self.serialize_category(category),
         }, status=status.HTTP_201_CREATED)
+
+
 class ManagerIncomeCategoryDetailAPIView(ManagerIncomeBaseAPIView):
 
     def patch(self, request, pk):
@@ -1688,6 +1713,8 @@ class ManagerIncomeCategoryDetailAPIView(ManagerIncomeBaseAPIView):
             "success": True,
             "message": message,
         })
+
+
 class ManagerIncomeAPIView(ManagerIncomeBaseAPIView):
 
     def get(self, request):
@@ -1830,6 +1857,8 @@ class ManagerIncomeAPIView(ManagerIncomeBaseAPIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
 class ManagerIncomeDetailAPIView(ManagerIncomeBaseAPIView):
 
     def patch(self, request, pk):
@@ -1853,60 +1882,203 @@ class ManagerIncomeDetailAPIView(ManagerIncomeBaseAPIView):
 
                 data = request.data
 
-                if "amount" in data:
-                    income.amount = self.parse_amount(data.get("amount"))
+                # =====================================
+                # دریافت فایل‌های جدید
+                # =====================================
+                new_documents = self.get_uploaded_documents(request)
 
+                # =====================================
+                # دریافت شناسه اسناد حذف‌شونده
+                # =====================================
+                raw_deleted_ids = data.get(
+                    "deleted_document_ids",
+                    []
+                )
+
+                if isinstance(raw_deleted_ids, str):
+                    try:
+                        deleted_document_ids = json.loads(
+                            raw_deleted_ids
+                        )
+                    except (ValueError, TypeError):
+                        raise ValueError(
+                            "شناسه اسناد حذف‌شونده معتبر نیست."
+                        )
+                else:
+                    deleted_document_ids = raw_deleted_ids
+
+                if not isinstance(deleted_document_ids, list):
+                    raise ValueError(
+                        "ساختار شناسه اسناد حذف‌شونده معتبر نیست."
+                    )
+
+                try:
+                    deleted_document_ids = [
+                        int(item) for item in deleted_document_ids
+                    ]
+                except (TypeError, ValueError):
+                    raise ValueError(
+                        "شناسه اسناد حذف‌شونده معتبر نیست."
+                    )
+
+                # حذف شناسه‌های تکراری
+                deleted_document_ids = list(
+                    dict.fromkeys(deleted_document_ids)
+                )
+
+                # =====================================
+                # بررسی تعلق اسناد به همین درآمد
+                # =====================================
+                documents_queryset = income.documents.all()
+
+                if deleted_document_ids:
+                    valid_ids = set(
+                        documents_queryset.filter(
+                            id__in=deleted_document_ids
+                        ).values_list("id", flat=True)
+                    )
+
+                    if valid_ids != set(deleted_document_ids):
+                        raise ValueError(
+                            "یکی از اسناد انتخاب‌شده متعلق به این درآمد نیست."
+                        )
+
+                # =====================================
+                # بررسی حداکثر دو سند
+                # =====================================
+                remaining_count = documents_queryset.exclude(
+                    id__in=deleted_document_ids
+                ).count()
+
+                if remaining_count + len(new_documents) > 2:
+                    raise ValueError(
+                        "هر درآمد حداکثر می‌تواند دو مدرک داشته باشد."
+                    )
+
+                # =====================================
+                # ویرایش مبلغ
+                # =====================================
+                if "amount" in data:
+                    income.amount = self.parse_amount(
+                        data.get("amount")
+                    )
+
+                # =====================================
+                # ویرایش تاریخ
+                # =====================================
                 if "doc_date" in data:
                     income.doc_date = self.parse_date_value(
-                        data.get("doc_date"), "تاریخ سند"
+                        data.get("doc_date"),
+                        "تاریخ سند"
                     )
 
+                # =====================================
+                # ویرایش سرفصل
+                # =====================================
                 if "category_id" in data:
                     income.category = self.get_category(
-                        request.user, data.get("category_id")
+                        request.user,
+                        data.get("category_id")
                     )
 
+                # =====================================
+                # ویرایش شرح
+                # =====================================
                 if "description" in data:
-                    description = str(data.get("description") or "").strip()
+                    description = str(
+                        data.get("description") or ""
+                    ).strip()
+
                     if not description:
-                        raise ValueError("شرح درآمد الزامی است.")
+                        raise ValueError(
+                            "شرح درآمد الزامی است."
+                        )
+
                     if len(description) > 4000:
-                        raise ValueError("شرح درآمد بیش از حد طولانی است.")
+                        raise ValueError(
+                            "شرح درآمد بیش از حد طولانی است."
+                        )
+
                     income.description = description
 
+                # =====================================
+                # ویرایش توضیحات
+                # =====================================
                 if "details" in data:
-                    income.details = str(data.get("details") or "").strip()
+                    income.details = str(
+                        data.get("details") or ""
+                    ).strip()
 
+                # =====================================
+                # ویرایش شماره سند
+                # =====================================
                 if "doc_number" in data:
-                    raw_number = self.normalize_digits(data.get("doc_number"))
+                    raw_number = self.normalize_digits(
+                        data.get("doc_number")
+                    )
+
                     if raw_number in (None, ""):
                         income.doc_number = None
                     else:
                         try:
                             income.doc_number = int(raw_number)
                         except (TypeError, ValueError):
-                            raise ValueError("شماره سند معتبر نیست.")
+                            raise ValueError(
+                                "شماره سند معتبر نیست."
+                            )
 
+                # =====================================
+                # ویرایش پرداخت‌کننده
+                # =====================================
                 if any(key in data for key in (
                         "payer_type",
                         "unit_id",
                         "payer_renter_id",
                         "payer_third_party_id",
                 )):
-                    payer = self.validate_payer(request, house, data)
+                    payer = self.validate_payer(
+                        request,
+                        house,
+                        data
+                    )
+
                     income.unit = payer["unit"]
                     income.payer_type = payer["payer_type"]
                     income.payer_renter = payer["payer_renter"]
-                    income.payer_third_party = payer["payer_third_party"]
+                    income.payer_third_party = (
+                        payer["payer_third_party"]
+                    )
                     income.payer_name = payer["payer_name"]
 
                 income.save()
 
-                for uploaded_file in self.get_uploaded_documents(request):
-                    if income.documents.count() >= 2:
-                        raise ValueError(
-                            "هر درآمد حداکثر می‌تواند دو مدرک داشته باشد."
+                # =====================================
+                # حذف اسناد قبلی
+                # =====================================
+                deleted_documents = list(
+                    documents_queryset.filter(
+                        id__in=deleted_document_ids
+                    )
+                )
+
+                for document in deleted_documents:
+                    if document.document:
+                        storage = document.document.storage
+                        file_name = document.document.name
+
+                        # حذف فایل فیزیکی فقط پس از Commit
+                        transaction.on_commit(
+                            lambda s=storage, n=file_name: s.delete(n)
                         )
+
+                    document.delete()
+
+                # =====================================
+                # افزودن اسناد جدید
+                # =====================================
+                for uploaded_file in new_documents:
+                    uploaded_file.seek(0)
+
                     IncomeDocument.objects.create(
                         income=income,
                         document=uploaded_file,
@@ -1919,12 +2091,13 @@ class ManagerIncomeDetailAPIView(ManagerIncomeBaseAPIView):
             }, status=status.HTTP_400_BAD_REQUEST)
 
         income = self.income_queryset(
-            request.user, house
+            request.user,
+            house
         ).get(pk=income.pk)
 
         return Response({
             "success": True,
-            "message": "درآمد ویرایش شد.",
+            "message": "درآمد و اسناد آن با موفقیت ویرایش شدند.",
             "result": self.serialize_income(income),
         })
 
@@ -1952,6 +2125,8 @@ class ManagerIncomeDetailAPIView(ManagerIncomeBaseAPIView):
             "success": True,
             "message": "درآمد با موفقیت حذف شد.",
         })
+
+
 class ManagerIncomePayAPIView(ManagerIncomeBaseAPIView):
 
     def post(self, request, pk):
@@ -2243,14 +2418,20 @@ class ManagerIncomePayAPIView(ManagerIncomeBaseAPIView):
                 "result": self.serialize_income(updated_income),
             }
         )
+
+
 class ManagerIncomeBanksAPIView(ManagerIncomeBaseAPIView):
 
     def get(self, request):
         return self.get_manager_banks_response(request)
+
+
 class ManagerIncomePayersAPIView(ManagerIncomeBaseAPIView):
 
     def get(self, request):
         return self.get_manager_payers_response(request)
+
+
 class ManagerIncomeCancelPayAPIView(ManagerIncomeBaseAPIView):
 
     def post(self, request, pk):
@@ -2341,6 +2522,8 @@ class ManagerIncomeCancelPayAPIView(ManagerIncomeBaseAPIView):
                 self.income_queryset(request.user, house).get(pk=income.pk)
             ),
         })
+
+
 class ManagerReceivableBaseAPIView(ManagerFinancialCommonMixin, APIView, ):
     permission_classes = [IsAuthenticated]
 
@@ -2597,6 +2780,8 @@ class ManagerReceivableBaseAPIView(ManagerFinancialCommonMixin, APIView, ):
             "payer_third_party": payer_third_party,
             "payer_name": payer_name,
         }
+
+
 class ManagerReceivableAPIView(ManagerReceivableBaseAPIView):
 
     def get(self, request):
@@ -2732,6 +2917,8 @@ class ManagerReceivableAPIView(ManagerReceivableBaseAPIView):
             "message": "سند دریافتنی با موفقیت ثبت شد.",
             "result": self.serialize_receivable(obj, request),
         }, status=status.HTTP_201_CREATED)
+
+
 class ManagerReceivableDetailAPIView(ManagerReceivableBaseAPIView):
 
     def patch(self, request, pk):
@@ -2927,6 +3114,8 @@ class ManagerReceivableDetailAPIView(ManagerReceivableBaseAPIView):
             "success": True,
             "message": "سند دریافتنی حذف شد.",
         })
+
+
 class ManagerReceivableReceiveAPIView(ManagerReceivableBaseAPIView):
 
     def post(self, request, pk):
@@ -3110,6 +3299,8 @@ class ManagerReceivableReceiveAPIView(ManagerReceivableBaseAPIView):
             "bank_fund_id": fund.pk,
             "result": self.serialize_receivable(obj, request),
         })
+
+
 class ManagerReceivableCancelReceiveAPIView(ManagerReceivableBaseAPIView):
 
     def post(self, request, pk):
@@ -3191,12 +3382,18 @@ class ManagerReceivableCancelReceiveAPIView(ManagerReceivableBaseAPIView):
             ),
             "result": self.serialize_receivable(obj, request),
         })
+
+
 class ManagerReceivableBanksAPIView(ManagerReceivableBaseAPIView):
     def get(self, request):
         return self.get_manager_banks_response(request)
+
+
 class ManagerReceivablePayersAPIView(ManagerReceivableBaseAPIView):
     def get(self, request):
         return self.get_manager_payers_response(request)
+
+
 class ManagerPayableBaseAPIView(ManagerFinancialCommonMixin, APIView):
     permission_classes = [IsAuthenticated]
 
@@ -3310,8 +3507,7 @@ class ManagerPayableBaseAPIView(ManagerFinancialCommonMixin, APIView):
 
         return obj, None
 
-    @staticmethod
-    def serialize_payable(obj):
+    def serialize_payable(self, obj, request):
         bank = obj.bank
 
         return {
@@ -3333,28 +3529,31 @@ class ManagerPayableBaseAPIView(ManagerFinancialCommonMixin, APIView):
             "description": obj.description or "",
             "details": obj.details or "",
             "amount": str(obj.amount or 0),
+
             "document_date": (
                 obj.document_date.isoformat()
                 if obj.document_date else None
             ),
+
             "document_number": obj.document_number,
-            "financial_document_number": (
-                obj.financial_document_number
-            ),
+            "financial_document_number": obj.financial_document_number,
             "is_paid_money": obj.is_paid_money,
             "is_paid": obj.is_paid,
+
             "payment_date": (
                 obj.payment_date.isoformat()
                 if obj.payment_date else None
             ),
-            "transaction_reference": (
-                    obj.transaction_reference or ""
-            ),
+
+            "transaction_reference": obj.transaction_reference or "",
+
             "documents": [
                 {
                     "id": document.id,
                     "url": (
-                        document.document.url
+                        request.build_absolute_uri(
+                            document.document.url
+                        )
                         if document.document else None
                     ),
                 }
@@ -3467,6 +3666,8 @@ class ManagerPayableBaseAPIView(ManagerFinancialCommonMixin, APIView):
             "receiver_third_party": receiver_third_party,
             "receiver_name": receiver_name,
         }
+
+
 class ManagerPayableAPIView(ManagerPayableBaseAPIView):
 
     def get(self, request):
@@ -3484,7 +3685,7 @@ class ManagerPayableAPIView(ManagerPayableBaseAPIView):
             queryset = queryset.filter(is_paid=False)
 
         results = [
-            self.serialize_payable(item)
+            self.serialize_payable(item, request)
             for item in queryset.order_by("-created_at")
         ]
 
@@ -3590,8 +3791,10 @@ class ManagerPayableAPIView(ManagerPayableBaseAPIView):
         return Response({
             "success": True,
             "message": "سند پرداختنی با موفقیت ثبت شد.",
-            "result": self.serialize_payable(obj),
+            "result": self.serialize_payable(obj, request),
         }, status=status.HTTP_201_CREATED)
+
+
 class ManagerPayableDetailAPIView(ManagerPayableBaseAPIView):
 
     def patch(self, request, pk):
@@ -3617,11 +3820,14 @@ class ManagerPayableDetailAPIView(ManagerPayableBaseAPIView):
                 data = request.data
 
                 if "amount" in data:
-                    obj.amount = self.parse_amount(data.get("amount"))
+                    obj.amount = self.parse_amount(
+                        data.get("amount")
+                    )
 
                 if "document_date" in data:
                     obj.document_date = self.parse_date_value(
-                        data.get("document_date"), "تاریخ سند"
+                        data.get("document_date"),
+                        "تاریخ سند"
                     )
 
                 if "description" in data:
@@ -3681,15 +3887,67 @@ class ManagerPayableDetailAPIView(ManagerPayableBaseAPIView):
                     )
                     obj.receiver_name = receiver["receiver_name"]
 
+                # شناسه پیوست‌هایی که باید حذف شوند
+                raw_deleted_ids = data.get(
+                    "deleted_document_ids", "[]"
+                )
+
+                try:
+                    if isinstance(raw_deleted_ids, str):
+                        deleted_ids = json.loads(raw_deleted_ids)
+                    else:
+                        deleted_ids = raw_deleted_ids
+
+                    if not isinstance(deleted_ids, list):
+                        raise ValueError()
+
+                    deleted_ids = list({
+                        int(doc_id)
+                        for doc_id in deleted_ids
+                    })
+
+                    if any(doc_id <= 0 for doc_id in deleted_ids):
+                        raise ValueError()
+
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    raise ValueError(
+                        "شناسه پیوست‌های قابل حذف نامعتبر است."
+                    )
+
+                # فقط پیوست‌های همین سند قابل حذف هستند
+                documents_to_delete = obj.documents.filter(
+                    id__in=deleted_ids
+                )
+
+                if documents_to_delete.count() != len(deleted_ids):
+                    raise ValueError(
+                        "بعضی از پیوست‌های انتخاب‌شده معتبر نیستند."
+                    )
+
+                # دریافت تصاویر جدید
                 new_files = self.get_uploaded_documents(request)
 
-                if obj.documents.count() + len(new_files) > 2:
+                # تعداد پیوست‌های باقی‌مانده پس از حذف
+                remaining_count = (
+                        obj.documents.count() - len(deleted_ids)
+                )
+
+                if remaining_count + len(new_files) > 2:
                     raise ValueError(
                         "هر سند پرداختنی حداکثر دو مدرک دارد."
                     )
 
+                # ذخیره اطلاعات سند
                 obj.save()
 
+                # حذف پیوست‌های انتخاب‌شده
+                for document in documents_to_delete:
+                    if document.document:
+                        document.document.delete(save=False)
+
+                documents_to_delete.delete()
+
+                # افزودن تصاویر جدید
                 for uploaded_file in new_files:
                     PayDocument.objects.create(
                         payment=obj,
@@ -3709,7 +3967,7 @@ class ManagerPayableDetailAPIView(ManagerPayableBaseAPIView):
         return Response({
             "success": True,
             "message": "سند پرداختنی ویرایش شد.",
-            "result": self.serialize_payable(obj),
+            "result": self.serialize_payable(obj, request),
         })
 
     def delete(self, request, pk):
@@ -3737,6 +3995,8 @@ class ManagerPayableDetailAPIView(ManagerPayableBaseAPIView):
             "success": True,
             "message": "سند پرداختنی حذف شد.",
         })
+
+
 class ManagerPayablePayAPIView(ManagerPayableBaseAPIView):
 
     def post(self, request, pk):
@@ -3921,8 +4181,10 @@ class ManagerPayablePayAPIView(ManagerPayableBaseAPIView):
             "success": True,
             "message": "پرداخت سند ثبت شد و موجودی بانک به‌روزرسانی شد.",
             "bank_fund_id": fund.pk,
-            "result": self.serialize_payable(obj),
+            "result": self.serialize_payable(obj, request),
         })
+
+
 class ManagerPayableCancelPayAPIView(ManagerPayableBaseAPIView):
 
     def post(self, request, pk):
@@ -4002,16 +4264,22 @@ class ManagerPayableCancelPayAPIView(ManagerPayableBaseAPIView):
             "message": (
                 "پرداخت سند لغو شد و موجودی بانک مجدداً محاسبه شد."
             ),
-            "result": self.serialize_payable(obj),
+            "result": self.serialize_payable(obj, request),
         })
+
+
 class ManagerPayableBanksAPIView(ManagerPayableBaseAPIView):
 
     def get(self, request):
         return self.get_manager_banks_response(request)
+
+
 class ManagerPayableReceiversAPIView(ManagerPayableBaseAPIView):
 
     def get(self, request):
         return self.get_manager_payers_response(request)
+
+
 class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
     permission_classes = [IsAuthenticated]
 
@@ -4068,7 +4336,25 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
 
     def parse_date_value(self, value, label="تاریخ"):
         value = self.normalize_digits(value)
-        parsed = parse_date(value) if value else None
+
+        if not value:
+            raise ValueError(
+                f"{label} نامعتبر است؛ قالب YYYY-MM-DD را ارسال کنید."
+            )
+
+        value = str(value).strip()
+
+        # پشتیبانی از تاریخ همراه ساعت
+        if "T" in value:
+            value = value.split("T", 1)[0]
+
+        if " " in value:
+            value = value.split(" ", 1)[0]
+
+        # پشتیبانی از جداکننده /
+        value = value.replace("/", "-")
+
+        parsed = parse_date(value)
 
         if not parsed:
             raise ValueError(
@@ -4407,6 +4693,8 @@ class ManagerMaintenanceBaseAPIView(ManagerFinancialCommonMixin, APIView):
             "maintenance_document_no": document_no or None,
             "details": details or None,
         }
+
+
 class ManagerMaintenanceAPIView(ManagerMaintenanceBaseAPIView):
 
     def get(self, request):
@@ -4503,6 +4791,8 @@ class ManagerMaintenanceAPIView(ManagerMaintenanceBaseAPIView):
             "message": "تعمیر و نگهداری با موفقیت ثبت شد.",
             "result": self.serialize_maintenance(obj),
         }, status=status.HTTP_201_CREATED)
+
+
 class ManagerMaintenanceDetailAPIView(ManagerMaintenanceBaseAPIView):
 
     def patch(self, request, pk):
@@ -4526,29 +4816,29 @@ class ManagerMaintenanceDetailAPIView(ManagerMaintenanceBaseAPIView):
                         "message": "تعمیر پرداخت‌شده قابل ویرایش نیست.",
                     }, status=status.HTTP_400_BAD_REQUEST)
 
+                # تبدیل QueryDict به دیکشنری معمولی
+                request_data = request.data.dict()
+
                 data = self.validate_maintenance_data({
-                    **{
-                        "expert_name": obj.expert_name,
-                        "maintenance_description": (
-                            obj.maintenance_description
-                        ),
-                        "maintenance_start_date": (
-                            obj.maintenance_start_date.isoformat()
-                        ),
-                        "maintenance_end_date": (
-                            obj.maintenance_end_date.isoformat()
-                        ),
-                        "maintenance_price": obj.maintenance_price,
-                        "maintenance_status": obj.maintenance_status,
-                        "service_company": obj.service_company,
-                        "maintenance_document_no": (
-                                obj.maintenance_document_no or ""
-                        ),
-                        "details": obj.details or "",
-                    },
-                    **request.data,
+                    "expert_name": obj.expert_name,
+                    "maintenance_description": obj.maintenance_description,
+                    "maintenance_start_date": (
+                        obj.maintenance_start_date.isoformat()
+                    ),
+                    "maintenance_end_date": (
+                        obj.maintenance_end_date.isoformat()
+                    ),
+                    "maintenance_price": obj.maintenance_price,
+                    "maintenance_status": obj.maintenance_status,
+                    "service_company": obj.service_company,
+                    "maintenance_document_no": (
+                            obj.maintenance_document_no or ""
+                    ),
+                    "details": obj.details or "",
+                    **request_data,
                 })
 
+                # بررسی اطلاعات دریافت‌کننده
                 receiver_fields = (
                     "receiver_type",
                     "unit_id",
@@ -4556,19 +4846,20 @@ class ManagerMaintenanceDetailAPIView(ManagerMaintenanceBaseAPIView):
                     "receiver_third_party_id",
                 )
 
-                if any(key in request.data for key in receiver_fields):
+                if any(key in request_data for key in receiver_fields):
                     receiver = self.validate_receiver(
-                        request, house, {
+                        request,
+                        house,
+                        {
                             "receiver_type": (
-                                    request.data.get("receiver_type")
-                                    or ""
+                                    request_data.get("receiver_type") or ""
                             ),
-                            "unit_id": request.data.get("unit_id"),
+                            "unit_id": request_data.get("unit_id"),
                             "receiver_renter_id": (
-                                request.data.get("receiver_renter_id")
+                                request_data.get("receiver_renter_id")
                             ),
                             "receiver_third_party_id": (
-                                request.data.get(
+                                request_data.get(
                                     "receiver_third_party_id"
                                 )
                             ),
@@ -4583,18 +4874,63 @@ class ManagerMaintenanceDetailAPIView(ManagerMaintenanceBaseAPIView):
                     )
                     obj.receiver_name = receiver["receiver_name"]
 
+                # دریافت فایل‌های جدید
                 new_files = self.get_uploaded_documents(request)
 
-                if obj.documents.count() + len(new_files) > 2:
+                # شناسه مدارک انتخاب‌شده برای حذف
+                deleted_ids_raw = request_data.get(
+                    "deleted_document_ids", "[]"
+                )
+
+                try:
+                    deleted_ids = json.loads(deleted_ids_raw)
+
+                    if not isinstance(deleted_ids, list):
+                        raise ValueError()
+
+                    deleted_ids = list(set(int(x) for x in deleted_ids))
+
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    raise ValueError(
+                        "شناسه مدارک برای حذف معتبر نیست."
+                    )
+
+                # بررسی تعلق مدارک به همین تعمیر
+                documents_to_delete = obj.documents.filter(
+                    id__in=deleted_ids
+                )
+
+                if documents_to_delete.count() != len(deleted_ids):
+                    raise ValueError(
+                        "یکی از مدارک انتخاب‌شده یافت نشد."
+                    )
+
+                # حداکثر دو مدرک پس از حذف و افزودن
+                remaining_count = (
+                        obj.documents.count()
+                        - documents_to_delete.count()
+                        + len(new_files)
+                )
+
+                if remaining_count > 2:
                     raise ValueError(
                         "هر تعمیر حداکثر دو مدرک دارد."
                     )
 
+                # به‌روزرسانی اطلاعات تعمیر
                 for field, value in data.items():
                     setattr(obj, field, value)
 
                 obj.save()
 
+                # حذف مدارک انتخاب‌شده
+                for document in documents_to_delete:
+                    if document.document:
+                        document.document.delete(save=False)
+
+                    document.delete()
+
+                # ثبت فایل‌های جدید
                 for uploaded_file in new_files:
                     MaintenanceDocument.objects.create(
                         maintenance=obj,
@@ -4643,6 +4979,8 @@ class ManagerMaintenanceDetailAPIView(ManagerMaintenanceBaseAPIView):
             "success": True,
             "message": "تعمیر و نگهداری با موفقیت حذف شد.",
         })
+
+
 class ManagerMaintenancePayAPIView(ManagerMaintenanceBaseAPIView):
 
     def post(self, request, pk):
@@ -4831,6 +5169,8 @@ class ManagerMaintenancePayAPIView(ManagerMaintenanceBaseAPIView):
             "bank_fund_id": fund.pk,
             "result": self.serialize_maintenance(obj),
         })
+
+
 class ManagerMaintenanceCancelPayAPIView(ManagerMaintenanceBaseAPIView):
 
     def post(self, request, pk):
@@ -4911,12 +5251,18 @@ class ManagerMaintenanceCancelPayAPIView(ManagerMaintenanceBaseAPIView):
             ),
             "result": self.serialize_maintenance(obj),
         })
+
+
 class ManagerMaintenanceBanksAPIView(ManagerMaintenanceBaseAPIView):
     def get(self, request):
         return self.get_manager_banks_response(request)
+
+
 class ManagerMaintenanceReceiversAPIView(ManagerMaintenanceBaseAPIView):
     def get(self, request):
         return self.get_manager_payers_response(request)
+
+
 class ManagerPropertyBaseAPIView(ManagerFinancialCommonMixin, APIView):
     permission_classes = [IsAuthenticated]
 
@@ -5236,6 +5582,8 @@ class ManagerPropertyBaseAPIView(ManagerFinancialCommonMixin, APIView):
             "details": details or None,
             "property_purchase_date": purchase_date,
         }
+
+
 class ManagerPropertyAPIView(ManagerPropertyBaseAPIView):
 
     def get(self, request):
@@ -5319,6 +5667,8 @@ class ManagerPropertyAPIView(ManagerPropertyBaseAPIView):
             "message": "اموال با موفقیت ثبت شد.",
             "result": self.serialize_property(obj),
         }, status=status.HTTP_201_CREATED)
+
+
 class ManagerPropertyDetailAPIView(ManagerPropertyBaseAPIView):
 
     def patch(self, request, pk):
@@ -5343,7 +5693,6 @@ class ManagerPropertyDetailAPIView(ManagerPropertyBaseAPIView):
                     }, status=status.HTTP_400_BAD_REQUEST)
 
                 old_data = {
-                    "receiver_name": obj.receiver_name,
                     "company_name": obj.company_name or "",
                     "document_number": obj.document_number,
                     "count": obj.count,
@@ -5359,7 +5708,10 @@ class ManagerPropertyDetailAPIView(ManagerPropertyBaseAPIView):
                     ),
                 }
 
-                request_data = self.normalize_request_data(request.data)
+                # تبدیل اطلاعات multipart به دیکشنری معمولی
+                request_data = self.normalize_request_data(
+                    request.data
+                )
 
                 merged_data = {
                     **old_data,
@@ -5368,18 +5720,71 @@ class ManagerPropertyDetailAPIView(ManagerPropertyBaseAPIView):
 
                 data = self.validate_property_data(merged_data)
 
+                # دریافت فایل‌های جدید
                 new_files = self.get_uploaded_documents(request)
 
-                if obj.documents.count() + len(new_files) > 2:
+                # دریافت شناسه مدارک انتخاب‌شده برای حذف
+                deleted_ids_raw = request_data.get(
+                    "deleted_document_ids", "[]"
+                )
+
+                try:
+                    deleted_ids = json.loads(deleted_ids_raw)
+
+                    if not isinstance(deleted_ids, list):
+                        raise ValueError()
+
+                    deleted_ids = list(
+                        set(int(x) for x in deleted_ids)
+                    )
+
+                except (TypeError, ValueError, json.JSONDecodeError):
+                    raise ValueError(
+                        "شناسه مدارک برای حذف معتبر نیست."
+                    )
+
+                # اطمینان از تعلق مدارک به همین اموال
+                documents_to_delete = obj.documents.filter(
+                    id__in=deleted_ids
+                )
+
+                if documents_to_delete.count() != len(deleted_ids):
+                    raise ValueError(
+                        "یکی از مدارک انتخاب‌شده یافت نشد."
+                    )
+
+                # محاسبه تعداد مدارک پس از حذف و افزودن
+                remaining_count = (
+                        obj.documents.count()
+                        - documents_to_delete.count()
+                        + len(new_files)
+                )
+
+                if remaining_count > 2:
                     raise ValueError(
                         "هر اموال حداکثر دو مدرک می‌تواند داشته باشد."
                     )
 
+                # به‌روزرسانی اطلاعات اموال
                 for field, value in data.items():
                     setattr(obj, field, value)
 
                 obj.save()
 
+                # حذف مدارک انتخاب‌شده
+                for document in documents_to_delete:
+                    if document.document:
+                        file_to_delete = document.document
+
+                        transaction.on_commit(
+                            lambda f=file_to_delete: f.delete(
+                                save=False
+                            )
+                        )
+
+                    document.delete()
+
+                # ثبت مدارک جدید
                 for uploaded_file in new_files:
                     PropertyDocument.objects.create(
                         property=obj,
@@ -5428,6 +5833,8 @@ class ManagerPropertyDetailAPIView(ManagerPropertyBaseAPIView):
             "success": True,
             "message": "اموال با موفقیت حذف شد.",
         })
+
+
 class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
 
     def post(self, request, pk):
@@ -5588,6 +5995,8 @@ class ManagerPropertyPayAPIView(ManagerPropertyBaseAPIView):
             "bank_fund_id": fund.pk,
             "result": self.serialize_property(obj),
         })
+
+
 class ManagerPropertyCancelPayAPIView(ManagerPropertyBaseAPIView):
 
     def post(self, request, pk):
@@ -5670,6 +6079,8 @@ class ManagerPropertyCancelPayAPIView(ManagerPropertyBaseAPIView):
             ),
             "result": self.serialize_property(obj),
         })
+
+
 class ManagerPropertyBanksAPIView(ManagerPropertyBaseAPIView):
 
     def get(self, request):

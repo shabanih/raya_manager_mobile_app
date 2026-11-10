@@ -1118,6 +1118,9 @@ class ManagerSewageChargeDetailAPIView(APIView):
                 "message": "هزینه فاضلاب پیدا نشد.",
             }, status=status.HTTP_404_NOT_FOUND)
 
+        # =========================================
+        # بررسی اقساط
+        # =========================================
         existing = SewageInstallment.objects.filter(
             sewage_manage=sewage
         )
@@ -1140,15 +1143,93 @@ class ManagerSewageChargeDetailAPIView(APIView):
                 ),
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        # =========================================
+        # دریافت فایل‌های جدید
+        # =========================================
         files = request.FILES.getlist("document")
 
         if len(files) > 2:
             return Response({
                 "success": False,
-                "message": "حداکثر دو فایل جدید مجاز است.",
+                "message": "حداکثر دو فایل مجاز است.",
             }, status=status.HTTP_400_BAD_REQUEST)
 
-        data = request.data.copy()
+        # =========================================
+        # دریافت شناسه اسناد حذف‌شونده
+        # =========================================
+        import json
+
+        deleted_document_ids = request.data.get(
+            "deleted_document_ids",
+            []
+        )
+
+        if isinstance(deleted_document_ids, str):
+            try:
+                deleted_document_ids = json.loads(
+                    deleted_document_ids
+                )
+            except (ValueError, TypeError):
+                return Response({
+                    "success": False,
+                    "message": "شناسه اسناد حذف‌شونده معتبر نیست.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        if not isinstance(deleted_document_ids, list):
+            return Response({
+                "success": False,
+                "message": "ساختار شناسه اسناد حذف‌شونده معتبر نیست.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        try:
+            deleted_document_ids = [
+                int(document_id)
+                for document_id in deleted_document_ids
+            ]
+        except (ValueError, TypeError):
+            return Response({
+                "success": False,
+                "message": "شناسه اسناد معتبر نیست.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # =========================================
+        # اسناد متعلق به همین هزینه
+        # =========================================
+        documents = SewageDocument.objects.filter(
+            sewage=sewage
+        )
+
+        if deleted_document_ids:
+            valid_ids = set(
+                documents.filter(
+                    id__in=deleted_document_ids
+                ).values_list("id", flat=True)
+            )
+
+            if valid_ids != set(deleted_document_ids):
+                return Response({
+                    "success": False,
+                    "message": "بعضی از اسناد انتخاب‌شده متعلق به این هزینه نیستند.",
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        remaining_document_count = (
+            documents.exclude(
+                id__in=deleted_document_ids
+            ).count()
+        )
+
+        if remaining_document_count + len(files) > 2:
+            return Response({
+                "success": False,
+                "message": "حداکثر دو سند برای هر هزینه فاضلاب مجاز است.",
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # =========================================
+        # اعتبارسنجی تاریخ
+        # =========================================
+        # اطلاعات فرم را بدون کپی کردن فایل‌ها دریافت می‌کنیم
+        data = request.data.dict()
+
         raw_date = data.get("first_due_date")
 
         if raw_date:
@@ -1172,6 +1253,9 @@ class ManagerSewageChargeDetailAPIView(APIView):
         if data.get("installment_count") in (None, ""):
             data["installment_count"] = 0
 
+        # =========================================
+        # اعتبارسنجی فرم
+        # =========================================
         form = SewageForm(
             data=data,
             files=request.FILES,
@@ -1221,26 +1305,48 @@ class ManagerSewageChargeDetailAPIView(APIView):
                 ),
             }, status=status.HTTP_400_BAD_REQUEST)
 
+        # =========================================
+        # ذخیره تغییرات
+        # =========================================
         try:
             with transaction.atomic():
 
+                # حذف اسناد انتخاب‌شده
+                deleted_documents = list(
+                    documents.filter(
+                        id__in=deleted_document_ids
+                    )
+                )
+
+                for document in deleted_documents:
+                    if document.document:
+                        document.document.delete(save=False)
+
+                    document.delete()
+
+                # حذف اقساط قبلیِ پرداخت‌نشده و اعلان‌نشده
                 SewageInstallment.objects.filter(
                     sewage_manage=sewage,
                     send_notification=False,
                     is_paid=False,
                 ).delete()
 
+                # ذخیره اطلاعات اصلی
                 sewage = form.save(commit=False)
                 sewage.prepayment = prepayment
                 sewage.installment_count = installment_count
                 sewage.save()
 
+                # ذخیره فایل‌های جدید
                 for uploaded_file in files:
+                    uploaded_file.seek(0)
+
                     SewageDocument.objects.create(
                         sewage=sewage,
                         document=uploaded_file,
                     )
 
+                # محاسبه مجدد اقساط
                 calculation = sewage_prepare_installments(
                     sewage,
                     request.user,
